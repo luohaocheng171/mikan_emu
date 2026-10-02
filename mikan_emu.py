@@ -385,7 +385,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "official_site": "https://www.uoyabause.org/",
         "archive": "zip",
         "match": {"exe": ["YabaSanshiro.exe", "yabasanshiro.exe"], "folder": ["YabaSanshiro", "yabasanshiro"], "keywords": ["yaba"]},
-        "launch_template": "{exe} \"{rom}\"",
+        "launch_template": "{exe} -a -i \"{rom}\"",
         "official": false,
         "note": "闭源/移动端，需手动下载"
       }
@@ -786,7 +786,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["Tsugaru.exe", "tsugaru.exe"], "folder": ["Tsugaru", "tsugaru"], "keywords": ["tsugaru"]},
         "bios_required": true,
         "bios_dir": "rom",
-        "launch_template": "{exe} \"{rom}\"",
+        "launch_template": "{exe} \"{bios_rom_dir}\" -CD \"{rom}\" -TOWNSTYPE MARTY",
         "official": true
       }
     }
@@ -1225,7 +1225,6 @@ def _ensure_all_json_files():
 
 
 _ensure_all_json_files()
-
 
 # ============================================================
 # 4. 多语言（外置 JSON，自动生成）
@@ -2837,7 +2836,6 @@ def get_all_platform_rom_extensions(engines_json: dict) -> dict:
             result.setdefault(ext.lower(), []).append(platform)
     return result
 
-
 # ============================================================
 # 7. 数据结构
 # ============================================================
@@ -3863,7 +3861,6 @@ class UpdateCheckWorker(QThread):
                 logger.debug(f"检查 {e.engine} 更新失败: {ex}")
         self.done.emit()
 
-
 # ============================================================
 # 14. 启动 / 存档 / BIOS
 # ============================================================
@@ -3885,7 +3882,23 @@ def resolve_launch_args(engine: EmulatorConfig, game: GameEntry,
                         rom_path: str = "") -> list:
     actual_rom = rom_path or game.path
     tpl = engine.launch_template or "{exe} \"{rom}\""
-    extra_kwargs = {"exe": engine.engine_path, "rom": actual_rom}
+
+    # 计算 BIOS ROM 目录（用于需要 BIOS 目录做位置参数的引擎，如 Tsugaru）
+    bios_rom_dir = ""
+    if engine.bios_dir:
+        candidate = Path(engine.engine_dir) / engine.bios_dir
+        if candidate.exists():
+            bios_rom_dir = str(candidate)
+        else:
+            bios_rom_dir = str(Path(engine.engine_dir))
+    else:
+        bios_rom_dir = str(Path(engine.engine_dir))
+
+    extra_kwargs = {
+        "exe": engine.engine_path,
+        "rom": actual_rom,
+        "bios_rom_dir": bios_rom_dir,
+    }
 
     if engine.url_type == "libretro" or "{core}" in tpl:
         ra = find_retroarch()
@@ -3918,7 +3931,6 @@ def resolve_launch_args(engine: EmulatorConfig, game: GameEntry,
     try:
         import shlex
         tokens = shlex.split(cmd_str, posix=False)
-        # posix=False 会保留引号，手动剥掉
         args = []
         for t in tokens:
             if len(t) >= 2 and t[0] == '"' and t[-1] == '"':
@@ -4046,7 +4058,7 @@ def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
         if ra:
             exe_dir = str(Path(ra.engine_path).parent)
 
-    # ★ 关键改动：先 chdir 到引擎目录，再启动
+    # ★ 关键：先 chdir 到引擎目录，再启动
     # 部分老模拟器（snes9x 1.63 等）会读父进程 cwd 判断启动模式
     old_cwd = os.getcwd()
     try:
@@ -4058,7 +4070,7 @@ def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
     logger.info(f"[launch] cwd={os.getcwd()!r}")
 
     try:
-        # 去掉 cwd 参数（已 chdir），带上环境变量清理
+        # 清理 PyInstaller 注入的环境变量，避免影响子进程
         env = os.environ.copy()
         for k in ("_MEIPASS", "_MEIPASS2", "_MEIPASS_ORIG"):
             env.pop(k, None)
@@ -5581,7 +5593,6 @@ def relaunch_as_admin():
         return True
     except Exception:
         return False
-
 
 # ============================================================
 # 19. 数据模型
@@ -9123,7 +9134,6 @@ class ResourcesPage(QWidget):
                                         tr("resources_saved"))
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"), str(e))
-
 
 # ============================================================
 # 23.5 局域网页面
