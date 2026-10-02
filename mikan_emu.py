@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-mikan_emu v1.1.0
+mikan_emu v1.2.0
 模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器
 + 性能监控 + 局域网聊天/文件/共享 + 局域网传输（内嵌 LocalSend Web）
 
@@ -9,18 +9,19 @@ Python 3.11+ / PySide6 / requests / loguru / py7zr / rarfile / psutil
 
 【法律】不提供 BIOS、不提供 ROM、不二次分发模拟器
 
+v1.2.0 变更：
+- ★ 新增深色模式（跟随系统 / 亮色 / 深色 + 自定义主题色）
+- ★ 新增 ROM 补丁工具（IPS / UPS），独立工具 + 游戏右键应用
+- ★ 新增配置包导出/导入（.mikanpack），跨机器迁移
+- ★ 新增平台：Wii / GameCube（合并）/ Wii U / PS3 / PS Vita
+- ★ 新增统一配置中心：右键"更多配置"整合 启动/补丁/封面/BIOS/金手指/存档/信息
+- ★ load_engines_json 全量补齐缺失平台
+- ★ 保留 v1.1.0 全部功能（含 LocalSend Web 内嵌页）
+
 v1.1.0 变更：
 - ★ 重写「局域网」页：独立版 mikan_lan v1.2.x 全功能整合
-    · 聊天 Tab + 共享文件夹 Tab
-    · 右键「发送文件给 TA」/「发文件给所有人」
-    · 拖拽文件直接发送 / 广播
-    · 表情面板
-    · 共享文件夹（上传 + 浏览 + 下载）
-    · 消息 broadcast 标记，私聊/全体分离
-    · 接收方弹窗提示
 - ★ 协议统一为 mikan_lan v1.2.x（magic = mikan_lan）
 - ★ 旧版 mikan_emu v1.0.0 及独立版 mikan_lan 与本版不互通
-- ★ 保留 v1.0.0 全部功能（含 LocalSend Web 内嵌页）
 """
 
 # ============================================================
@@ -185,7 +186,7 @@ try:
         QDialog, QDialogButtonBox, QMenu, QToolButton, QTabWidget,
         QScrollArea, QInputDialog, QAbstractItemView, QSpinBox,
         QListView, QRadioButton, QButtonGroup, QSystemTrayIcon,
-        QTableWidget, QTableWidgetItem, QSizePolicy
+        QTableWidget, QTableWidgetItem, QSizePolicy, QColorDialog
     )
     HAS_QT = True
 except ImportError:
@@ -209,7 +210,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # 3. 路径 & 常量
 # ============================================================
 APP_NAME = "mikan_emu"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).resolve().parent
@@ -1000,6 +1001,78 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+  "wii": {
+    "platform_name": "Wii / GameCube",
+    "rom_extensions": [".iso", ".gcm", ".wbfs", ".wad", ".dol", ".elf", ".rvz"],
+    "engines": {
+      "dolphin": {
+        "version": "2506",
+        "url": "https://dl.dolphin-emu.org/releases/2506/dolphin-2506-x64.7z",
+        "url_type": "direct",
+        "github_repo": "dolphin-emu/dolphin",
+        "archive": "7z",
+        "match": {"exe": ["Dolphin.exe", "dolphin.exe"], "folder": ["Dolphin", "dolphin"], "keywords": ["dolphin"]},
+        "launch_template": "{exe} -b -e \"{rom}\"",
+        "official": true,
+        "note": "Wii / GameCube 通用。需要从自己主机导出游戏。"
+      }
+    }
+  },
+  "wiiu": {
+    "platform_name": "Wii U",
+    "rom_extensions": [".wud", ".wux", ".rpx", ".wua"],
+    "engines": {
+      "cemu": {
+        "version": "2.6",
+        "url": "https://github.com/cemu-project/Cemu/releases/download/v2.6/cemu-2.6-windows-x64.zip",
+        "url_type": "direct",
+        "github_repo": "cemu-project/Cemu",
+        "archive": "zip",
+        "match": {"exe": ["Cemu.exe", "cemu.exe"], "folder": ["Cemu", "cemu"], "keywords": ["cemu"]},
+        "launch_template": "{exe} -g \"{rom}\"",
+        "official": true,
+        "note": "Wii U 模拟器。需要 keys.txt 和在线更新数据。"
+      }
+    }
+  },
+  "ps3": {
+    "platform_name": "PS3 / PlayStation 3",
+    "rom_extensions": [".pkg", ".iso", ".bin", ".elf", ".self", ".sprx"],
+    "engines": {
+      "rpcs3": {
+        "version": "0.0.38",
+        "url": "https://github.com/RPCS3/rpcs3-binaries-win/releases/download/build-9c81f7be/rpcs3-v0.0.38-12345-9c81f7be_win64.zip",
+        "url_type": "direct",
+        "github_repo": "RPCS3/rpcs3-binaries-win",
+        "archive": "zip",
+        "match": {"exe": ["rpcs3.exe", "RPCS3.exe"], "folder": ["rpcs3", "RPCS3"], "keywords": ["rpcs3"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "bios_required": true,
+        "bios_dir": "dev_flash",
+        "official": true,
+        "note": "需要 PS3 固件（从自己主机提取）。"
+      }
+    }
+  },
+  "psvita": {
+    "platform_name": "PS Vita",
+    "rom_extensions": [".vpk", ".mai", ".bin", ".elf"],
+    "engines": {
+      "vita3k": {
+        "version": "0.2.0",
+        "url": "https://github.com/Vita3K/Vita3K/releases/download/0.2.0/Vita3K-0.2.0-Windows-x64.zip",
+        "url_type": "direct",
+        "github_repo": "Vita3K/Vita3K",
+        "archive": "zip",
+        "match": {"exe": ["Vita3K.exe", "vita3k.exe"], "folder": ["Vita3K", "vita3k"], "keywords": ["vita3k"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "bios_required": true,
+        "bios_dir": "data",
+        "official": true,
+        "note": "⚠ 实验性。需要固件和 keys。"
+      }
+    }
+  },
   "unknown": {
     "platform_name": "未知渠道",
     "rom_extensions": [],
@@ -1035,6 +1108,19 @@ DEFAULT_SETTINGS_JSON = {
     "export_include_cover": True,
     "check_update_on_start": True,
     "perf_monitor_on_launch": True,
+    # 外观
+    "theme": "auto",
+    "accent_color": "",
+    # 补丁
+    "patch_dir": "",
+    # 启动模板
+    "launch_profiles": {
+        "默认": "",
+        "全屏": "--fullscreen",
+        "窗口化": "--windowed",
+        "静音": "--mute",
+    },
+    "default_profile": "默认",
     # 局域网
     "lan_enabled": False,
     "lan_nickname": "",
@@ -1139,6 +1225,8 @@ def _ensure_all_json_files():
 
 
 _ensure_all_json_files()
+
+
 # ============================================================
 # 4. 多语言（外置 JSON，自动生成）
 # ============================================================
@@ -1166,6 +1254,8 @@ DEFAULT_LANG_PACKS = {
         "library_no_cover": "无封面", "library_launch_btn": "▶ 启动",
         "library_select_hint": "请先选中一个游戏",
         "library_view_grid": "网格视图",
+        "library_random_btn": "随机",
+        "library_view_timeline": "时间轴视图",
         "engines_title": "已安装的模拟器",
         "engines_empty": "还没有模拟器。点「导入模拟器」或「下载模拟器」。",
         "engines_col_platform": "平台", "engines_col_engine": "内核",
@@ -1177,6 +1267,16 @@ DEFAULT_LANG_PACKS = {
         "engines_update_latest": "已是最新", "engines_update_checking": "检查中...",
         "engines_update_failed": "检查失败", "engines_update_btn": "更新",
         "engines_update_ignore": "跳过此版本", "engines_update_manual": "—",
+        "engines_delete_btn": "🗑 删除此引擎",
+        "engines_delete_ok": "已删除引擎 {engine}",
+        "engines_delete_cascade": "同时删除磁盘上的引擎目录",
+        "engines_delete_confirm": "删除引擎 {engine}？",
+        "engines_open_dir": "打开所在目录",
+        "engines_update_all": "⬆ 全部更新",
+        "engines_update_all_none": "没有可更新的引擎",
+        "engines_update_all_confirm": "将更新 {n} 个引擎：",
+        "engines_batch_title": "批量更新",
+        "engines_batch_done": "完成：成功 {ok} / 失败 {fail}",
         "bios_title": "BIOS / 固件",
         "bios_hint": "把 BIOS 文件放到 bios/ 目录，点刷新扫描。",
         "bios_empty": "bios/ 目录为空。",
@@ -1195,6 +1295,20 @@ DEFAULT_LANG_PACKS = {
         "stats_badge_50h": "单游戏 50 小时", "stats_badge_7days": "连续 7 天",
         "stats_badge_allplat": "全平台制霸",
         "stats_badge_locked": "未解锁", "stats_badge_unlocked": "已解锁",
+        "stats_badge_lib100": "收藏 100",
+        "stats_badge_lib500": "收藏 500",
+        "stats_badge_100h": "累计 100 小时",
+        "stats_badge_1000h": "累计 1000 小时",
+        "stats_badge_day8": "单日 8 小时",
+        "stats_badge_week5plat": "一周 5 平台",
+        "stats_badge_launch50": "启动 50 次",
+        "stats_badge_launch500": "启动 500 次",
+        "stats_badge_30days": "连续 30 天",
+        "stats_badge_lan": "首次联机",
+        "stats_badge_fav20": "收藏家（20 个）",
+        "stats_badge_clear10": "通关 10 个",
+        "stats_badge_wii": "Wii 启动",
+        "stats_badge_ps3": "PS3 启动",
         "resources_title": "资源导航",
         "resources_hint": "以下为外部网站跳转，本项目不提供 ROM 下载。请自行判断使用。",
         "resources_safe": "✅ 安全跳转",
@@ -1205,6 +1319,11 @@ DEFAULT_LANG_PACKS = {
         "resources_saved": "资源列表已保存",
         "settings_title": "设置", "settings_lang": "语言",
         "settings_lang_hint": "切换后需重启生效",
+        "settings_theme": "外观",
+        "settings_theme_auto": "跟随系统",
+        "settings_theme_light": "亮色",
+        "settings_theme_dark": "深色",
+        "settings_accent": "主题色",
         "settings_workspace": "工作区",
         "settings_workspace_desc": "ROM / BIOS / 存档的根目录",
         "settings_open_data": "打开数据目录", "settings_open_log": "打开日志目录",
@@ -1281,13 +1400,31 @@ DEFAULT_LANG_PACKS = {
         "import_game_set_all": "全选设为",
         "import_game_custom": "未知/自定义",
         "import_game_custom_prompt": "输入平台名：",
-        "ctx_launch": "▶ 启动游戏", "ctx_config": "⚙️ 配置启动方式…",
+        "import_dup_title": "检测到重复游戏",
+        "import_dup_hint": "发现 {n} 个重复游戏（按名称 + 大小判断）。请选择处理方式：",
+        "import_dup_col_new": "新文件",
+        "import_dup_col_old": "已存在",
+        "import_dup_col_size": "大小",
+        "import_dup_skip": "跳过重复（保留现有库）",
+        "import_dup_keep": "保留两份（新的重命名）",
+        "import_dup_overwrite": "用新文件覆盖旧条目",
+        "ctx_launch": "▶ 启动游戏", "ctx_config": "⚙️ 更多配置…",
         "ctx_open_folder": "打开所在文件夹", "ctx_remove": "从库中移除",
         "ctx_remove_confirm": "从库中移除「{name}」？（不会删除文件）",
         "ctx_fav_add": "加入收藏", "ctx_fav_remove": "取消收藏",
         "ctx_set_cover": "设置封面…", "ctx_open_save": "打开存档目录",
         "ctx_cheat": "管理金手指", "ctx_bios": "选择 BIOS…",
         "ctx_controls": "操作说明…",
+        "ctx_more_config": "⚙️ 更多配置…",
+        "game_config_title": "更多配置",
+        "game_config_tab_launch": "🚀 启动",
+        "game_config_tab_patch": "🧩 补丁",
+        "game_config_tab_cover": "🖼 封面",
+        "game_config_tab_bios": "💾 BIOS",
+        "game_config_tab_cheat": "🎮 金手指",
+        "game_config_tab_save": "📁 存档",
+        "game_config_tab_info": "ℹ️ 信息",
+        "game_config_close": "关闭",
         "controls_title": "操作说明",
         "controls_engine": "模拟器",
         "controls_source": "来源",
@@ -1301,6 +1438,9 @@ DEFAULT_LANG_PACKS = {
         "config_platform_none": "不覆盖",
         "config_extra_args": "附加启动参数（可选）",
         "config_extra_args_ph": "例如: --fullscreen",
+        "config_profile_group": "启动模板",
+        "config_profile_hint": "模板在「设置 → 启动模板」里编辑",
+        "config_profile_none": "（不使用模板）",
         "config_save": "保存", "config_cancel": "取消", "config_saved": "已保存",
         "config_no_engine": "没有可用的模拟器，请先下载/导入",
         "bios_select_title": "选择 BIOS",
@@ -1308,7 +1448,7 @@ DEFAULT_LANG_PACKS = {
         "bios_select_none": "不指定（用模拟器默认）",
         "bios_select_no_files": "bios/ 目录里没有 BIOS 文件。",
         "bios_select_ok": "已设置 BIOS: {name}",
-        "launch_no_engine": "没有可用于 {platform} 的模拟器。请先导入模拟器，或用「⚙️ 配置启动方式」手动指定。",
+        "launch_no_engine": "没有可用于 {platform} 的模拟器。请先导入模拟器，或用「⚙️ 更多配置」手动指定。",
         "launch_select_engine": "选择用于启动的模拟器:",
         "launch_failed": "启动失败: {err}", "launch_ok": "已启动: {name}",
         "launch_cue_hint": "已自动改用 .cue",
@@ -1316,6 +1456,8 @@ DEFAULT_LANG_PACKS = {
         "launch_bios_failed": "复制 BIOS 失败: {err}",
         "launch_core_missing": "缺少 RetroArch 核心: {core}。请到「设置 → RetroArch 核心目录」配置。",
         "launch_retroarch_missing": "未安装 RetroArch。请先下载/导入 RetroArch。",
+        "launch_diag_title": "启动失败诊断",
+        "launch_diag_header": "启动 {name} 失败",
         "rom_import_no_rom": "没识别出 ROM 文件",
         "rom_import_done": "导入 {n} 个游戏",
         "rom_import_skipped": "跳过 {n} 个（平台未知）",
@@ -1340,6 +1482,10 @@ DEFAULT_LANG_PACKS = {
         "cheat_title": "金手指", "cheat_open_dir": "打开金手指目录",
         "cheat_no_dir": "未配置 {engine} 的金手指目录",
         "cheat_import": "导入金手指文件", "cheat_imported": "已导入: {name}",
+        "cheat_scan": "🔄 重新扫描",
+        "cheat_open_engine_dir": "📂 打开金手指目录",
+        "cheat_none_engine": "没有可用引擎",
+        "cheat_not_configured": "未配置 {engine} 的金手指目录。\n去「设置 → 金手指目录配置」里设置。",
         "tray_show": "显示主窗口", "tray_recent": "最近游戏",
         "tray_quit": "退出", "tray_minimized": "已最小化到托盘",
         "perf_win_title": "性能监控",
@@ -1352,6 +1498,60 @@ DEFAULT_LANG_PACKS = {
         "save_backup_failed": "备份失败: {err}",
         "save_restore_confirm": "还原备份 {name}？当前存档会先自动备份。",
         "save_restore_done": "已还原: {name}",
+        # ---- 补丁工具 ----
+        "patch_title": "ROM 补丁工具",
+        "patch_hint": "支持 IPS / UPS 补丁。\n把补丁文件放在 ROM 同目录（或下方「补丁目录」）会自动列出。\n应用后生成新文件，原 ROM 自动备份为 .bak。",
+        "patch_state_clean": "当前是原始 ROM（未打补丁）。",
+        "patch_state_patched": "此游戏是打过补丁的版本。原文件: {src}",
+        "patch_state_history": "补丁历史:",
+        "patch_scan": "🔄 重新扫描",
+        "patch_browse": "📂 浏览补丁文件…",
+        "patch_apply": "✅ 应用选中补丁",
+        "patch_dir": "补丁目录（可选）",
+        "patch_dir_ph": "额外的补丁搜索目录",
+        "patch_none": "没发现补丁。点「浏览补丁文件…」手动选择。",
+        "patch_overwrite": "覆盖原 ROM（自动备份为 .bak）",
+        "patch_new_file": "生成新文件",
+        "patch_output_name": "输出文件名:",
+        "patch_backup": "备份原 ROM（.bak）",
+        "patch_done_new": "已生成 {name}\n大小: {old} → {new}",
+        "patch_done_overwrite": "已应用补丁并覆盖原文件。\n大小: {old} → {new}",
+        "patch_added_to_lib": "已加入游戏库。是否关闭当前对话框？",
+        "patch_rom_missing": "ROM 不存在: {path}",
+        "patch_file_missing": "补丁不存在: {path}",
+        "patch_bad_format": "不支持的补丁格式: {ext}（只支持 .ips / .ups）",
+        "patch_ips_invalid": "不是有效的 IPS 文件",
+        "patch_ups_invalid": "不是有效的 UPS 文件",
+        "patch_ips_truncated": "IPS 文件在记录中途截断",
+        "patch_ups_truncated": "UPS varint 截断",
+        "patch_tool_title": "ROM 补丁工具",
+        "patch_tool_rom": "ROM 文件",
+        "patch_tool_patch": "补丁文件",
+        "patch_tool_output": "输出文件",
+        "patch_tool_output_ph": "留空 = 自动命名 (xxx (patched).xxx)",
+        "patch_tool_browse": "浏览…",
+        "patch_tool_apply": "应用补丁",
+        # ---- 配置包 ----
+        "pack_title": "配置包",
+        "pack_hint": "把整个配置打包成一个文件，方便迁移 / 备份。",
+        "pack_export": "📦 导出完整配置包",
+        "pack_import": "📥 导入配置包",
+        "pack_dialog_export": "导出配置包",
+        "pack_dialog_import": "导入配置包",
+        "pack_export_hint": "导出为一个 .mikanpack 文件（ZIP 格式），包含：\n  · 所有配置（设置、镜像、资源、存档路径、金手指路径）\n  · 平台定义 + 已安装引擎清单\n  · 游戏库\n  · 可选：封面、存档备份、统计数据",
+        "pack_import_hint": "从 .mikanpack 导入配置。\n  · 默认合并模式：不删除现有条目\n  · 已安装引擎的本地路径不会覆盖（需重新下载）\n  · 导入前会自动备份当前配置",
+        "pack_path_export_ph": "保存为 .mikanpack…",
+        "pack_path_import_ph": "选择 .mikanpack 文件…",
+        "pack_browse": "浏览…",
+        "pack_incl_covers": "包含封面图片",
+        "pack_incl_saves": "包含存档备份",
+        "pack_incl_stats": "包含统计数据",
+        "pack_merge": "合并模式（推荐）",
+        "pack_do_export": "导出",
+        "pack_do_import": "导入",
+        "pack_exported": "配置包已保存:\n{path}\n\n大小: {size}",
+        "pack_imported": "配置: {config}\n引擎: {engines}\n游戏: {roms}\n封面: {covers}\n存档: {saves}\n\n部分设置需重启程序才完全生效。",
+        "pack_file_missing": "文件不存在: {path}",
         # ---- 局域网聊天 ----
         "lan_title": "局域网",
         "lan_tab_chat": "💬 聊天",
@@ -1399,7 +1599,6 @@ DEFAULT_LANG_PACKS = {
         "lan_wait_accept": "等待对方接受…",
         "lan_no_ack": "对方未确认收到文件",
         "lan_file_io_fail": "对方无法写入文件（磁盘/权限）",
-        # 共享
         "lan_share_title": "共享文件夹",
         "lan_share_hint": "把文件放进「我共享的」，所有在线用户都能看到并下载。",
         "lan_share_my": "我共享的",
@@ -1420,28 +1619,23 @@ DEFAULT_LANG_PACKS = {
         "lan_share_no_port": "已发现用户，但还没拿到它们的端口。\n请等 5 秒后再试。",
         "lan_share_all_fail": "查询了 {n} 个在线用户，但都没响应。\n可能是对方关闭了共享，或被防火墙拦截。",
         "lan_share_my_dir": "本地共享区",
-        # 右键菜单
         "lan_ctx_open": "打开对话",
         "lan_ctx_ping": "发 ping",
         "lan_ctx_send_file": "📎 发送文件给 TA",
         "lan_ctx_send_file_all": "📎 发文件给所有人",
         "lan_ctx_clear": "清空记录",
-        # 表情
         "lan_emoji_tip": "表情",
-        # 群聊
         "lan_broadcast_title": "📢 全体（发消息给所有在线用户）",
         "lan_broadcast_confirm": "将 {name} ({size}) 广播给 {n} 个在线用户？",
         "lan_broadcast_done": "广播完成: {name}  成功 {ok}/{total}",
         "lan_broadcast_one_ok": "✅ {peer} 已收到",
         "lan_broadcast_one_fail": "❌ {peer}: {reason}",
         "lan_broadcast_no_peers": "当前没有其他在线用户。",
-        # 拖拽
         "lan_drop_title": "拖拽确认",
         "lan_drop_to_peer": "发送 {n} 个文件给 {peer}？",
         "lan_drop_to_broadcast": "把 {n} 个文件广播给所有在线用户？",
         "lan_drop_no_target": "请先在左侧选中一个用户或「全体」。",
         "lan_drop_ask_share": "拖入了 {n} 个文件。\n群聊不直接发文件，是否全部加入共享文件夹？",
-        # ---- 局域网传输（LocalSend Web）----
         "webtransfer_title": "局域网传输",
         "webtransfer_hint": "内嵌 LocalSend Web，打开后会自动发现同网络的设备，可直接选文件互传。\n💡 内嵌页【上传】正常。【下载】请点右上角「用外部浏览器打开」，由浏览器保存文件。",
         "webtransfer_open_external": "用外部浏览器打开",
@@ -1484,6 +1678,8 @@ DEFAULT_LANG_PACKS = {
         "library_no_cover": "No cover", "library_launch_btn": "▶ Launch",
         "library_select_hint": "Please select a game",
         "library_view_grid": "Grid View",
+        "library_random_btn": "Random",
+        "library_view_timeline": "Timeline View",
         "engines_title": "Installed Emulators",
         "engines_empty": "No emulators yet.",
         "engines_col_platform": "Platform", "engines_col_engine": "Engine",
@@ -1498,6 +1694,16 @@ DEFAULT_LANG_PACKS = {
         "engines_update_btn": "Update",
         "engines_update_ignore": "Skip this version",
         "engines_update_manual": "—",
+        "engines_delete_btn": "🗑 Delete this engine",
+        "engines_delete_ok": "Deleted engine {engine}",
+        "engines_delete_cascade": "Also delete engine folder on disk",
+        "engines_delete_confirm": "Delete engine {engine}?",
+        "engines_open_dir": "Open folder",
+        "engines_update_all": "⬆ Update All",
+        "engines_update_all_none": "No engines to update",
+        "engines_update_all_confirm": "Update {n} engines:",
+        "engines_batch_title": "Batch Update",
+        "engines_batch_done": "Done: OK {ok} / Failed {fail}",
         "bios_title": "BIOS / Firmware",
         "bios_hint": "Put BIOS files into bios/ folder.",
         "bios_empty": "bios/ folder is empty.",
@@ -1516,6 +1722,20 @@ DEFAULT_LANG_PACKS = {
         "stats_badge_50h": "50h Single Game", "stats_badge_7days": "7-Day Streak",
         "stats_badge_allplat": "All Platforms",
         "stats_badge_locked": "Locked", "stats_badge_unlocked": "Unlocked",
+        "stats_badge_lib100": "Library 100",
+        "stats_badge_lib500": "Library 500",
+        "stats_badge_100h": "100h Total",
+        "stats_badge_1000h": "1000h Total",
+        "stats_badge_day8": "8h in One Day",
+        "stats_badge_week5plat": "5 Platforms in a Week",
+        "stats_badge_launch50": "50 Launches",
+        "stats_badge_launch500": "500 Launches",
+        "stats_badge_30days": "30-Day Streak",
+        "stats_badge_lan": "First LAN",
+        "stats_badge_fav20": "Collector (20 fav)",
+        "stats_badge_clear10": "Beat 10 Games",
+        "stats_badge_wii": "Wii Launch",
+        "stats_badge_ps3": "PS3 Launch",
         "resources_title": "Resources",
         "resources_hint": "External site links. This project does NOT provide ROM downloads.",
         "resources_safe": "✅ Safe Links",
@@ -1526,6 +1746,11 @@ DEFAULT_LANG_PACKS = {
         "resources_saved": "Resources saved",
         "settings_title": "Settings", "settings_lang": "Language",
         "settings_lang_hint": "Restart required",
+        "settings_theme": "Appearance",
+        "settings_theme_auto": "System",
+        "settings_theme_light": "Light",
+        "settings_theme_dark": "Dark",
+        "settings_accent": "Accent",
         "settings_workspace": "Workspace",
         "settings_workspace_desc": "Root for ROM / BIOS / Saves",
         "settings_open_data": "Open Data Dir", "settings_open_log": "Open Log Dir",
@@ -1602,7 +1827,15 @@ DEFAULT_LANG_PACKS = {
         "import_game_set_all": "Set all to",
         "import_game_custom": "Unknown/Custom",
         "import_game_custom_prompt": "Enter platform name:",
-        "ctx_launch": "▶ Launch", "ctx_config": "⚙️ Configure Launch…",
+        "import_dup_title": "Duplicate Games Detected",
+        "import_dup_hint": "Found {n} duplicates (by name + size). Choose action:",
+        "import_dup_col_new": "New File",
+        "import_dup_col_old": "Existing",
+        "import_dup_col_size": "Size",
+        "import_dup_skip": "Skip duplicates (keep existing)",
+        "import_dup_keep": "Keep both (rename new)",
+        "import_dup_overwrite": "Overwrite existing entries",
+        "ctx_launch": "▶ Launch", "ctx_config": "⚙️ More Config…",
         "ctx_open_folder": "Open Folder", "ctx_remove": "Remove from Library",
         "ctx_remove_confirm": "Remove '{name}'?",
         "ctx_fav_add": "Add to Favorites",
@@ -1610,6 +1843,16 @@ DEFAULT_LANG_PACKS = {
         "ctx_set_cover": "Set Cover…", "ctx_open_save": "Open Save Dir",
         "ctx_cheat": "Manage Cheats", "ctx_bios": "Select BIOS…",
         "ctx_controls": "Controls…",
+        "ctx_more_config": "⚙️ More Config…",
+        "game_config_title": "More Config",
+        "game_config_tab_launch": "🚀 Launch",
+        "game_config_tab_patch": "🧩 Patch",
+        "game_config_tab_cover": "🖼 Cover",
+        "game_config_tab_bios": "💾 BIOS",
+        "game_config_tab_cheat": "🎮 Cheats",
+        "game_config_tab_save": "📁 Saves",
+        "game_config_tab_info": "ℹ️ Info",
+        "game_config_close": "Close",
         "controls_title": "Controls",
         "controls_engine": "Emulator",
         "controls_source": "Source",
@@ -1625,6 +1868,9 @@ DEFAULT_LANG_PACKS = {
         "config_platform_none": "No override",
         "config_extra_args": "Extra args",
         "config_extra_args_ph": "e.g. --fullscreen",
+        "config_profile_group": "Launch Profile",
+        "config_profile_hint": "Edit profiles in Settings → Launch Profiles",
+        "config_profile_none": "(no profile)",
         "config_save": "Save", "config_cancel": "Cancel",
         "config_saved": "Saved", "config_no_engine": "No emulator available.",
         "bios_select_title": "Select BIOS",
@@ -1641,6 +1887,8 @@ DEFAULT_LANG_PACKS = {
         "launch_bios_failed": "BIOS copy failed: {err}",
         "launch_core_missing": "Missing RetroArch core: {core}.",
         "launch_retroarch_missing": "RetroArch not installed.",
+        "launch_diag_title": "Launch Failure Diagnosis",
+        "launch_diag_header": "Failed to launch {name}",
         "rom_import_no_rom": "No ROM recognized",
         "rom_import_done": "Imported {n}",
         "rom_import_skipped": "Skipped {n}",
@@ -1668,6 +1916,10 @@ DEFAULT_LANG_PACKS = {
         "cheat_title": "Cheats", "cheat_open_dir": "Open Cheat Dir",
         "cheat_no_dir": "No cheat dir configured for {engine}",
         "cheat_import": "Import Cheat File", "cheat_imported": "Imported: {name}",
+        "cheat_scan": "🔄 Rescan",
+        "cheat_open_engine_dir": "📂 Open Cheat Dir",
+        "cheat_none_engine": "No engine available",
+        "cheat_not_configured": "No cheat dir configured for {engine}.\nGo to Settings → Cheat Paths.",
         "tray_show": "Show Window", "tray_recent": "Recent Games",
         "tray_quit": "Quit", "tray_minimized": "Minimized to tray",
         "perf_win_title": "Performance",
@@ -1680,6 +1932,58 @@ DEFAULT_LANG_PACKS = {
         "save_backup_failed": "Backup failed: {err}",
         "save_restore_confirm": "Restore backup {name}?",
         "save_restore_done": "Restored: {name}",
+        "patch_title": "ROM Patch Tool",
+        "patch_hint": "Supports IPS / UPS. Auto-scans ROM folder for patches.\nOriginals are backed up as .bak.",
+        "patch_state_clean": "Original ROM (not patched).",
+        "patch_state_patched": "This is a patched version. Original: {src}",
+        "patch_state_history": "Patch history:",
+        "patch_scan": "🔄 Rescan",
+        "patch_browse": "📂 Browse patch file…",
+        "patch_apply": "✅ Apply Selected Patch",
+        "patch_dir": "Patch Dir (optional)",
+        "patch_dir_ph": "Extra patch search dir",
+        "patch_none": "No patches found. Click Browse to select.",
+        "patch_overwrite": "Overwrite original (backup as .bak)",
+        "patch_new_file": "Create new file",
+        "patch_output_name": "Output name:",
+        "patch_backup": "Backup original (.bak)",
+        "patch_done_new": "Created {name}\nSize: {old} → {new}",
+        "patch_done_overwrite": "Patch applied and overwritten.\nSize: {old} → {new}",
+        "patch_added_to_lib": "Added to library. Close dialog?",
+        "patch_rom_missing": "ROM not found: {path}",
+        "patch_file_missing": "Patch not found: {path}",
+        "patch_bad_format": "Unsupported patch format: {ext} (only .ips / .ups)",
+        "patch_ips_invalid": "Not a valid IPS file",
+        "patch_ups_invalid": "Not a valid UPS file",
+        "patch_ips_truncated": "IPS file truncated",
+        "patch_ups_truncated": "UPS varint truncated",
+        "patch_tool_title": "ROM Patch Tool",
+        "patch_tool_rom": "ROM File",
+        "patch_tool_patch": "Patch File",
+        "patch_tool_output": "Output File",
+        "patch_tool_output_ph": "Empty = auto (xxx (patched).xxx)",
+        "patch_tool_browse": "Browse…",
+        "patch_tool_apply": "Apply Patch",
+        "pack_title": "Config Pack",
+        "pack_hint": "Pack all config into one file for migration/backup.",
+        "pack_export": "📦 Export Full Config Pack",
+        "pack_import": "📥 Import Config Pack",
+        "pack_dialog_export": "Export Config Pack",
+        "pack_dialog_import": "Import Config Pack",
+        "pack_export_hint": "Export to .mikanpack (ZIP) containing:\n  · All config (settings, mirrors, resources, save/cheat paths)\n  · Platform defs + installed engines\n  · Game library\n  · Optional: covers, save backups, stats",
+        "pack_import_hint": "Import from .mikanpack.\n  · Merge mode by default\n  · Installed engine paths are not overwritten\n  · Current config auto-backed up",
+        "pack_path_export_ph": "Save as .mikanpack…",
+        "pack_path_import_ph": "Pick .mikanpack…",
+        "pack_browse": "Browse…",
+        "pack_incl_covers": "Include covers",
+        "pack_incl_saves": "Include save backups",
+        "pack_incl_stats": "Include stats",
+        "pack_merge": "Merge mode (recommended)",
+        "pack_do_export": "Export",
+        "pack_do_import": "Import",
+        "pack_exported": "Config pack saved:\n{path}\n\nSize: {size}",
+        "pack_imported": "Config: {config}\nEngines: {engines}\nGames: {roms}\nCovers: {covers}\nSaves: {saves}\n\nRestart for some settings to take effect.",
+        "pack_file_missing": "File not found: {path}",
         "lan_title": "LAN",
         "lan_tab_chat": "💬 Chat",
         "lan_tab_share": "📁 Share",
@@ -1941,8 +2245,6 @@ def load_lang():
     CURRENT_LANG = "zh"
     save_lang("zh")
 
-# ===== 第 1/5 段结束，回复"继续"输出第 2/5 段 =====
-
 # ============================================================
 # 5. 配置
 # ============================================================
@@ -1958,6 +2260,16 @@ SETTINGS = {
     "export_include_cover": True,
     "check_update_on_start": True,
     "perf_monitor_on_launch": True,
+    "theme": "auto",
+    "accent_color": "",
+    "patch_dir": "",
+    "launch_profiles": {
+        "默认": "",
+        "全屏": "--fullscreen",
+        "窗口化": "--windowed",
+        "静音": "--mute",
+    },
+    "default_profile": "默认",
     "lan_enabled": False,
     "lan_nickname": "",
     "lan_port": 54322,
@@ -2234,6 +2546,11 @@ def autodetect_save_paths(engines_json: dict) -> dict:
         "ymir": [docs / "Ymir", appdata / "Ymir"],
         "86box": [DATA_DIR / "86box", appdata / "86Box"],
         "pcem": [DATA_DIR / "pcem", appdata / "PCem"],
+        "dolphin": [docs / "Dolphin Emulator",
+                    appdata / "Dolphin Emulator"],
+        "cemu": [DATA_DIR / "cemu", appdata / "Cemu"],
+        "rpcs3": [DATA_DIR / "rpcs3", appdata / "rpcs3"],
+        "vita3k": [appdata / "Vita3K", DATA_DIR / "Vita3K"],
     }
     result = {}
     for engine_name, paths in candidates.items():
@@ -2411,6 +2728,36 @@ CONTROLS_DB = {
         "说明": "x86 PC 模拟器，键位在「Settings → Configure」里配置",
         "释放鼠标": "鼠标中键或 Ctrl+End", "暂停": "Pause",
         "软复位": "Ctrl+Alt+Del（直通给虚拟机）"}},
+    "dolphin": {"source": "https://wiki.dolphin-emu.org/", "keys": {
+        "方向": "方向键 / 摇杆",
+        "A/B/X/Y": "手柄默认 / 键盘可配",
+        "L/R/Z": "手柄默认",
+        "Start": "Enter",
+        "菜单": "Esc 打开设置",
+        "全屏": "Alt+Enter",
+        "存档/读档": "Shift+F1 / F1",
+        "暂停": "F10"}},
+    "cemu": {"source": "https://cemu.info/", "keys": {
+        "方向": "WASD / 手柄",
+        "A/B/X/Y": "手柄默认",
+        "L/R/ZL/ZR": "手柄默认",
+        "全屏": "Alt+Enter",
+        "菜单": "Esc"}},
+    "rpcs3": {"source": "https://rpcs3.net/quickstart", "keys": {
+        "方向": "方向键 / 手柄",
+        "△○×□": "手柄默认",
+        "L1/R1/L2/R2/L3/R3": "手柄默认",
+        "Start/Select": "手柄默认",
+        "菜单": "Esc",
+        "全屏": "Alt+Enter",
+        "暂停": "Space",
+        "存档": "Ctrl+S（游戏内）"}},
+    "vita3k": {"source": "https://vita3k.org/", "keys": {
+        "方向": "WASD / 手柄",
+        "△○×□": "手柄默认",
+        "L/R": "手柄默认",
+        "Start/Select": "Enter / Backspace",
+        "菜单": "Esc"}},
 }
 
 
@@ -2433,7 +2780,7 @@ def get_generic_controls() -> dict:
 
 
 # ============================================================
-# 6. engines.json 加载
+# 6. engines.json 加载（v1.2.0：全量补齐缺失平台）
 # ============================================================
 def load_engines_json() -> dict:
     if not ENGINES_JSON.exists():
@@ -2452,16 +2799,23 @@ def load_engines_json() -> dict:
         try:
             defaults = json.loads(DEFAULT_ENGINES_JSON_STR)
             changed = False
-            for pid in ("pcem", "x86box"):
-                if pid not in data and pid in defaults:
-                    data[pid] = defaults[pid]
+            for pid, pcfg in defaults.items():
+                if pid not in data:
+                    data[pid] = pcfg
                     changed = True
+                else:
+                    if "platform_name" not in data[pid]:
+                        data[pid]["platform_name"] = pcfg.get("platform_name", pid)
+                        changed = True
+                    if "rom_extensions" not in data[pid]:
+                        data[pid]["rom_extensions"] = pcfg.get("rom_extensions", [])
+                        changed = True
             if changed:
                 with open(ENGINES_JSON, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
-                logger.info("engines.json 已自动补齐 pcem / x86box")
-        except Exception:
-            pass
+                logger.info("engines.json 已自动补齐缺失平台")
+        except Exception as e:
+            logger.debug(f"补齐 engines.json 失败: {e}")
         return data
     except Exception as e:
         logger.exception(f"读取 engines.json 失败: {e}")
@@ -2535,6 +2889,10 @@ class GameEntry:
     cheat_file: str = ""
     custom_platform: str = ""
     launch_start_ts: float = 0.0
+    profile: str = ""
+    patched_from: str = ""
+    patch_history: list = field(default_factory=list)
+    cleared: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -2719,6 +3077,166 @@ def version_newer(a: str, b: str) -> bool:
     if pa is None or pb is None:
         return False
     return pa > pb
+
+
+# ============================================================
+# 8.5 ROM 补丁：IPS / UPS
+# ============================================================
+class PatchError(Exception):
+    pass
+
+
+def patch_ips(rom_data: bytes, patch_data: bytes) -> bytes:
+    """应用 IPS 补丁。
+
+    IPS 格式：
+      'PATCH' (5 bytes)
+      循环：
+        3 bytes offset (大端)
+        2 bytes size (大端)
+        if size == 0:
+          3 bytes rle_size
+          1 byte  rle_byte
+        else:
+          size bytes data
+      结束标记：'EOF' (0x454F46)
+    """
+    if len(patch_data) < 8 or patch_data[:5] != b"PATCH":
+        raise PatchError(tr("patch_ips_invalid"))
+
+    out = bytearray(rom_data)
+    pos = 5
+    while pos < len(patch_data):
+        if patch_data[pos:pos + 3] == b"EOF":
+            break
+        if pos + 5 > len(patch_data):
+            raise PatchError(tr("patch_ips_truncated"))
+
+        offset = int.from_bytes(patch_data[pos:pos + 3], "big")
+        size = int.from_bytes(patch_data[pos + 3:pos + 5], "big")
+        pos += 5
+
+        if size == 0:
+            if pos + 4 > len(patch_data):
+                raise PatchError(tr("patch_ips_truncated"))
+            rle_size = int.from_bytes(patch_data[pos:pos + 3], "big")
+            rle_byte = patch_data[pos + 3]
+            pos += 4
+            if offset + rle_size > len(out):
+                out.extend(b"\x00" * (offset + rle_size - len(out)))
+            out[offset:offset + rle_size] = bytes([rle_byte]) * rle_size
+        else:
+            if pos + size > len(patch_data):
+                raise PatchError(tr("patch_ips_truncated"))
+            data = patch_data[pos:pos + size]
+            pos += size
+            if offset + size > len(out):
+                out.extend(b"\x00" * (offset + size - len(out)))
+            out[offset:offset + size] = data
+
+    return bytes(out)
+
+
+def patch_ups(rom_data: bytes, patch_data: bytes) -> bytes:
+    """应用 UPS 补丁。
+
+    UPS 格式：
+      'UPS1'
+      varint source_size
+      varint target_size
+      循环：
+        varint relative_offset
+        if relative_offset == 0xFFFFFFFF: 结束
+        XOR 数据段：读字节直到 0x00 出现
+          data_byte = read_byte ^ xor_key
+          xor_key 在每个数据字节后滚动
+    """
+    if len(patch_data) < 4 or patch_data[:4] != b"UPS1":
+        raise PatchError(tr("patch_ups_invalid"))
+
+    def read_varint(buf, p):
+        shift = 0
+        val = 0
+        while True:
+            if p >= len(buf):
+                raise PatchError(tr("patch_ups_truncated"))
+            b = buf[p]
+            p += 1
+            val |= (b & 0x7F) << shift
+            if not (b & 0x80):
+                break
+            shift += 7
+            if shift > 35:
+                raise PatchError(tr("patch_ups_truncated"))
+        return val, p
+
+    pos = 4
+    src_size, pos = read_varint(patch_data, pos)
+    dst_size, pos = read_varint(patch_data, pos)
+
+    if len(rom_data) != src_size:
+        logger.warning(f"UPS 声明的源大小 {src_size} != 实际 {len(rom_data)}")
+
+    out = bytearray(dst_size)
+    out[:min(len(rom_data), dst_size)] = rom_data[:min(len(rom_data), dst_size)]
+
+    rel = 0
+    while True:
+        skip, pos = read_varint(patch_data, pos)
+        rel += skip
+        if rel == 0xFFFFFFFF:
+            break
+        xor_key = 0
+        while pos < len(patch_data):
+            b = patch_data[pos]
+            pos += 1
+            if b == 0x00:
+                xor_key ^= 0xFF
+                break
+            data_byte = b ^ xor_key
+            xor_key ^= data_byte
+            if rel < len(out):
+                out[rel] = out[rel] ^ data_byte
+            rel += 1
+    return bytes(out)
+
+
+def apply_patch_file(rom_path: Path, patch_path: Path,
+                     out_path: Optional[Path] = None,
+                     backup: bool = True) -> tuple:
+    """应用补丁，返回 (输出路径, 原始大小, 补丁后大小)。"""
+    if not rom_path.exists():
+        raise PatchError(tr("patch_rom_missing", path=str(rom_path)))
+    if not patch_path.exists():
+        raise PatchError(tr("patch_file_missing", path=str(patch_path)))
+
+    rom_data = rom_path.read_bytes()
+    patch_data = patch_path.read_bytes()
+    ext = patch_path.suffix.lower()
+
+    if ext == ".ips":
+        new_data = patch_ips(rom_data, patch_data)
+    elif ext == ".ups":
+        new_data = patch_ups(rom_data, patch_data)
+    else:
+        raise PatchError(tr("patch_bad_format", ext=ext))
+
+    if out_path is None:
+        out_path = rom_path.with_name(
+            f"{rom_path.stem} (patched){rom_path.suffix}")
+
+    if backup:
+        bak = rom_path.with_suffix(rom_path.suffix + ".bak")
+        if not bak.exists():
+            try:
+                shutil.copy2(rom_path, bak)
+                logger.info(f"ROM 备份: {bak}")
+            except Exception as e:
+                logger.warning(f"备份失败: {e}")
+
+    out_path.write_bytes(new_data)
+    logger.info(f"补丁应用成功: {rom_path.name} + {patch_path.name} -> {out_path.name}")
+    return out_path, len(rom_data), len(new_data)
 
 
 # ============================================================
@@ -3349,6 +3867,13 @@ class UpdateCheckWorker(QThread):
 # ============================================================
 # 14. 启动 / 存档 / BIOS
 # ============================================================
+class LaunchError(RuntimeError):
+    def __init__(self, message: str, original=None, args=None):
+        super().__init__(message)
+        self.original = original
+        self.args_list = args or []
+
+
 def find_retroarch() -> Optional[EmulatorConfig]:
     for e in load_installed():
         if e.engine == "retroarch":
@@ -3378,24 +3903,47 @@ def resolve_launch_args(engine: EmulatorConfig, game: GameEntry,
         extra_kwargs["core"] = str(core_path)
 
     cmd_str = tpl.format(**extra_kwargs)
-    if game.extra_args:
-        cmd_str = cmd_str + " " + game.extra_args
 
-    args = []
-    buf = ""
-    in_quote = False
-    for ch in cmd_str:
-        if ch == '"':
-            in_quote = not in_quote
-        elif ch == " " and not in_quote:
-            if buf:
-                args.append(buf)
-                buf = ""
-        else:
-            buf += ch
-    if buf:
-        args.append(buf)
-    return args
+    profile_args = ""
+    prof_name = game.profile or SETTINGS.get("default_profile", "")
+    profiles = SETTINGS.get("launch_profiles") or {}
+    if prof_name and prof_name in profiles:
+        profile_args = (profiles[prof_name] or "").strip()
+
+    if profile_args:
+        cmd_str += " " + profile_args
+    if game.extra_args:
+        cmd_str += " " + game.extra_args
+
+    try:
+        import shlex
+        tokens = shlex.split(cmd_str, posix=False)
+        # posix=False 会保留引号，手动剥掉
+        args = []
+        for t in tokens:
+            if len(t) >= 2 and t[0] == '"' and t[-1] == '"':
+                args.append(t[1:-1])
+            elif len(t) >= 2 and t[0] == "'" and t[-1] == "'":
+                args.append(t[1:-1])
+            else:
+                args.append(t)
+        return args
+    except ValueError:
+        args = []
+        buf = ""
+        in_quote = False
+        for ch in cmd_str:
+            if ch == '"':
+                in_quote = not in_quote
+            elif ch == " " and not in_quote:
+                if buf:
+                    args.append(buf)
+                    buf = ""
+            else:
+                buf += ch
+        if buf:
+            args.append(buf)
+        return args
 
 
 def copy_bios_for_game(engine: EmulatorConfig, game: GameEntry) -> Optional[str]:
@@ -3419,6 +3967,65 @@ def copy_bios_for_game(engine: EmulatorConfig, game: GameEntry) -> Optional[str]
         return None
 
 
+def diagnose_launch_failure(engine: EmulatorConfig, game: GameEntry,
+                            exe_args: list, err: Exception) -> str:
+    """分析启动失败原因，返回可读诊断文本。"""
+    issues = []
+
+    exe = Path(engine.engine_path)
+    if not exe.exists():
+        issues.append(f"❌ 可执行文件不存在: {exe}")
+    elif not exe.is_file():
+        issues.append(f"❌ 引擎路径不是文件: {exe}")
+
+    if not Path(game.path).exists():
+        issues.append(f"❌ ROM 文件不存在: {game.path}")
+
+    try:
+        sz = Path(game.path).stat().st_size
+        if sz == 0:
+            issues.append("❌ ROM 文件为空")
+        elif sz < 512:
+            issues.append(f"⚠️ ROM 文件异常小（{sz} 字节）")
+    except Exception:
+        pass
+
+    if engine.bios_required:
+        if not engine.bios_files:
+            issues.append("⚠️ 该引擎需要 BIOS，但配置里没指定文件名")
+        else:
+            bios_dir = Path(engine.engine_dir) / (engine.bios_dir or "")
+            for bf in engine.bios_files:
+                if not (bios_dir / bf).exists() and not (BIOS_DIR / bf).exists():
+                    issues.append(f"⚠️ 可能缺少 BIOS: {bf}")
+
+    if exe.exists():
+        try:
+            if not os.access(str(exe.parent), os.W_OK):
+                issues.append(f"⚠️ 引擎目录不可写: {exe.parent}")
+        except Exception:
+            pass
+
+    if any(ord(c) > 127 for c in engine.engine_path):
+        issues.append("⚠️ 引擎路径含非 ASCII 字符，部分老模拟器会挂")
+
+    err_text = str(err)
+    low = err_text.lower()
+    if "winerror 740" in low or "requires elevation" in low:
+        issues.append("❌ 需要管理员权限运行（试试顶部「以管理员重启」）")
+    if "winerror 2" in low or "cannot find the file" in low:
+        issues.append("❌ 系统找不到指定的文件")
+    if "winerror 5" in low or "access is denied" in low:
+        issues.append("❌ 权限不足，可能需要管理员")
+
+    if not issues:
+        issues.append("启动失败，但没有检测出明显原因。")
+        issues.append(f"命令: {' '.join(exe_args)}")
+        issues.append(f"错误: {err_text}")
+
+    return "\n".join(issues)
+
+
 def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
     actual_rom, switched = resolve_rom_for_launch(game.path, game.platform)
 
@@ -3439,8 +4046,42 @@ def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
         if ra:
             exe_dir = str(Path(ra.engine_path).parent)
 
-    proc = sp.Popen(args, cwd=exe_dir,
-                    creationflags=sp.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0)
+    # ★ 关键改动：先 chdir 到引擎目录，再启动
+    # 部分老模拟器（snes9x 1.63 等）会读父进程 cwd 判断启动模式
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(exe_dir)
+    except Exception as e:
+        logger.warning(f"chdir 失败: {e}")
+
+    logger.info(f"[launch] args={args!r}")
+    logger.info(f"[launch] cwd={os.getcwd()!r}")
+
+    try:
+        # 去掉 cwd 参数（已 chdir），带上环境变量清理
+        env = os.environ.copy()
+        for k in ("_MEIPASS", "_MEIPASS2", "_MEIPASS_ORIG"):
+            env.pop(k, None)
+        proc = sp.Popen(
+            args, env=env,
+            creationflags=sp.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0)
+    except Exception as e:
+        try:
+            os.chdir(old_cwd)
+        except Exception:
+            pass
+        raise LaunchError(
+            diagnose_launch_failure(engine, game, args, e),
+            original=e,
+            args=args,
+        )
+    finally:
+        # 立刻恢复主进程工作目录（子进程已继承 chdir 后的 cwd）
+        try:
+            os.chdir(old_cwd)
+        except Exception:
+            pass
+
     logger.info(f"已启动: {' '.join(args)}" + (" (auto .cue)" if switched else ""))
     return proc, switched, bios_msg
 
@@ -3462,8 +4103,6 @@ KNOWN_BIOS = {
     "dc_boot.bin": "DC BIOS",
     "dc_flash.bin": "DC Flash",
     "ymir_ipl.bin": "SS IPL ROM",
-}
-KNOWN_BIOS.update({
     "pcxtbios.bin": "PCem/86Box XT BIOS",
     "ibm5160.rom": "IBM 5160 BIOS",
     "ibmpc102.bin": "IBM PC 5150 BIOS (1982)",
@@ -3479,7 +4118,7 @@ KNOWN_BIOS.update({
     "voodoo.bin": "3dfx Voodoo BIOS",
     "flash.bin": "通用 Flash BIOS",
     "bios.rom": "通用 BIOS ROM",
-})
+}
 
 
 @dataclass
@@ -3570,7 +4209,6 @@ def restore_save_backup(backup_dir: Path) -> bool:
             shutil.copy2(item, dst)
     logger.info(f"存档还原: {backup_dir} -> {target_path}")
     return True
-
 
 # ============================================================
 # 15. Worker: 进程监控
@@ -3995,7 +4633,6 @@ class LanDiscoveryWorker(QThread):
 
 
 class LanChatServer(QThread):
-    # 消息信号：pid, pname, text, is_broadcast
     message_received = Signal(str, str, str, bool)
     file_offer = Signal(str, str, str, int)
     file_progress = Signal(str, int, int)
@@ -4519,7 +5156,6 @@ class LanChatClient:
             return False, "err", ""
 
 
-# 表情
 LAN_EMOJIS = [
     "😀", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔",
     "😅", "😭", "😡", "🥺", "😴", "🤯", "🥳", "😇",
@@ -4528,7 +5164,6 @@ LAN_EMOJIS = [
     "🐱", "🐶", "🍕", "🍺", "☕", "🌸", "🌙", "☀️",
 ]
 
-# ===== 第 2/5 段结束，回复"继续"输出第 3/5 段 =====
 
 # ============================================================
 # 17. QSS
@@ -4653,6 +5288,21 @@ QListWidget#GameGrid::item:hover {
 QListWidget#GameGrid::item:selected {
     background-color: #e8f0fa; border: 1px solid #0067c0;
 }
+QListWidget#TimelineList {
+    background-color: #f3f3f3; border: none; outline: none; padding: 8px;
+}
+QListWidget#TimelineList::item {
+    background-color: #ffffff; border: 1px solid #e5e5e5;
+    border-radius: 6px; margin: 3px 6px; padding: 10px 14px;
+}
+QListWidget#TimelineList::item:hover { border: 1px solid #0067c0; }
+QListWidget#TimelineList::item:selected {
+    background-color: #e8f0fa; border: 1px solid #0067c0;
+}
+QListWidget#TimelineList::item:disabled {
+    background-color: #fafafa; color: #999; border: none;
+    font-weight: 600; padding: 8px 14px 4px 14px;
+}
 QListWidget#PeerList {
     background-color: #ffffff; border: 1px solid #e5e5e5;
     border-radius: 6px; outline: none; padding: 4px;
@@ -4759,6 +5409,159 @@ QToolButton:hover { background-color: #f5f5f5; }
 
 
 # ============================================================
+# 17.5 深色模式 QSS
+# ============================================================
+DARK_QSS_OVERLAY = """
+* { color: #e8e8e8; }
+QMainWindow, QWidget { background-color: #1f1f1f; }
+QFrame#TopBar { background-color: #252525; border-bottom: 1px solid #3a3a3a; }
+QLabel { color: #e8e8e8; background: transparent; }
+QLabel#AppTitle { color: #e8e8e8; }
+QLabel#SectionTitle { color: #e8e8e8; }
+QLabel#Hint { color: #a0a0a0; }
+QLabel#AdminOk { color: #6dbf6d; background-color: #1e3a1e; }
+QLabel#AdminNo { color: #ff6b5e; background-color: #3a1e1e; }
+
+QListWidget#NavList { background-color: #1f1f1f; }
+QListWidget#NavList::item { color: #e8e8e8; }
+QListWidget#NavList::item:hover { background-color: #333333; }
+QListWidget#NavList::item:selected {
+    background-color: #3a3a3a; color: #4cc2ff;
+}
+
+QLineEdit, QComboBox, QSpinBox {
+    background-color: #2a2a2a; color: #e8e8e8;
+    border: 1px solid #454545; border-bottom: 2px solid #454545;
+}
+QLineEdit:hover, QComboBox:hover, QSpinBox:hover { background-color: #303030; }
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+    border-bottom: 2px solid #4cc2ff; background-color: #303030;
+}
+QComboBox QAbstractItemView {
+    background-color: #2b2b2b; color: #e8e8e8;
+    border: 1px solid #454545;
+    selection-background-color: #3a3a3a; selection-color: #4cc2ff;
+}
+QComboBox QAbstractItemView::item:hover { background-color: #333333; }
+
+QPushButton {
+    background-color: #2b2b2b; color: #e8e8e8;
+    border: 1px solid #454545; border-bottom: 2px solid #454545;
+}
+QPushButton:hover { background-color: #333333; }
+QPushButton:pressed { background-color: #3a3a3a; }
+QPushButton:disabled { background-color: #252525; color: #666666; border-color: #333333; }
+QPushButton#PrimaryBtn {
+    background-color: #0067c0; border-color: #0067c0; color: #ffffff;
+}
+QPushButton#PrimaryBtn:hover { background-color: #1975c5; }
+QPushButton#PrimaryBtn:pressed { background-color: #005ba8; }
+QPushButton#DangerBtn {
+    background-color: #c42b1c; border-color: #c42b1c; color: #ffffff;
+}
+QPushButton#DangerBtn:hover { background-color: #d13a2b; }
+
+QTableView, QTableWidget {
+    background-color: #2b2b2b; alternate-background-color: #262626;
+    gridline-color: #3a3a3a; border: 1px solid #3a3a3a;
+    color: #e8e8e8;
+    selection-background-color: #1e3a52; selection-color: #4cc2ff;
+}
+QHeaderView::section {
+    background-color: #252525; color: #a0a0a0;
+    border-bottom: 1px solid #3a3a3a; border-right: 1px solid #3a3a3a;
+}
+
+QListWidget#GameGrid { background-color: #1f1f1f; }
+QListWidget#GameGrid::item {
+    background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8;
+}
+QListWidget#GameGrid::item:hover {
+    background-color: #333333; border: 1px solid #4cc2ff;
+}
+QListWidget#GameGrid::item:selected {
+    background-color: #1e3a52; border: 1px solid #4cc2ff;
+}
+
+QListWidget#TimelineList { background-color: #1f1f1f; }
+QListWidget#TimelineList::item {
+    background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8;
+}
+QListWidget#TimelineList::item:hover { border: 1px solid #4cc2ff; }
+QListWidget#TimelineList::item:selected {
+    background-color: #1e3a52; border: 1px solid #4cc2ff;
+}
+QListWidget#TimelineList::item:disabled {
+    background-color: #252525; color: #808080; border: none;
+}
+
+QListWidget#PeerList {
+    background-color: #262626; border: 1px solid #3a3a3a;
+}
+QListWidget#PeerList::item { color: #e8e8e8; }
+QListWidget#PeerList::item:hover { background-color: #333333; }
+QListWidget#PeerList::item:selected { background-color: #1e3a52; color: #4cc2ff; }
+
+QTextEdit#ChatView {
+    background-color: #232323; border: 1px solid #3a3a3a; color: #e8e8e8;
+}
+QTextEdit {
+    background-color: #232323; color: #e8e8e8;
+    border: 1px solid #454545;
+}
+
+QStatusBar {
+    background-color: #252525; color: #a0a0a0; border-top: 1px solid #3a3a3a;
+}
+QSplitter::handle { background-color: #3a3a3a; }
+QSplitter::handle:hover { background-color: #4cc2ff; }
+
+QProgressBar { background-color: #3a3a3a; color: transparent; }
+QProgressBar::chunk { background-color: #4cc2ff; }
+
+QGroupBox {
+    background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8;
+}
+QGroupBox::title { color: #e8e8e8; background-color: #2b2b2b; }
+
+QScrollBar:vertical { background: transparent; }
+QScrollBar::handle:vertical { background: #4a4a4a; }
+QScrollBar::handle:vertical:hover { background: #5a5a5a; }
+QScrollBar:horizontal { background: transparent; }
+QScrollBar::handle:horizontal { background: #4a4a4a; }
+QScrollBar::handle:horizontal:hover { background: #5a5a5a; }
+
+QCheckBox, QRadioButton { color: #e8e8e8; }
+QCheckBox::indicator, QRadioButton::indicator {
+    border: 1px solid #808080; background-color: #2a2a2a;
+}
+QCheckBox::indicator:checked, QRadioButton::indicator:checked {
+    background-color: #4cc2ff; border: 1px solid #4cc2ff;
+}
+
+QMenu { background-color: #2b2b2b; border: 1px solid #454545; color: #e8e8e8; }
+QMenu::item { color: #e8e8e8; }
+QMenu::item:selected { background-color: #3a3a3a; color: #4cc2ff; }
+QMenu::separator { background: #3a3a3a; }
+
+QTabWidget::pane { background-color: #2b2b2b; border: 1px solid #3a3a3a; }
+QTabBar::tab { color: #a0a0a0; }
+QTabBar::tab:selected { color: #4cc2ff; border-bottom: 2px solid #4cc2ff; }
+QTabBar::tab:hover:!selected { background-color: #333333; }
+
+QDialog { background-color: #1f1f1f; }
+QFrame#ResourceCard {
+    background-color: #2b2b2b; border: 1px solid #3a3a3a;
+}
+QFrame#ResourceCard:hover { border: 1px solid #4cc2ff; }
+QToolButton {
+    background-color: #2b2b2b; border: 1px solid #454545; color: #e8e8e8;
+}
+QToolButton:hover { background-color: #333333; }
+"""
+
+
+# ============================================================
 # 18. 管理员
 # ============================================================
 def is_admin() -> bool:
@@ -4818,7 +5621,9 @@ class GameTableModel(QAbstractTableModel):
             if col == 0:
                 return "★" if row.favorite else ""
             if col == 1:
-                if row.override_platform or row.override_engine or row.extra_args or row.bios_file:
+                if (row.override_platform or row.override_engine
+                        or row.extra_args or row.bios_file or row.profile
+                        or row.patched_from):
                     return "⚙"
                 return ""
             if col == 2:
@@ -5022,7 +5827,8 @@ class BiosTableModel(QAbstractTableModel):
             return None
         col = index.column()
         if role in (Qt.DisplayRole, Qt.EditRole):
-            return [row.name, format_size(row.size), row.md5, row.known_as or "未知"][col]
+            return [row.name, format_size(row.size), row.md5,
+                    row.known_as or "未知"][col]
         if role == Qt.ForegroundRole and col == 3:
             return QColor("#0f7b0f") if row.known_as else QColor("#767676")
         return None
@@ -5037,9 +5843,264 @@ def find_cover(name: str) -> Optional[Path]:
 
 
 # ============================================================
-# 20. 对话框
+# 20. 配置包导出 / 导入
+# ============================================================
+def export_config_pack(
+    out_path: Path,
+    include_covers: bool = True,
+    include_saves: bool = True,
+    include_stats: bool = True,
+) -> Path:
+    """导出完整配置包 (.mikanpack)。"""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    manifest = {
+        "app": APP_NAME,
+        "version": APP_VERSION,
+        "format": 1,
+        "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "include": {
+            "covers": include_covers,
+            "saves": include_saves,
+            "stats": include_stats,
+        },
+    }
+
+    def _add_file(zf, src: Path, arcname: str):
+        if src.exists() and src.is_file():
+            zf.write(src, arcname)
+
+    def _add_dir(zf, src: Path, arcprefix: str):
+        if not src.exists() or not src.is_dir():
+            return
+        for f in src.rglob("*"):
+            if f.is_file():
+                rel = f.relative_to(src)
+                zf.write(f, f"{arcprefix}/{rel.as_posix()}")
+
+    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json",
+                    json.dumps(manifest, ensure_ascii=False, indent=2))
+
+        for name, path in [
+            ("folders.json", FOLDERS_FILE),
+            ("settings.json", SETTINGS_FILE),
+            ("lang.json", LANG_FILE),
+            ("save_paths.json", SAVE_PATHS_FILE),
+            ("cheat_paths.json", CHEAT_PATHS_FILE),
+            ("mirrors.json", MIRRORS_FILE),
+            ("resources.json", RESOURCES_FILE),
+            ("update_ignore.json", UPDATE_IGNORE_FILE),
+        ]:
+            _add_file(zf, path, f"config/{name}")
+
+        if include_stats:
+            _add_file(zf, STATS_FILE, "config/stats.json")
+
+        _add_file(zf, ENGINES_JSON, "engines/engines.json")
+        _add_file(zf, INSTALLED_FILE, "engines/installed.json")
+        _add_file(zf, ROMS_FILE, "roms/roms.json")
+
+        if include_covers:
+            _add_dir(zf, COVER_DIR, "covers")
+        if include_saves:
+            _add_dir(zf, SAVE_BACKUP_DIR, "saves_backup")
+
+    logger.info(f"配置包导出: {out_path}")
+    return out_path
+
+
+def import_config_pack(pack_path: Path,
+                       import_covers: bool = True,
+                       import_saves: bool = True,
+                       import_stats: bool = True,
+                       merge: bool = True) -> dict:
+    """导入配置包。返回统计 dict。"""
+    if not pack_path.exists():
+        raise RuntimeError(tr("pack_file_missing", path=str(pack_path)))
+
+    result = {"config": 0, "engines": 0, "roms": 0,
+              "covers": 0, "saves": 0, "skipped": 0}
+
+    backup_dir = BACKUP_DIR / f"pre_import_{time.strftime('%Y%m%d_%H%M%S')}"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    for f in (SETTINGS_FILE, FOLDERS_FILE, ROMS_FILE, INSTALLED_FILE,
+              ENGINES_JSON, SAVE_PATHS_FILE, CHEAT_PATHS_FILE,
+              MIRRORS_FILE, RESOURCES_FILE, STATS_FILE):
+        if f.exists():
+            try:
+                shutil.copy2(f, backup_dir / f.name)
+            except Exception:
+                pass
+    logger.info(f"导入前配置备份: {backup_dir}")
+
+    with zipfile.ZipFile(pack_path, "r") as zf:
+        names = zf.namelist()
+
+        if "manifest.json" in names:
+            try:
+                mf = json.loads(zf.read("manifest.json"))
+                if mf.get("app") != APP_NAME:
+                    logger.warning(f"包来自其他应用: {mf.get('app')}")
+            except Exception:
+                pass
+
+        config_map = {
+            "config/settings.json": SETTINGS_FILE,
+            "config/folders.json": FOLDERS_FILE,
+            "config/lang.json": LANG_FILE,
+            "config/save_paths.json": SAVE_PATHS_FILE,
+            "config/cheat_paths.json": CHEAT_PATHS_FILE,
+            "config/mirrors.json": MIRRORS_FILE,
+            "config/resources.json": RESOURCES_FILE,
+            "config/update_ignore.json": UPDATE_IGNORE_FILE,
+        }
+        if import_stats:
+            config_map["config/stats.json"] = STATS_FILE
+
+        for arc, dst in config_map.items():
+            if arc not in names:
+                continue
+            try:
+                data = json.loads(zf.read(arc).decode("utf-8"))
+                if merge and dst.exists():
+                    try:
+                        old = json.loads(dst.read_text("utf-8"))
+                        if isinstance(old, dict) and isinstance(data, dict):
+                            old.update(data)
+                            data = old
+                    except Exception:
+                        pass
+                dst.write_text(
+                    json.dumps(data, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+                result["config"] += 1
+            except Exception as e:
+                logger.exception(f"导入 {arc} 失败: {e}")
+                result["skipped"] += 1
+
+        if "engines/engines.json" in names:
+            try:
+                new_e = json.loads(zf.read("engines/engines.json").decode("utf-8"))
+                if merge and ENGINES_JSON.exists():
+                    try:
+                        old_e = json.loads(ENGINES_JSON.read_text("utf-8"))
+                        for pid, pcfg in new_e.items():
+                            if pid not in old_e:
+                                old_e[pid] = pcfg
+                            else:
+                                old_e[pid].setdefault("engines", {})
+                                for en, ecfg in pcfg.get("engines", {}).items():
+                                    old_e[pid]["engines"].setdefault(en, ecfg)
+                        new_e = old_e
+                    except Exception:
+                        pass
+                ENGINES_JSON.write_text(
+                    json.dumps(new_e, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+                result["engines"] += 1
+            except Exception as e:
+                logger.exception(f"导入 engines.json 失败: {e}")
+                result["skipped"] += 1
+
+        if "engines/installed.json" in names:
+            try:
+                new_i = json.loads(zf.read("engines/installed.json").decode("utf-8"))
+                if merge and INSTALLED_FILE.exists():
+                    try:
+                        old_i = json.loads(INSTALLED_FILE.read_text("utf-8"))
+                        old_list = old_i.get("engines", [])
+                        old_keys = {(e.get("platform"), e.get("engine"))
+                                    for e in old_list}
+                        for e in new_i.get("engines", []):
+                            k = (e.get("platform"), e.get("engine"))
+                            if k not in old_keys:
+                                e["engine_path"] = ""
+                                e["engine_dir"] = ""
+                                old_list.append(e)
+                        new_i["engines"] = old_list
+                    except Exception:
+                        pass
+                INSTALLED_FILE.write_text(
+                    json.dumps(new_i, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+                result["engines"] += 1
+            except Exception as e:
+                logger.exception(f"导入 installed.json 失败: {e}")
+                result["skipped"] += 1
+
+        if "roms/roms.json" in names:
+            try:
+                new_r = json.loads(zf.read("roms/roms.json").decode("utf-8"))
+                if merge and ROMS_FILE.exists():
+                    try:
+                        old_r = json.loads(ROMS_FILE.read_text("utf-8"))
+                        old_games = old_r.get("games", [])
+                        old_paths = {g.get("path") for g in old_games}
+                        for g in new_r.get("games", []):
+                            if g.get("path") not in old_paths:
+                                old_games.append(g)
+                        new_r["games"] = old_games
+                    except Exception:
+                        pass
+                ROMS_FILE.write_text(
+                    json.dumps(new_r, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+                result["roms"] = len(new_r.get("games", []))
+            except Exception as e:
+                logger.exception(f"导入 roms.json 失败: {e}")
+                result["skipped"] += 1
+
+        if import_covers:
+            for name in names:
+                if not name.startswith("covers/") or name.endswith("/"):
+                    continue
+                rel = name[len("covers/"):]
+                if not rel:
+                    continue
+                dst = COVER_DIR / rel
+                try:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(name) as src, open(dst, "wb") as out:
+                        shutil.copyfileobj(src, out)
+                    result["covers"] += 1
+                except Exception as e:
+                    logger.exception(f"导入封面 {name} 失败: {e}")
+
+        if import_saves:
+            for name in names:
+                if not name.startswith("saves_backup/") or name.endswith("/"):
+                    continue
+                rel = name[len("saves_backup/"):]
+                if not rel:
+                    continue
+                dst = SAVE_BACKUP_DIR / rel
+                try:
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(name) as src, open(dst, "wb") as out:
+                        shutil.copyfileobj(src, out)
+                    result["saves"] += 1
+                except Exception as e:
+                    logger.exception(f"导入存档 {name} 失败: {e}")
+
+    load_settings()
+    load_folders_config()
+    load_save_paths()
+    load_cheat_paths()
+    load_mirrors()
+    load_resources()
+    load_stats()
+    load_update_ignore()
+
+    logger.info(f"配置包导入完成: {result}")
+    return result
+
+
+# ============================================================
+# 21. 基础对话框
 # ============================================================
 class LaunchConfigDialog(QDialog):
+    """（保留兼容，v1.2.0 主入口改为 GameConfigCenterDialog）"""
     def __init__(self, game, parent=None):
         super().__init__(parent)
         self._game = game
@@ -5087,6 +6148,18 @@ class LaunchConfigDialog(QDialog):
         gp.addWidget(self.combo_override)
         layout.addWidget(grp_plat)
 
+        grp_prof = QGroupBox(tr("config_profile_group"))
+        gpr = QVBoxLayout(grp_prof)
+        self.combo_profile = QComboBox()
+        self.combo_profile.addItem(tr("config_profile_none"), "")
+        for name in (SETTINGS.get("launch_profiles") or {}):
+            self.combo_profile.addItem(name, name)
+        gpr.addWidget(self.combo_profile)
+        hint_p = QLabel(tr("config_profile_hint"))
+        hint_p.setObjectName("Hint")
+        gpr.addWidget(hint_p)
+        layout.addWidget(grp_prof)
+
         grp_args = QGroupBox(tr("config_extra_args"))
         ga = QVBoxLayout(grp_args)
         self.edit_args = QLineEdit()
@@ -5126,6 +6199,9 @@ class LaunchConfigDialog(QDialog):
                 self.combo_engine.setCurrentIndex(idx)
         else:
             self.radio_auto.setChecked(True)
+        idx = self.combo_profile.findData(getattr(g, "profile", "") or "")
+        if idx >= 0:
+            self.combo_profile.setCurrentIndex(idx)
         self.edit_args.setText(g.extra_args or "")
 
     def _on_save(self):
@@ -5138,6 +6214,7 @@ class LaunchConfigDialog(QDialog):
             "override_platform": override_platform,
             "override_engine": override_engine,
             "extra_args": extra_args,
+            "profile": self.combo_profile.currentData() or "",
         }
         self.accept()
 
@@ -5300,7 +6377,7 @@ class CreditsDialog(QDialog):
             "FCEUX · Mesen · openMSX · blueMSX · Tsugaru · PCFXemu<br>"
             "PX68k · NP2kai · DreamPotato · Deecy · Snes9x · ePSXe<br>"
             "XEBRA · SSF · Yaba Sanshiro · Redream · Kega Fusion<br>"
-            "86Box · PCem<br>"
+            "86Box · PCem · Dolphin · Cemu · RPCS3 · Vita3K<br>"
             "<br>感谢以上所有开源/闭源模拟器项目的作者与贡献者。"
         )
         lbl2 = QLabel(emu_text)
@@ -5315,7 +6392,8 @@ class CreditsDialog(QDialog):
             "<b>Redump</b> — 光盘校验数据库<br>"
             "<b>MAME 键位文档</b><br>"
             "<b>Libretro 文档</b><br>"
-            "<b>LocalSend Web</b> — 局域网传输后端"
+            "<b>LocalSend Web</b> — 局域网传输后端<br>"
+            "<b>IPS / UPS 格式文档</b> — 补丁工具"
         )
         lbl3 = QLabel(data_text)
         lbl3.setWordWrap(True)
@@ -5551,22 +6629,333 @@ class PlatformConfirmDialog(QDialog):
                 g.platform = p
         return self._games
 
-# ===== 第 3/5 段结束，回复"继续"输出第 4/5 段 =====
+
+class DupResolveDialog(QDialog):
+    """ROM 重复处理。
+
+    result_action() 返回 (keep, skip, overwrite)，只会有一个为 True。
+    """
+    def __init__(self, dup_pairs, parent=None):
+        super().__init__(parent)
+        self._dup = dup_pairs
+        self._action = ("skip",)
+        self.setWindowTitle(tr("import_dup_title"))
+        self.setMinimumSize(720, 480)
+        self._build_ui()
+
+    def _build_ui(self):
+        v = QVBoxLayout(self)
+        lbl = QLabel(tr("import_dup_hint", n=len(self._dup)))
+        lbl.setTextFormat(Qt.RichText)
+        v.addWidget(lbl)
+
+        table = QTableWidget(len(self._dup), 3)
+        table.setHorizontalHeaderLabels([
+            tr("import_dup_col_new"),
+            tr("import_dup_col_old"),
+            tr("import_dup_col_size")])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        for i, (new_g, old_g) in enumerate(self._dup):
+            table.setItem(i, 0, QTableWidgetItem(new_g.name))
+            table.setItem(i, 1, QTableWidgetItem(old_g.name))
+            try:
+                sz = Path(new_g.path).stat().st_size
+            except Exception:
+                sz = new_g.size
+            table.setItem(i, 2, QTableWidgetItem(format_size(sz)))
+        v.addWidget(table, 1)
+
+        group = QButtonGroup(self)
+        self.rb_skip = QRadioButton(tr("import_dup_skip"))
+        self.rb_keep = QRadioButton(tr("import_dup_keep"))
+        self.rb_over = QRadioButton(tr("import_dup_overwrite"))
+        self.rb_skip.setChecked(True)
+        group.addButton(self.rb_skip)
+        group.addButton(self.rb_keep)
+        group.addButton(self.rb_over)
+        v.addWidget(self.rb_skip)
+        v.addWidget(self.rb_keep)
+        v.addWidget(self.rb_over)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Ok).setText(tr("msg_ok"))
+        btns.button(QDialogButtonBox.Ok).setObjectName("PrimaryBtn")
+        btns.button(QDialogButtonBox.Cancel).setText(tr("msg_cancel"))
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        v.addWidget(btns)
+
+    def accept(self):
+        if self.rb_skip.isChecked():
+            self._action = ("skip",)
+        elif self.rb_keep.isChecked():
+            self._action = ("keep",)
+        else:
+            self._action = ("overwrite",)
+        super().accept()
+
+    def result_action(self):
+        a = self._action
+        return (a[0] == "keep", a[0] == "skip", a[0] == "overwrite")
+
+
+class PatchToolDialog(QDialog):
+    """独立 ROM 补丁工具。"""
+
+    def __init__(self, initial_rom: Optional[Path] = None, parent=None):
+        super().__init__(parent)
+        self._rom: Optional[Path] = initial_rom
+        self._patch: Optional[Path] = None
+        self.setWindowTitle(tr("patch_tool_title"))
+        self.setMinimumWidth(600)
+        self._build_ui()
+
+    def _build_ui(self):
+        v = QVBoxLayout(self)
+
+        info = QLabel(tr("patch_hint"))
+        info.setObjectName("Hint")
+        info.setWordWrap(True)
+        v.addWidget(info)
+
+        form = QFormLayout()
+
+        self.edit_rom = QLineEdit(str(self._rom) if self._rom else "")
+        b_rom = QPushButton(tr("patch_tool_browse"))
+        b_rom.clicked.connect(self._pick_rom)
+        h_rom = QHBoxLayout()
+        h_rom.addWidget(self.edit_rom, 1)
+        h_rom.addWidget(b_rom)
+        form.addRow(tr("patch_tool_rom"), h_rom)
+
+        self.edit_patch = QLineEdit()
+        b_patch = QPushButton(tr("patch_tool_browse"))
+        b_patch.clicked.connect(self._pick_patch)
+        h_patch = QHBoxLayout()
+        h_patch.addWidget(self.edit_patch, 1)
+        h_patch.addWidget(b_patch)
+        form.addRow(tr("patch_tool_patch"), h_patch)
+
+        self.edit_out = QLineEdit()
+        self.edit_out.setPlaceholderText(tr("patch_tool_output_ph"))
+        b_out = QPushButton(tr("patch_tool_browse"))
+        b_out.clicked.connect(self._pick_out)
+        h_out = QHBoxLayout()
+        h_out.addWidget(self.edit_out, 1)
+        h_out.addWidget(b_out)
+        form.addRow(tr("patch_tool_output"), h_out)
+
+        self.check_backup = QCheckBox(tr("patch_backup"))
+        self.check_backup.setChecked(True)
+        form.addRow("", self.check_backup)
+        v.addLayout(form)
+
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumHeight(160)
+        v.addWidget(self.log)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Ok).setText(tr("patch_tool_apply"))
+        btns.button(QDialogButtonBox.Ok).setObjectName("PrimaryBtn")
+        btns.button(QDialogButtonBox.Cancel).setText(tr("msg_cancel"))
+        btns.accepted.connect(self._apply)
+        btns.rejected.connect(self.reject)
+        v.addWidget(btns)
+
+    def _pick_rom(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, tr("patch_tool_rom"), str(ROM_DIR), "所有文件 (*)")
+        if fp:
+            self.edit_rom.setText(fp)
+
+    def _pick_patch(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, tr("patch_tool_patch"), str(Path.home()),
+            "ROM 补丁 (*.ips *.ups);;所有文件 (*)")
+        if fp:
+            self.edit_patch.setText(fp)
+
+    def _pick_out(self):
+        fp, _ = QFileDialog.getSaveFileName(
+            self, tr("patch_tool_output"), str(ROM_DIR), "所有文件 (*)")
+        if fp:
+            self.edit_out.setText(fp)
+
+    def _apply(self):
+        rom = Path(self.edit_rom.text().strip())
+        patch = Path(self.edit_patch.text().strip())
+        out = self.edit_out.text().strip()
+        out_path = Path(out) if out else None
+
+        if not rom.exists():
+            QMessageBox.warning(self, tr("msg_warning"), "请选择有效的 ROM 文件")
+            return
+        if not patch.exists():
+            QMessageBox.warning(self, tr("msg_warning"), "请选择有效的补丁文件")
+            return
+
+        self.log.append(f"ROM: {rom}")
+        self.log.append(f"补丁: {patch}")
+        try:
+            result, old, new = apply_patch_file(
+                rom, patch, out_path, self.check_backup.isChecked())
+            self.log.append(f"✅ 输出: {result}")
+            self.log.append(f"   大小: {format_size(old)} → {format_size(new)}")
+            QMessageBox.information(
+                self, "完成",
+                tr("patch_done_new", name=result.name,
+                   old=format_size(old), new=format_size(new)))
+        except PatchError as e:
+            self.log.append(f"❌ {e}")
+            QMessageBox.critical(self, tr("msg_error"), str(e))
+        except Exception as e:
+            self.log.append(f"❌ {e}")
+            QMessageBox.critical(self, tr("msg_error"),
+                                 tr("patch_failed", err=str(e)))
+
+
+class ConfigPackDialog(QDialog):
+    """导出 / 导入配置包。mode: 'export' | 'import'。"""
+
+    def __init__(self, mode: str, parent=None):
+        super().__init__(parent)
+        self._mode = mode
+        self._pack: Optional[Path] = None
+        self._result_data = None
+        title = tr("pack_dialog_export") if mode == "export" else tr("pack_dialog_import")
+        self.setWindowTitle(title)
+        self.setMinimumWidth(540)
+        self._build_ui()
+
+    def _build_ui(self):
+        v = QVBoxLayout(self)
+
+        hint_text = tr("pack_export_hint") if self._mode == "export" else tr("pack_import_hint")
+        hint = QLabel(hint_text)
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        v.addWidget(hint)
+
+        row = QHBoxLayout()
+        self.edit_path = QLineEdit()
+        self.edit_path.setPlaceholderText(
+            tr("pack_path_import_ph") if self._mode == "import"
+            else tr("pack_path_export_ph"))
+        row.addWidget(self.edit_path, 1)
+        b = QPushButton(tr("pack_browse"))
+        b.clicked.connect(self._pick)
+        row.addWidget(b)
+        v.addLayout(row)
+
+        self.check_covers = QCheckBox(tr("pack_incl_covers"))
+        self.check_covers.setChecked(True)
+        v.addWidget(self.check_covers)
+
+        self.check_saves = QCheckBox(tr("pack_incl_saves"))
+        self.check_saves.setChecked(True)
+        v.addWidget(self.check_saves)
+
+        self.check_stats = QCheckBox(tr("pack_incl_stats"))
+        self.check_stats.setChecked(True)
+        v.addWidget(self.check_stats)
+
+        if self._mode == "import":
+            self.check_merge = QCheckBox(tr("pack_merge"))
+            self.check_merge.setChecked(True)
+            v.addWidget(self.check_merge)
+
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumHeight(160)
+        v.addWidget(self.log)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Ok).setText(
+            tr("pack_do_export") if self._mode == "export" else tr("pack_do_import"))
+        btns.button(QDialogButtonBox.Ok).setObjectName("PrimaryBtn")
+        btns.button(QDialogButtonBox.Cancel).setText(tr("msg_cancel"))
+        btns.accepted.connect(self._go)
+        btns.rejected.connect(self.reject)
+        v.addWidget(btns)
+
+    def _pick(self):
+        if self._mode == "export":
+            fp, _ = QFileDialog.getSaveFileName(
+                self, tr("pack_dialog_export"),
+                str(EXPORT_DIR / f"mikan_config_{time.strftime('%Y%m%d')}.mikanpack"),
+                "mikan 配置包 (*.mikanpack);;所有文件 (*)")
+        else:
+            fp, _ = QFileDialog.getOpenFileName(
+                self, tr("pack_dialog_import"), str(Path.home()),
+                "mikan 配置包 (*.mikanpack *.zip);;所有文件 (*)")
+        if fp:
+            self.edit_path.setText(fp)
+
+    def _go(self):
+        path_str = self.edit_path.text().strip()
+        if not path_str:
+            QMessageBox.warning(self, tr("msg_warning"), "请选择文件路径")
+            return
+        path = Path(path_str)
+        try:
+            if self._mode == "export":
+                out = export_config_pack(
+                    path,
+                    include_covers=self.check_covers.isChecked(),
+                    include_saves=self.check_saves.isChecked(),
+                    include_stats=self.check_stats.isChecked(),
+                )
+                self.log.append(f"✅ 已导出: {out}")
+                size = format_size(out.stat().st_size)
+                self.log.append(f"   大小: {size}")
+                QMessageBox.information(
+                    self, tr("msg_info"),
+                    tr("pack_exported", path=str(out), size=size))
+                self._pack = out
+                self.accept()
+            else:
+                merge = self.check_merge.isChecked()
+                info = import_config_pack(
+                    path,
+                    import_covers=self.check_covers.isChecked(),
+                    import_saves=self.check_saves.isChecked(),
+                    import_stats=self.check_stats.isChecked(),
+                    merge=merge,
+                )
+                self.log.append(f"✅ 导入完成:")
+                self.log.append(f"   配置: {info['config']}")
+                self.log.append(f"   引擎: {info['engines']}")
+                self.log.append(f"   游戏: {info['roms']}")
+                self.log.append(f"   封面: {info['covers']}")
+                self.log.append(f"   存档: {info['saves']}")
+                QMessageBox.information(
+                    self, tr("msg_info"),
+                    tr("pack_imported",
+                       config=info['config'], engines=info['engines'],
+                       roms=info['roms'], covers=info['covers'],
+                       saves=info['saves']))
+                self.accept()
+        except Exception as e:
+            logger.exception("配置包操作失败")
+            self.log.append(f"❌ {e}")
+            QMessageBox.critical(self, tr("msg_error"), str(e))
 
 # ============================================================
-# 21. 页面：游戏库
+# 22. 页面：游戏库
 # ============================================================
 class LibraryPage(QWidget):
     launch_requested = Signal(object)
     open_folder_requested = Signal(object)
     remove_requested = Signal(object)
     favorite_toggled = Signal(object)
-    set_cover_requested = Signal(object)
-    open_save_requested = Signal(object)
     config_requested = Signal(object)
-    cheat_requested = Signal(object)
-    bios_requested = Signal(object)
     controls_requested = Signal(object)
+    status_msg = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -5626,6 +7015,12 @@ class LibraryPage(QWidget):
         self.btn_view.clicked.connect(self._toggle_view)
         bar.addWidget(self.btn_view)
 
+        self.btn_random = QPushButton("🎲")
+        self.btn_random.setToolTip(tr("library_random_btn"))
+        self.btn_random.setFixedWidth(40)
+        self.btn_random.clicked.connect(self._on_random)
+        bar.addWidget(self.btn_random)
+
         self.btn_launch = QPushButton(tr("library_launch_btn"))
         self.btn_launch.setObjectName("PrimaryBtn")
         self.btn_launch.clicked.connect(self._on_launch_clicked)
@@ -5670,6 +7065,13 @@ class LibraryPage(QWidget):
         self.grid.customContextMenuRequested.connect(self._on_context_menu_grid)
         self.view_stack.addWidget(self.grid)
 
+        self.timeline = QListWidget()
+        self.timeline.setObjectName("TimelineList")
+        self.timeline.itemDoubleClicked.connect(self._on_timeline_double_click)
+        self.timeline.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.timeline.customContextMenuRequested.connect(self._on_context_menu_timeline)
+        self.view_stack.addWidget(self.timeline)
+
         root.addWidget(self.view_stack, 1)
 
         tip = QLabel(tr("library_empty"))
@@ -5695,31 +7097,45 @@ class LibraryPage(QWidget):
         self._reload_platform_combo()
 
     def _toggle_view(self):
+        modes = ["list", "grid", "timeline"]
+        i = modes.index(self._view_mode)
+        self._view_mode = modes[(i + 1) % 3]
         if self._view_mode == "list":
-            self._view_mode = "grid"
-            self.btn_view.setText("☰")
+            self.btn_view.setText("⊞")
+            self.btn_view.setToolTip(tr("library_view_grid"))
+            self.view_stack.setCurrentIndex(0)
+        elif self._view_mode == "grid":
+            self.btn_view.setText("🕒")
+            self.btn_view.setToolTip(tr("library_view_timeline"))
             self.view_stack.setCurrentIndex(1)
             self._rebuild_grid()
         else:
-            self._view_mode = "list"
-            self.btn_view.setText("⊞")
-            self.view_stack.setCurrentIndex(0)
+            self.btn_view.setText("☰")
+            self.btn_view.setToolTip("列表视图")
+            self.view_stack.setCurrentIndex(2)
+            self._rebuild_timeline()
 
     def _on_platform_changed(self, index):
         self._proxy.set_platform(self.combo_platform.itemData(index) or "")
         if self._view_mode == "grid":
             self._rebuild_grid()
+        elif self._view_mode == "timeline":
+            self._rebuild_timeline()
 
     def _on_filter_changed(self, index):
         self._proxy.set_filter_mode(self.combo_filter.itemData(index) or "all")
         if self._view_mode == "grid":
             self._rebuild_grid()
+        elif self._view_mode == "timeline":
+            self._rebuild_timeline()
 
     def _on_sort_changed(self, index):
         self._proxy.set_sort_mode(self.combo_sort.itemData(index) or "name")
         self.table.sortByColumn(2, Qt.AscendingOrder)
         if self._view_mode == "grid":
             self._rebuild_grid()
+        elif self._view_mode == "timeline":
+            self._rebuild_timeline()
 
     def set_games(self, games):
         self._games = games
@@ -5727,9 +7143,10 @@ class LibraryPage(QWidget):
         self.lbl_count.setText(tr("library_count", n=len(games)))
         if self._view_mode == "grid":
             self._rebuild_grid()
+        elif self._view_mode == "timeline":
+            self._rebuild_timeline()
 
-    def _rebuild_grid(self):
-        self.grid.clear()
+    def _filtered_games(self) -> list:
         rows = []
         for i in range(self._proxy.rowCount()):
             idx = self._proxy.index(i, 0)
@@ -5737,14 +7154,18 @@ class LibraryPage(QWidget):
             g = self._model.get(src.row())
             if g:
                 rows.append(g)
+        return rows
 
-        for g in rows:
+    def _rebuild_grid(self):
+        self.grid.clear()
+        for g in self._filtered_games():
             cover = find_cover(g.name)
             item = QListWidgetItem()
             label = g.name
             if g.favorite:
                 label = "★ " + label
-            if g.override_platform or g.override_engine or g.extra_args or g.bios_file:
+            if (g.override_platform or g.override_engine or g.extra_args
+                    or g.bios_file or g.profile or g.patched_from):
                 label = "⚙ " + label
             if g.launch_start_ts and g.launch_start_ts > 0:
                 label = "▶ " + label
@@ -5763,6 +7184,74 @@ class LibraryPage(QWidget):
             item.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
             self.grid.addItem(item)
 
+    def _rebuild_timeline(self):
+        self.timeline.clear()
+        rows = [g for g in self._filtered_games() if g.last_played]
+
+        if not rows:
+            it = QListWidgetItem("还没有玩过的游戏。")
+            it.setFlags(Qt.NoItemFlags)
+            self.timeline.addItem(it)
+            return
+
+        def _day_of(ts: str) -> str:
+            if not ts:
+                return "更早"
+            d = ts.split(" ")[0]
+            today = time.strftime("%Y-%m-%d")
+            yesterday = time.strftime("%Y-%m-%d",
+                                      time.localtime(time.time() - 86400))
+            if d == today:
+                return "📅 今天"
+            if d == yesterday:
+                return "📅 昨天"
+            for k in range(2, 8):
+                if d == time.strftime("%Y-%m-%d",
+                                      time.localtime(time.time() - k * 86400)):
+                    return f"📅 {k} 天前"
+            return f"📅 {d}"
+
+        groups: dict = {}
+        for g in rows:
+            groups.setdefault(_day_of(g.last_played), []).append(g)
+        for key in groups:
+            groups[key].sort(key=lambda x: x.last_played or "", reverse=True)
+
+        order = list(groups.keys())
+
+        def _sort_key(k):
+            if k == "📅 今天": return (0, "")
+            if k == "📅 昨天": return (1, "")
+            m = re.match(r"📅 (\d+) 天前", k)
+            if m: return (2, int(m.group(1)))
+            if k.startswith("📅 "): return (3, k[2:])
+            return (4, k)
+        order.sort(key=_sort_key)
+
+        for day in order:
+            header = QListWidgetItem(day)
+            header.setFlags(Qt.NoItemFlags)
+            header.setData(Qt.UserRole, None)
+            f = header.font()
+            f.setBold(True)
+            header.setFont(f)
+            self.timeline.addItem(header)
+
+            for g in groups[day]:
+                cover = find_cover(g.name)
+                item = QListWidgetItem()
+                label = (f"{g.name}\n{g.custom_platform or g.platform}  ·  "
+                         f"{human_duration(g.play_seconds)}")
+                item.setText(label)
+                item.setData(Qt.UserRole, g)
+                if cover:
+                    pix = QPixmap(str(cover))
+                    if not pix.isNull():
+                        pix = pix.scaled(48, 64, Qt.KeepAspectRatio,
+                                         Qt.SmoothTransformation)
+                        item.setIcon(QIcon(pix))
+                self.timeline.addItem(item)
+
     def _selected_game(self):
         if self._view_mode == "list":
             idxs = self.table.selectionModel().selectedRows()
@@ -5770,8 +7259,13 @@ class LibraryPage(QWidget):
                 return None
             src = self._proxy.mapToSource(idxs[0])
             return self._model.get(src.row())
-        else:
+        elif self._view_mode == "grid":
             items = self.grid.selectedItems()
+            if not items:
+                return None
+            return items[0].data(Qt.UserRole)
+        else:
+            items = self.timeline.selectedItems()
             if not items:
                 return None
             return items[0].data(Qt.UserRole)
@@ -5794,43 +7288,78 @@ class LibraryPage(QWidget):
         if g:
             self.launch_requested.emit(g)
 
+    def _on_timeline_double_click(self, _item):
+        g = self._selected_game()
+        if g:
+            self.launch_requested.emit(g)
+
+    def _on_random(self):
+        import random as _r
+        rows = self._filtered_games()
+        if not rows:
+            QMessageBox.information(self, tr("msg_info"),
+                                    tr("library_select_hint"))
+            return
+        g = _r.choice(rows)
+        self.status_msg.emit(f"🎲 随机选中: {g.name}")
+
+        if self._view_mode == "list":
+            for i in range(self._proxy.rowCount()):
+                idx = self._proxy.index(i, 0)
+                src = self._proxy.mapToSource(idx)
+                if self._model.get(src.row()) is g:
+                    self.table.selectRow(i)
+                    self.table.scrollTo(idx)
+                    break
+        elif self._view_mode == "grid":
+            for i in range(self.grid.count()):
+                it = self.grid.item(i)
+                if it.data(Qt.UserRole) is g:
+                    self.grid.setCurrentItem(it)
+                    self.grid.scrollToItem(it)
+                    break
+        else:
+            for i in range(self.timeline.count()):
+                it = self.timeline.item(i)
+                if it.data(Qt.UserRole) is g:
+                    self.timeline.setCurrentItem(it)
+                    self.timeline.scrollToItem(it)
+                    break
+
+        self.launch_requested.emit(g)
+
     def _show_menu(self, g, global_pos):
         menu = QMenu(self)
+
         a_launch = menu.addAction(tr("ctx_launch"))
-        a_config = menu.addAction(tr("ctx_config"))
-        a_controls = menu.addAction(tr("ctx_controls"))
         menu.addSeparator()
+
         a_folder = menu.addAction(tr("ctx_open_folder"))
-        a_save = menu.addAction(tr("ctx_open_save"))
-        a_cheat = menu.addAction(tr("ctx_cheat"))
-        a_bios = menu.addAction(tr("ctx_bios"))
-        menu.addSeparator()
         if g.favorite:
             a_fav = menu.addAction(tr("ctx_fav_remove"))
         else:
             a_fav = menu.addAction(tr("ctx_fav_add"))
-        a_cover = menu.addAction(tr("ctx_set_cover"))
+
+        menu.addSeparator()
+
+        a_config = menu.addAction(tr("ctx_more_config"))
+        a_controls = menu.addAction(tr("ctx_controls"))
+
         menu.addSeparator()
         a_remove = menu.addAction(tr("ctx_remove"))
+
         act = menu.exec(global_pos)
+
         if act == a_launch:
             self.launch_requested.emit(g)
+        elif act == a_folder:
+            self.open_folder_requested.emit(g)
+        elif act == a_fav:
+            self.favorite_toggled.emit(g)
         elif act == a_config:
             self.config_requested.emit(g)
         elif act == a_controls:
             self.controls_requested.emit(g)
-        elif act == a_folder:
-            self.open_folder_requested.emit(g)
-        elif act == a_save:
-            self.open_save_requested.emit(g)
-        elif act == a_cheat:
-            self.cheat_requested.emit(g)
-        elif act == a_bios:
-            self.bios_requested.emit(g)
-        elif act == a_fav:
-            self.favorite_toggled.emit(g)
-        elif act == a_cover:
-            self.set_cover_requested.emit(g)
         elif act == a_remove:
             self.remove_requested.emit(g)
 
@@ -5853,19 +7382,1036 @@ class LibraryPage(QWidget):
             return
         self._show_menu(g, self.grid.viewport().mapToGlobal(pos))
 
+    def _on_context_menu_timeline(self, pos):
+        item = self.timeline.itemAt(pos)
+        if not item:
+            return
+        g = item.data(Qt.UserRole)
+        if not g:
+            return
+        self._show_menu(g, self.timeline.viewport().mapToGlobal(pos))
+
     def refresh_grid(self):
         if self._view_mode == "grid":
             self._rebuild_grid()
+        elif self._view_mode == "timeline":
+            self._rebuild_timeline()
 
 
 # ============================================================
-# 22. 页面：模拟器 / BIOS / 统计 / 资源
+# 22.5 统一配置中心对话框
+# ============================================================
+class GameConfigCenterDialog(QDialog):
+    """游戏统一配置中心：所有针对单个游戏的操作都收在这里。"""
+
+    launch_requested = Signal(object)
+    open_folder_requested = Signal(object)
+
+    def __init__(self, game: GameEntry, parent=None):
+        super().__init__(parent)
+        self._game = game
+        self._dirty = False
+        self.setWindowTitle(f"{tr('game_config_title')} - {game.name}")
+        self.setMinimumSize(760, 660)
+        self._build_ui()
+        self._reload()
+        QTimer.singleShot(0, self._auto_scan)
+
+    def _build_ui(self):
+        v = QVBoxLayout(self)
+        v.setSpacing(10)
+
+        # 顶部：游戏信息条
+        head = QFrame()
+        head.setObjectName("ResourceCard")
+        hl = QHBoxLayout(head)
+        hl.setContentsMargins(12, 10, 12, 10)
+
+        cover = find_cover(self._game.name)
+        if cover:
+            pix = QPixmap(str(cover))
+            if not pix.isNull():
+                pix = pix.scaled(48, 64, Qt.KeepAspectRatio,
+                                 Qt.SmoothTransformation)
+                lbl_cover = QLabel()
+                lbl_cover.setPixmap(pix)
+                hl.addWidget(lbl_cover)
+
+        info = QVBoxLayout()
+        info.setSpacing(2)
+        title = QLabel(f"<b>{self._game.name}</b>")
+        title.setTextFormat(Qt.RichText)
+        info.addWidget(title)
+        sub = QLabel(
+            f"{self._game.custom_platform or self._game.platform}  ·  "
+            f"{format_size(self._game.size)}  ·  "
+            f"时长 {human_duration(self._game.play_seconds)}")
+        sub.setObjectName("Hint")
+        info.addWidget(sub)
+        path_lbl = QLabel(self._game.path)
+        path_lbl.setObjectName("Hint")
+        path_lbl.setWordWrap(True)
+        info.addWidget(path_lbl)
+        hl.addLayout(info, 1)
+
+        btn_launch = QPushButton(tr("ctx_launch"))
+        btn_launch.setObjectName("PrimaryBtn")
+        btn_launch.clicked.connect(
+            lambda: self.launch_requested.emit(self._game))
+        hl.addWidget(btn_launch)
+
+        v.addWidget(head)
+
+        # Tab
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_launch_tab(), tr("game_config_tab_launch"))
+        self.tabs.addTab(self._build_patch_tab(), tr("game_config_tab_patch"))
+        self.tabs.addTab(self._build_cover_tab(), tr("game_config_tab_cover"))
+        self.tabs.addTab(self._build_bios_tab(), tr("game_config_tab_bios"))
+        self.tabs.addTab(self._build_cheat_tab(), tr("game_config_tab_cheat"))
+        self.tabs.addTab(self._build_save_tab(), tr("game_config_tab_save"))
+        self.tabs.addTab(self._build_info_tab(), tr("game_config_tab_info"))
+        v.addWidget(self.tabs, 1)
+
+        # 底部
+        btns = QDialogButtonBox(QDialogButtonBox.Close)
+        btns.button(QDialogButtonBox.Close).setText(tr("game_config_close"))
+        btns.button(QDialogButtonBox.Close).setObjectName("PrimaryBtn")
+        btns.rejected.connect(self.accept)
+        btns.button(QDialogButtonBox.Close).clicked.connect(self.accept)
+
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(btns)
+        v.addLayout(row)
+
+    # ---------- 数据读写 ----------
+    def _persist(self):
+        games = load_games()
+        for g in games:
+            if g.path == self._game.path:
+                for f in GameEntry.__dataclass_fields__:
+                    setattr(g, f, getattr(self._game, f))
+                break
+        save_games(games)
+
+    def _reload(self):
+        for g in load_games():
+            if g.path == self._game.path:
+                self._game = g
+                break
+
+    def _auto_scan(self):
+        try:
+            self._scan_patches()
+            self._refresh_patch_state()
+        except Exception as e:
+            logger.debug(f"补丁扫描失败: {e}")
+        try:
+            self._scan_cheats()
+        except Exception as e:
+            logger.debug(f"金手指扫描失败: {e}")
+        try:
+            self._refresh_cover_preview()
+        except Exception as e:
+            logger.debug(f"封面刷新失败: {e}")
+        self._update_tab_badges()
+
+    def _update_tab_badges(self):
+        def _set(idx, text, badge):
+            self.tabs.setTabText(idx, f"{text}{badge}")
+
+        # 补丁
+        has_patch = any(
+            self.list_patches.item(i).data(Qt.UserRole)
+            for i in range(self.list_patches.count()))
+        _set(1, tr("game_config_tab_patch"), "  ✱" if has_patch else "")
+
+        # 封面
+        cover = find_cover(self._game.name)
+        _set(2, tr("game_config_tab_cover"), "" if cover else "  (缺)")
+
+        # BIOS
+        engine = self._resolve_engine_silent()
+        if engine and engine.bios_required and not self._game.bios_file:
+            _set(3, tr("game_config_tab_bios"), "  ⚠")
+
+        # 金手指
+        has_cheat = any(
+            self.list_cheats.item(i).data(Qt.UserRole)
+            for i in range(self.list_cheats.count()))
+        _set(4, tr("game_config_tab_cheat"), "  ★" if has_cheat else "")
+
+        # 存档
+        if engine and not get_save_path(engine.engine):
+            _set(5, tr("game_config_tab_save"), "  ⚠")
+
+    # ---------- 启动 Tab ----------
+    def _build_launch_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(10)
+
+        grp_e = QGroupBox(tr("config_engine_group"))
+        fe = QVBoxLayout(grp_e)
+        self.radio_auto = QRadioButton(tr("config_auto"))
+        self.radio_manual = QRadioButton(tr("config_manual"))
+        grp = QButtonGroup(self)
+        grp.addButton(self.radio_auto, 0)
+        grp.addButton(self.radio_manual, 1)
+        fe.addWidget(self.radio_auto)
+        fe.addWidget(self.radio_manual)
+
+        self.combo_engine = QComboBox()
+        for e in load_installed():
+            self.combo_engine.addItem(
+                f"[{e.platform_name}] {e.engine} {e.version}".strip(),
+                f"{e.platform}/{e.engine}")
+        fe.addWidget(self.combo_engine)
+        self.radio_auto.toggled.connect(self._on_launch_changed)
+        self.radio_manual.toggled.connect(self._on_launch_changed)
+        self.combo_engine.currentIndexChanged.connect(self._on_launch_changed)
+        v.addWidget(grp_e)
+
+        grp_p = QGroupBox(tr("config_platform_override"))
+        fp = QVBoxLayout(grp_p)
+        hint = QLabel(tr("config_platform_override_hint"))
+        hint.setObjectName("Hint")
+        fp.addWidget(hint)
+        self.combo_override = QComboBox()
+        self.combo_override.addItem(tr("config_platform_none"), "")
+        for p, pcfg in load_engines_json().items():
+            self.combo_override.addItem(pcfg.get("platform_name", p), p)
+        self.combo_override.currentIndexChanged.connect(self._on_launch_changed)
+        fp.addWidget(self.combo_override)
+        v.addWidget(grp_p)
+
+        grp_pr = QGroupBox(tr("config_profile_group"))
+        fpr = QVBoxLayout(grp_pr)
+        self.combo_profile = QComboBox()
+        self.combo_profile.addItem(tr("config_profile_none"), "")
+        for name in (SETTINGS.get("launch_profiles") or {}):
+            self.combo_profile.addItem(name, name)
+        self.combo_profile.currentIndexChanged.connect(self._on_launch_changed)
+        fpr.addWidget(self.combo_profile)
+        hint_pr = QLabel(tr("config_profile_hint"))
+        hint_pr.setObjectName("Hint")
+        fpr.addWidget(hint_pr)
+        v.addWidget(grp_pr)
+
+        grp_a = QGroupBox(tr("config_extra_args"))
+        fa = QVBoxLayout(grp_a)
+        self.edit_args = QLineEdit()
+        self.edit_args.setPlaceholderText(tr("config_extra_args_ph"))
+        self.edit_args.editingFinished.connect(self._on_launch_changed)
+        fa.addWidget(self.edit_args)
+        v.addWidget(grp_a)
+
+        v.addStretch(1)
+
+        g = self._game
+        if g.override_engine:
+            self.radio_manual.setChecked(True)
+            idx = self.combo_engine.findData(g.override_engine)
+            if idx >= 0:
+                self.combo_engine.setCurrentIndex(idx)
+        else:
+            self.radio_auto.setChecked(True)
+        idx = self.combo_override.findData(g.override_platform or "")
+        if idx >= 0:
+            self.combo_override.setCurrentIndex(idx)
+        idx = self.combo_profile.findData(getattr(g, "profile", "") or "")
+        if idx >= 0:
+            self.combo_profile.setCurrentIndex(idx)
+        self.edit_args.setText(g.extra_args or "")
+
+        return w
+
+    def _on_launch_changed(self, *_):
+        if self.radio_manual.isChecked():
+            self._game.override_engine = self.combo_engine.currentData() or ""
+        else:
+            self._game.override_engine = ""
+        self._game.override_platform = self.combo_override.currentData() or ""
+        self._game.profile = self.combo_profile.currentData() or ""
+        self._game.extra_args = self.edit_args.text().strip()
+        self._persist()
+
+    # ---------- 补丁 Tab ----------
+    def _build_patch_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(10)
+
+        hint = QLabel(tr("patch_hint"))
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        v.addWidget(hint)
+
+        self.lbl_patch_state = QLabel()
+        self.lbl_patch_state.setObjectName("Hint")
+        self.lbl_patch_state.setWordWrap(True)
+        v.addWidget(self.lbl_patch_state)
+
+        grp = QGroupBox("可用补丁")
+        fg = QVBoxLayout(grp)
+
+        self.list_patches = QListWidget()
+        self.list_patches.setMinimumHeight(140)
+        self.list_patches.itemDoubleClicked.connect(
+            lambda _: self._apply_selected_patch())
+        fg.addWidget(self.list_patches)
+
+        row = QHBoxLayout()
+        b_scan = QPushButton(tr("patch_scan"))
+        b_scan.clicked.connect(self._scan_patches)
+        row.addWidget(b_scan)
+        b_browse = QPushButton(tr("patch_browse"))
+        b_browse.clicked.connect(self._pick_patch_file)
+        row.addWidget(b_browse)
+        b_apply = QPushButton(tr("patch_apply"))
+        b_apply.setObjectName("PrimaryBtn")
+        b_apply.clicked.connect(self._apply_selected_patch)
+        row.addWidget(b_apply)
+        row.addStretch(1)
+        fg.addLayout(row)
+
+        v.addWidget(grp)
+
+        grp2 = QGroupBox(tr("patch_dir"))
+        fg2 = QVBoxLayout(grp2)
+        row2 = QHBoxLayout()
+        self.edit_patch_dir = QLineEdit(SETTINGS.get("patch_dir", "") or "")
+        self.edit_patch_dir.setPlaceholderText(tr("patch_dir_ph"))
+        self.edit_patch_dir.editingFinished.connect(self._save_patch_dir)
+        row2.addWidget(self.edit_patch_dir, 1)
+        b_dir = QPushButton("…")
+        b_dir.setFixedWidth(36)
+        b_dir.clicked.connect(self._pick_patch_dir)
+        row2.addWidget(b_dir)
+        fg2.addLayout(row2)
+        v.addWidget(grp2)
+
+        v.addStretch(1)
+
+        self._scan_patches()
+        self._refresh_patch_state()
+        return w
+
+    def _scan_patches(self):
+        self.list_patches.clear()
+        rom = Path(self._game.path)
+        dirs = [rom.parent]
+
+        extra = SETTINGS.get("patch_dir", "").strip()
+        if extra:
+            p = Path(extra)
+            if p.exists() and p.is_dir():
+                dirs.append(p)
+
+        stem_lower = rom.stem.lower()
+        matched = []
+        others = []
+        seen = set()
+
+        for d in dirs:
+            for ext in (".ips", ".ups"):
+                try:
+                    for f in d.glob(f"*{ext}"):
+                        if not f.is_file():
+                            continue
+                        if str(f) in seen:
+                            continue
+                        seen.add(str(f))
+                        name_lower = f.stem.lower()
+                        if stem_lower in name_lower or name_lower in stem_lower:
+                            matched.append(f)
+                        else:
+                            others.append(f)
+                except Exception:
+                    pass
+
+        def _add(f, is_match):
+            item = QListWidgetItem()
+            prefix = "⭐ " if is_match else "   "
+            try:
+                sz = format_size(f.stat().st_size)
+            except Exception:
+                sz = "?"
+            item.setText(f"{prefix}{f.name}  ({sz})")
+            item.setData(Qt.UserRole, str(f))
+            item.setToolTip(str(f))
+            if is_match:
+                item.setForeground(QColor("#0f7b0f"))
+            self.list_patches.addItem(item)
+
+        for f in sorted(matched, key=lambda x: x.name.lower()):
+            _add(f, True)
+        for f in sorted(others, key=lambda x: x.name.lower()):
+            _add(f, False)
+
+        if self.list_patches.count() == 0:
+            it = QListWidgetItem(tr("patch_none"))
+            it.setFlags(Qt.NoItemFlags)
+            self.list_patches.addItem(it)
+
+    def _refresh_patch_state(self):
+        g = self._game
+        if getattr(g, "patched_from", ""):
+            src = Path(g.patched_from)
+            lines = [tr("patch_state_patched", src=src.name)]
+            history = getattr(g, "patch_history", []) or []
+            if history:
+                lines.append(tr("patch_state_history"))
+                for h in history:
+                    lines.append(f"  · {Path(h.get('patch', '?')).name}"
+                                 f"  @ {h.get('ts', '')}")
+            self.lbl_patch_state.setText("\n".join(lines))
+        else:
+            self.lbl_patch_state.setText(tr("patch_state_clean"))
+
+    def _save_patch_dir(self):
+        SETTINGS["patch_dir"] = self.edit_patch_dir.text().strip()
+        save_settings()
+        self._scan_patches()
+
+    def _pick_patch_dir(self):
+        d = QFileDialog.getExistingDirectory(
+            self, tr("patch_dir"), str(Path(self._game.path).parent))
+        if d:
+            self.edit_patch_dir.setText(d)
+            self._save_patch_dir()
+
+    def _pick_patch_file(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, tr("patch_browse"), str(Path(self._game.path).parent),
+            "ROM 补丁 (*.ips *.ups);;所有文件 (*)")
+        if not fp:
+            return
+        f = Path(fp)
+        item = QListWidgetItem(f"⭐ {f.name}  ({format_size(f.stat().st_size)})")
+        item.setData(Qt.UserRole, str(f))
+        item.setForeground(QColor("#0f7b0f"))
+        self.list_patches.insertItem(0, item)
+        self.list_patches.setCurrentItem(item)
+
+    def _apply_selected_patch(self):
+        item = self.list_patches.currentItem()
+        if not item:
+            QMessageBox.information(self, tr("msg_info"), "先选中一个补丁")
+            return
+        patch_path_str = item.data(Qt.UserRole)
+        if not patch_path_str:
+            return
+        patch_path = Path(patch_path_str)
+        rom = Path(self._game.path)
+
+        try:
+            info = (f"ROM: {rom.name}  ({format_size(rom.stat().st_size)})\n"
+                    f"补丁: {patch_path.name}  ({format_size(patch_path.stat().st_size)})")
+        except Exception:
+            info = f"ROM: {rom.name}\n补丁: {patch_path.name}"
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("patch_apply"))
+        dv = QVBoxLayout(dlg)
+        dv.addWidget(QLabel(info))
+        dv.addSpacing(8)
+
+        rb_overwrite = QRadioButton(tr("patch_overwrite"))
+        rb_new = QRadioButton(tr("patch_new_file"))
+        rb_new.setChecked(True)
+        dv.addWidget(rb_overwrite)
+        dv.addWidget(rb_new)
+
+        dv.addWidget(QLabel(tr("patch_output_name")))
+        edit_out = QLineEdit(f"{rom.stem} (patched){rom.suffix}")
+        dv.addWidget(edit_out)
+
+        def _toggle_out():
+            edit_out.setEnabled(rb_new.isChecked())
+        rb_new.toggled.connect(_toggle_out)
+
+        dv.addSpacing(8)
+        cb_backup = QCheckBox(tr("patch_backup"))
+        cb_backup.setChecked(True)
+        dv.addWidget(cb_backup)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Ok).setText(tr("patch_apply"))
+        btns.button(QDialogButtonBox.Ok).setObjectName("PrimaryBtn")
+        btns.button(QDialogButtonBox.Cancel).setText(tr("msg_cancel"))
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        dv.addWidget(btns)
+
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        overwrite = rb_overwrite.isChecked()
+        out_name = edit_out.text().strip()
+        if overwrite:
+            out_path = rom
+        else:
+            if not out_name:
+                QMessageBox.warning(self, tr("msg_warning"), "请填写输出文件名")
+                return
+            out_path = rom.parent / out_name
+            if out_path.exists():
+                reply = QMessageBox.question(
+                    self, tr("msg_confirm"),
+                    f"{out_path.name} 已存在，覆盖？",
+                    QMessageBox.Yes | QMessageBox.No)
+                if reply != QMessageBox.Yes:
+                    return
+
+        try:
+            _, old_sz, new_sz = apply_patch_file(
+                rom, patch_path, out_path,
+                backup=cb_backup.isChecked() and not overwrite)
+        except PatchError as e:
+            QMessageBox.critical(self, tr("msg_error"), str(e))
+            return
+        except Exception as e:
+            QMessageBox.critical(self, tr("msg_error"),
+                                 tr("patch_failed", err=str(e)))
+            return
+
+        history = list(getattr(self._game, "patch_history", []) or [])
+        history.append({
+            "patch": str(patch_path),
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        self._game.patch_history = history
+
+        if overwrite:
+            self._game.size = out_path.stat().st_size
+            self._game.patched_from = str(rom) + ".bak"
+            self._persist()
+            QMessageBox.information(
+                self, "完成",
+                tr("patch_done_overwrite",
+                   old=format_size(old_sz), new=format_size(new_sz)))
+        else:
+            games = load_games()
+            new_g = GameEntry(
+                name=clean_game_name(out_path),
+                path=str(out_path),
+                platform=self._game.platform,
+                size=out_path.stat().st_size,
+                added_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                custom_platform=self._game.custom_platform,
+                patched_from=str(rom),
+                patch_history=history,
+            )
+            games.append(new_g)
+            save_games(games)
+
+            reply = QMessageBox.question(
+                self, "完成",
+                tr("patch_done_new", name=out_path.name,
+                   old=format_size(old_sz), new=format_size(new_sz))
+                + "\n\n" + tr("patch_added_to_lib"),
+                QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                self.accept()
+
+        self._refresh_patch_state()
+        self._scan_patches()
+
+    # ---------- 封面 Tab ----------
+    def _build_cover_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(10)
+
+        preview = QLabel()
+        preview.setAlignment(Qt.AlignCenter)
+        preview.setMinimumHeight(280)
+        preview.setStyleSheet(
+            "background:#fafafa;border:1px solid #e5e5e5;border-radius:6px;")
+        self._cover_preview = preview
+        v.addWidget(preview, 1)
+
+        row = QHBoxLayout()
+        b_pick = QPushButton("📂 选择图片")
+        b_pick.setObjectName("PrimaryBtn")
+        b_pick.clicked.connect(self._pick_cover)
+        row.addWidget(b_pick)
+
+        b_remove = QPushButton("🗑 删除封面")
+        b_remove.clicked.connect(self._remove_cover)
+        row.addWidget(b_remove)
+
+        b_online = QPushButton("🌐 在线搜索")
+        b_online.clicked.connect(self._search_cover_online)
+        row.addWidget(b_online)
+
+        row.addStretch(1)
+        v.addLayout(row)
+
+        hint = QLabel(
+            "封面文件保存在 covers/ 目录，文件名与游戏名一致。\n"
+            "支持的格式: PNG / JPG / WEBP。")
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        v.addWidget(hint)
+
+        self._refresh_cover_preview()
+        return w
+
+    def _refresh_cover_preview(self):
+        cover = find_cover(self._game.name)
+        if cover:
+            pix = QPixmap(str(cover))
+            if not pix.isNull():
+                self._cover_preview.setPixmap(
+                    pix.scaled(360, 480, Qt.KeepAspectRatio,
+                               Qt.SmoothTransformation))
+                return
+        self._cover_preview.setText(tr("library_no_cover"))
+
+    def _pick_cover(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, tr("ctx_set_cover"), str(DATA_DIR),
+            "图片 (*.png *.jpg *.jpeg *.webp);;所有文件 (*)")
+        if not fp:
+            return
+        src = Path(fp)
+        dst = COVER_DIR / f"{self._game.name}{src.suffix.lower()}"
+        try:
+            shutil.copy2(src, dst)
+            for e in (".png", ".jpg", ".jpeg", ".webp"):
+                old = COVER_DIR / f"{self._game.name}{e}"
+                if old.exists() and old != dst:
+                    old.unlink()
+            self._refresh_cover_preview()
+            self._update_tab_badges()
+        except Exception as e:
+            QMessageBox.critical(self, tr("msg_error"), str(e))
+
+    def _remove_cover(self):
+        reply = QMessageBox.question(
+            self, tr("msg_confirm"), "删除封面？",
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        for e in (".png", ".jpg", ".jpeg", ".webp"):
+            p = COVER_DIR / f"{self._game.name}{e}"
+            if p.exists():
+                p.unlink()
+        self._refresh_cover_preview()
+        self._update_tab_badges()
+
+    def _search_cover_online(self):
+        from urllib.parse import quote
+        q = quote(f"{self._game.name} {self._game.custom_platform or self._game.platform} box art")
+        url = f"https://www.google.com/search?tbm=isch&q={q}"
+        webbrowser.open(url)
+
+    # ---------- BIOS Tab ----------
+    def _build_bios_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(10)
+
+        hint = QLabel(tr("bios_select_hint"))
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        v.addWidget(hint)
+
+        self.list_bios = QListWidget()
+        self.list_bios.addItem(tr("bios_select_none"))
+        bios_files = scan_bios()
+        if not bios_files:
+            self.list_bios.addItem(tr("bios_select_no_files"))
+            self.list_bios.setEnabled(False)
+        else:
+            for b in bios_files:
+                label = b.name
+                if b.known_as:
+                    label += f"  [{b.known_as}]"
+                item = QListWidgetItem(label)
+                item.setData(Qt.UserRole, b.path)
+                self.list_bios.addItem(item)
+        cur = self._game.bios_file
+        if cur:
+            for i in range(self.list_bios.count()):
+                it = self.list_bios.item(i)
+                if it.data(Qt.UserRole) == cur:
+                    self.list_bios.setCurrentRow(i)
+                    break
+        else:
+            self.list_bios.setCurrentRow(0)
+        self.list_bios.currentItemChanged.connect(self._on_bios_changed)
+        v.addWidget(self.list_bios, 1)
+
+        row = QHBoxLayout()
+        b_import = QPushButton("📥 导入 BIOS 文件")
+        b_import.clicked.connect(self._import_bios_file)
+        row.addWidget(b_import)
+        b_open = QPushButton("📂 打开 BIOS 目录")
+        b_open.clicked.connect(lambda: os.startfile(str(BIOS_DIR)))
+        row.addWidget(b_open)
+        row.addStretch(1)
+        v.addLayout(row)
+
+        return w
+
+    def _on_bios_changed(self, current, _prev):
+        if current is None:
+            return
+        path = current.data(Qt.UserRole) or ""
+        self._game.bios_file = path
+        self._persist()
+
+    def _import_bios_file(self):
+        fps, _ = QFileDialog.getOpenFileNames(
+            self, "导入 BIOS", str(Path.home()), "所有文件 (*)")
+        if not fps:
+            return
+        count = 0
+        for fp in fps:
+            try:
+                shutil.copy2(fp, BIOS_DIR / Path(fp).name)
+                count += 1
+            except Exception as e:
+                logger.exception(f"复制 BIOS 失败: {e}")
+        if count:
+            QMessageBox.information(self, tr("msg_info"),
+                                    f"已导入 {count} 个 BIOS 文件")
+            idx = self.tabs.currentIndex()
+            self.tabs.removeTab(idx)
+            self.tabs.insertTab(idx, self._build_bios_tab(),
+                                tr("game_config_tab_bios"))
+            self.tabs.setCurrentIndex(idx)
+
+    # ---------- 金手指 Tab ----------
+    def _build_cheat_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(10)
+
+        hint = QLabel(tr("settings_cheats_hint"))
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        v.addWidget(hint)
+
+        engine = self._resolve_engine_silent()
+        self.lbl_engine = QLabel(
+            f"<b>当前引擎:</b> {engine.engine if engine else '—'}")
+        self.lbl_engine.setTextFormat(Qt.RichText)
+        v.addWidget(self.lbl_engine)
+
+        self.list_cheats = QListWidget()
+        self.list_cheats.setMinimumHeight(180)
+        self.list_cheats.itemDoubleClicked.connect(
+            lambda _: self._open_selected_cheat())
+        v.addWidget(self.list_cheats, 1)
+
+        row = QHBoxLayout()
+        b_scan = QPushButton(tr("cheat_scan"))
+        b_scan.clicked.connect(self._scan_cheats)
+        row.addWidget(b_scan)
+        b_import = QPushButton("📥 导入金手指")
+        b_import.clicked.connect(self._import_cheat)
+        row.addWidget(b_import)
+        b_open = QPushButton(tr("cheat_open_engine_dir"))
+        b_open.clicked.connect(self._open_cheat_dir)
+        row.addWidget(b_open)
+        row.addStretch(1)
+        v.addLayout(row)
+
+        self._scan_cheats()
+        return w
+
+    def _resolve_engine_silent(self):
+        installed = load_installed()
+        if self._game.override_engine:
+            try:
+                plat, eng = self._game.override_engine.split("/", 1)
+                for e in installed:
+                    if e.platform == plat and e.engine == eng:
+                        return e
+            except Exception:
+                pass
+        target = self._game.override_platform or self._game.platform
+        for e in installed:
+            if e.platform == target:
+                return e
+        return None
+
+    def _scan_cheats(self):
+        self.list_cheats.clear()
+        engine = self._resolve_engine_silent()
+        if not engine:
+            it = QListWidgetItem(tr("cheat_none_engine"))
+            it.setFlags(Qt.NoItemFlags)
+            self.list_cheats.addItem(it)
+            return
+        d = get_cheat_dir(engine.engine)
+        if not d:
+            it = QListWidgetItem(tr("cheat_not_configured", engine=engine.engine))
+            it.setFlags(Qt.NoItemFlags)
+            self.list_cheats.addItem(it)
+            return
+
+        ext = get_cheat_ext(engine.engine)
+        game_lower = self._game.name.lower()
+        matched = []
+        others = []
+        for f in d.rglob(f"*{ext}"):
+            if not f.is_file():
+                continue
+            name_lower = f.stem.lower()
+            words = [game_lower] + game_lower.split()
+            if any(w in name_lower or name_lower in w for w in words):
+                matched.append(f)
+            else:
+                others.append(f)
+
+        for f in sorted(matched, key=lambda x: x.name.lower()):
+            item = QListWidgetItem(f"⭐ {f.name}")
+            item.setData(Qt.UserRole, str(f))
+            item.setForeground(QColor("#0f7b0f"))
+            self.list_cheats.addItem(item)
+        for f in sorted(others, key=lambda x: x.name.lower())[:200]:
+            item = QListWidgetItem(f"   {f.name}")
+            item.setData(Qt.UserRole, str(f))
+            self.list_cheats.addItem(item)
+
+    def _open_selected_cheat(self):
+        item = self.list_cheats.currentItem()
+        if not item:
+            return
+        path = item.data(Qt.UserRole)
+        if not path:
+            return
+        p = Path(path)
+        if p.exists():
+            try:
+                os.startfile(str(p))
+            except Exception:
+                pass
+
+    def _open_cheat_dir(self):
+        engine = self._resolve_engine_silent()
+        if engine:
+            d = get_cheat_dir(engine.engine)
+            if d:
+                os.startfile(str(d))
+                return
+        os.startfile(str(CHEAT_DIR))
+
+    def _import_cheat(self):
+        engine = self._resolve_engine_silent()
+        if not engine:
+            QMessageBox.warning(self, tr("msg_warning"),
+                                tr("config_no_engine"))
+            return
+        d = get_cheat_dir(engine.engine)
+        if not d:
+            d = CHEAT_DIR / engine.engine
+            d.mkdir(parents=True, exist_ok=True)
+            CHEAT_PATHS[engine.engine] = {"dir": str(d),
+                                          "ext": get_cheat_ext(engine.engine)}
+            save_cheat_paths()
+        fps, _ = QFileDialog.getOpenFileNames(
+            self, "导入金手指", str(Path.home()), "所有文件 (*)")
+        count = 0
+        for fp in fps:
+            try:
+                shutil.copy2(fp, d / Path(fp).name)
+                count += 1
+            except Exception as e:
+                logger.exception(f"复制金手指失败: {e}")
+        if count:
+            QMessageBox.information(self, tr("msg_info"),
+                                    f"已导入 {count} 个金手指文件")
+            self._scan_cheats()
+
+    # ---------- 存档 Tab ----------
+    def _build_save_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(10)
+
+        engine = self._resolve_engine_silent()
+        save_path = get_save_path(engine.engine) if engine else None
+
+        if save_path:
+            info = QLabel(f"<b>存档目录:</b> {save_path}")
+        else:
+            info = QLabel(
+                "未配置存档路径。\n"
+                "去「设置 → 存档路径配置」里为当前引擎指定目录。")
+        info.setTextFormat(Qt.RichText)
+        info.setWordWrap(True)
+        v.addWidget(info)
+
+        row = QHBoxLayout()
+        b_open = QPushButton("📂 打开存档目录")
+        b_open.setEnabled(bool(save_path))
+        b_open.clicked.connect(
+            lambda: os.startfile(str(save_path)) if save_path else None)
+        row.addWidget(b_open)
+
+        b_backup = QPushButton("💾 立即备份此引擎存档")
+        b_backup.setEnabled(bool(save_path))
+        b_backup.clicked.connect(self._backup_engine_save)
+        row.addWidget(b_backup)
+
+        b_restore = QPushButton("↩ 从备份还原")
+        b_restore.clicked.connect(self._restore_engine_save)
+        row.addWidget(b_restore)
+
+        row.addStretch(1)
+        v.addLayout(row)
+
+        if engine:
+            backups = [b for b in list_save_backups()
+                       if b.name.startswith(engine.engine + "_")]
+            if backups:
+                grp = QGroupBox(f"{engine.engine} 的备份")
+                fg = QVBoxLayout(grp)
+                self.list_backups = QListWidget()
+                for b in backups[:30]:
+                    item = QListWidgetItem(
+                        f"{b.name}  ({human_size(_dir_size(b))})")
+                    item.setData(Qt.UserRole, str(b))
+                    self.list_backups.addItem(item)
+                self.list_backups.itemDoubleClicked.connect(
+                    lambda _: self._restore_engine_save())
+                fg.addWidget(self.list_backups)
+                v.addWidget(grp, 1)
+
+        v.addStretch(1)
+        return w
+
+    def _backup_engine_save(self):
+        try:
+            results = backup_all_saves()
+            QMessageBox.information(
+                self, tr("msg_info"),
+                f"已备份 {len(results)} 个引擎的存档")
+        except Exception as e:
+            QMessageBox.critical(self, tr("msg_error"), str(e))
+
+    def _restore_engine_save(self):
+        list_w = getattr(self, "list_backups", None)
+        if not list_w:
+            return
+        cur = list_w.currentItem()
+        if not cur:
+            return
+        path = Path(cur.data(Qt.UserRole))
+        reply = QMessageBox.question(
+            self, tr("msg_confirm"),
+            tr("save_restore_confirm", name=path.name),
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        try:
+            restore_save_backup(path)
+            QMessageBox.information(self, tr("msg_info"),
+                                    tr("save_restore_done", name=path.name))
+        except Exception as e:
+            QMessageBox.critical(self, tr("msg_error"), str(e))
+
+    # ---------- 信息 Tab ----------
+    def _build_info_tab(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setSpacing(8)
+
+        g = self._game
+        rows = [
+            ("游戏名", g.name),
+            ("平台", g.custom_platform or g.platform),
+            ("路径", g.path),
+            ("大小", format_size(g.size)),
+            ("加入时间", g.added_at or "—"),
+            ("最后游玩", g.last_played or "—"),
+            ("累计时长", human_duration(g.play_seconds)),
+            ("启动次数", str(g.launch_count)),
+            ("收藏", "是" if g.favorite else "否"),
+            ("通关", "是" if getattr(g, "cleared", False) else "否"),
+        ]
+
+        table = QTableWidget(len(rows), 2)
+        table.setHorizontalHeaderLabels(["字段", "值"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        for i, (k, val) in enumerate(rows):
+            table.setItem(i, 0, QTableWidgetItem(k))
+            table.setItem(i, 1, QTableWidgetItem(str(val)))
+        v.addWidget(table, 1)
+
+        row = QHBoxLayout()
+        b_copy = QPushButton("📋 复制信息")
+        b_copy.clicked.connect(self._copy_info)
+        row.addWidget(b_copy)
+
+        b_toggle_clear = QPushButton(
+            "取消通关标记" if getattr(g, "cleared", False) else "✅ 标记为通关")
+        b_toggle_clear.clicked.connect(self._toggle_cleared)
+        row.addWidget(b_toggle_clear)
+
+        b_open_folder = QPushButton(tr("ctx_open_folder"))
+        b_open_folder.clicked.connect(
+            lambda: self.open_folder_requested.emit(self._game))
+        row.addWidget(b_open_folder)
+
+        row.addStretch(1)
+        v.addLayout(row)
+
+        return w
+
+    def _copy_info(self):
+        g = self._game
+        text = (
+            f"游戏名: {g.name}\n"
+            f"平台: {g.custom_platform or g.platform}\n"
+            f"路径: {g.path}\n"
+            f"大小: {format_size(g.size)}\n"
+            f"时长: {human_duration(g.play_seconds)}\n"
+            f"启动: {g.launch_count}\n"
+        )
+        QApplication.clipboard().setText(text)
+        QMessageBox.information(self, tr("msg_info"), "已复制")
+
+    def _toggle_cleared(self):
+        self._game.cleared = not getattr(self._game, "cleared", False)
+        self._persist()
+        idx = self.tabs.currentIndex()
+        self.tabs.removeTab(idx)
+        self.tabs.insertTab(idx, self._build_info_tab(),
+                            tr("game_config_tab_info"))
+        self.tabs.setCurrentIndex(idx)
+
+
+def _dir_size(p: Path) -> int:
+    total = 0
+    try:
+        for f in p.rglob("*"):
+            if f.is_file():
+                total += f.stat().st_size
+    except Exception:
+        pass
+    return total
+
+
+# ============================================================
+# 23. 页面：模拟器 / BIOS / 统计 / 资源
 # ============================================================
 class EnginePage(QWidget):
     import_requested = Signal()
     download_requested = Signal()
     update_requested = Signal(str, str, str)
     ignore_requested = Signal(str, str, str)
+    status_message = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -5896,6 +8442,9 @@ class EnginePage(QWidget):
         self.btn_check_update = QPushButton("检查更新")
         self.btn_check_update.clicked.connect(self.check_updates)
         bar.addWidget(self.btn_check_update)
+        self.btn_update_all = QPushButton(tr("engines_update_all"))
+        self.btn_update_all.clicked.connect(self._update_all)
+        bar.addWidget(self.btn_update_all)
         bar.addStretch(1)
         root.addLayout(bar)
 
@@ -5936,6 +8485,32 @@ class EnginePage(QWidget):
     def _on_update_found(self, platform, engine, latest, url):
         self._model.set_update_info(platform, engine, latest, url)
 
+    def _update_all(self):
+        pending = []
+        for row in self._model._rows:
+            latest, url = self._model.get_update(row.platform, row.engine)
+            if latest and url:
+                pending.append((row, latest, url))
+
+        if not pending:
+            QMessageBox.information(self, tr("msg_info"),
+                                    tr("engines_update_all_none"))
+            return
+
+        names = "\n".join(f"  · {r.platform_name}/{r.engine} → {v}"
+                          for r, v, _ in pending)
+        reply = QMessageBox.question(
+            self, tr("msg_confirm"),
+            tr("engines_update_all_confirm", n=len(pending))
+            + f"\n\n{names}\n\n继续？",
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+
+        dlg = BatchUpdateDialog(pending, self)
+        dlg.exec()
+        self.refresh()
+
     def _on_context_menu(self, pos):
         idx = self.table.indexAt(pos)
         if not idx.isValid():
@@ -5950,11 +8525,64 @@ class EnginePage(QWidget):
         a_update.setEnabled(bool(latest and url))
         a_ignore = menu.addAction(tr("engines_update_ignore"))
         a_ignore.setEnabled(bool(latest))
+        menu.addSeparator()
+        a_open = menu.addAction(tr("engines_open_dir"))
+        a_del = menu.addAction(tr("engines_delete_btn"))
         act = menu.exec(self.table.viewport().mapToGlobal(pos))
         if act == a_update and url:
             self.update_requested.emit(e.platform, e.engine, url)
         elif act == a_ignore and latest:
             self.ignore_requested.emit(e.platform, e.engine, latest)
+        elif act == a_open:
+            try:
+                os.startfile(e.engine_dir)
+            except Exception as ex:
+                QMessageBox.warning(self, tr("msg_warning"), str(ex))
+        elif act == a_del:
+            self._delete_engine(e)
+
+    def _delete_engine(self, e):
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(tr("msg_confirm"))
+        box.setTextFormat(Qt.RichText)
+        box.setText(
+            f"删除引擎 <b>{e.engine}</b>？<br><br>"
+            f"平台: {e.platform_name}<br>"
+            f"路径: {e.engine_path}<br><br>"
+            f"<b>会从引擎库移除。</b>可选是否同时删除磁盘上的引擎目录。"
+        )
+        cb = QCheckBox(tr("engines_delete_cascade"))
+        cb.setChecked(True)
+        box.setCheckBox(cb)
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.button(QMessageBox.Yes).setText("删除")
+        box.button(QMessageBox.Yes).setObjectName("DangerBtn")
+        box.button(QMessageBox.No).setText(tr("msg_cancel"))
+        if box.exec() != QMessageBox.Yes:
+            return
+
+        engines = load_installed()
+        engines = [x for x in engines
+                   if not (x.platform == e.platform and x.engine == e.engine)]
+        save_installed(engines)
+
+        if cb.isChecked() and e.engine_dir:
+            d = Path(e.engine_dir)
+            try:
+                if d.exists() and d.is_dir():
+                    d.resolve().relative_to(ENGINE_DOWNLOAD_DIR.resolve())
+                    shutil.rmtree(d, ignore_errors=True)
+                    logger.info(f"已删除引擎目录: {d}")
+            except ValueError:
+                logger.warning(f"拒绝删除非引擎目录: {d}")
+            except Exception as ex:
+                logger.exception(f"删除引擎目录失败: {ex}")
+                QMessageBox.warning(self, tr("msg_warning"),
+                                    f"目录删除失败: {ex}")
+
+        self.refresh()
+        self.status_message.emit(tr("engines_delete_ok", engine=e.engine))
 
 
 class BiosPage(QWidget):
@@ -6205,15 +8833,25 @@ class StatsPage(QWidget):
         v.addWidget(table_grp)
 
         badge_grp = QGroupBox(tr("stats_badges"))
-        bv = QHBoxLayout(badge_grp)
+        bgrid = QGridLayout(badge_grp)
         self.badge_labels = []
-        for key in ("stats_badge_first", "stats_badge_10h", "stats_badge_50h",
-                    "stats_badge_7days", "stats_badge_allplat"):
+        badge_keys = [
+            "stats_badge_first", "stats_badge_10h", "stats_badge_50h",
+            "stats_badge_100h", "stats_badge_1000h",
+            "stats_badge_7days", "stats_badge_30days",
+            "stats_badge_day8",
+            "stats_badge_allplat", "stats_badge_week5plat",
+            "stats_badge_lib100", "stats_badge_lib500",
+            "stats_badge_launch50", "stats_badge_launch500",
+            "stats_badge_fav20", "stats_badge_clear10",
+            "stats_badge_lan", "stats_badge_wii", "stats_badge_ps3",
+        ]
+        for i, key in enumerate(badge_keys):
             lbl = QLabel(tr(key))
             lbl.setAlignment(Qt.AlignCenter)
-            lbl.setMinimumHeight(80)
+            lbl.setMinimumHeight(90)
             lbl.setMinimumWidth(110)
-            bv.addWidget(lbl)
+            bgrid.addWidget(lbl, i // 6, i % 6)
             self.badge_labels.append((key, lbl))
         v.addWidget(badge_grp)
 
@@ -6295,12 +8933,15 @@ class StatsPage(QWidget):
     def _compute_badges(self, games, daily):
         result = {}
         total_sec = sum(g.play_seconds for g in games)
+        now = time.time()
+
         result["stats_badge_first"] = any(g.last_played for g in games)
         result["stats_badge_10h"] = total_sec >= 10 * 3600
         result["stats_badge_50h"] = any(g.play_seconds >= 50 * 3600 for g in games)
+        result["stats_badge_100h"] = total_sec >= 100 * 3600
+        result["stats_badge_1000h"] = total_sec >= 1000 * 3600
 
         streak = 0
-        now = time.time()
         for i in range(7):
             d = time.strftime("%Y-%m-%d", time.localtime(now - i * 86400))
             if sum((daily.get(d) or {}).values()) > 0:
@@ -6309,9 +8950,52 @@ class StatsPage(QWidget):
                 break
         result["stats_badge_7days"] = streak >= 7
 
+        streak30 = 0
+        for i in range(30):
+            d = time.strftime("%Y-%m-%d", time.localtime(now - i * 86400))
+            if sum((daily.get(d) or {}).values()) > 0:
+                streak30 += 1
+            else:
+                break
+        result["stats_badge_30days"] = streak30 >= 30
+
+        result["stats_badge_day8"] = any(
+            sum(plats.values()) >= 8 * 3600 for plats in daily.values())
+
         all_plats = set(load_engines_json().keys())
         played_plats = {g.platform for g in games if g.play_seconds > 0}
         result["stats_badge_allplat"] = bool(all_plats) and all_plats.issubset(played_plats)
+
+        week_plats = set()
+        for i in range(7):
+            d = time.strftime("%Y-%m-%d", time.localtime(now - i * 86400))
+            week_plats.update((daily.get(d) or {}).keys())
+        result["stats_badge_week5plat"] = len(week_plats) >= 5
+
+        result["stats_badge_lib100"] = len(games) >= 100
+        result["stats_badge_lib500"] = len(games) >= 500
+
+        launches = STATS.get("launches", 0)
+        result["stats_badge_launch50"] = launches >= 50
+        result["stats_badge_launch500"] = launches >= 500
+
+        result["stats_badge_fav20"] = sum(1 for g in games if g.favorite) >= 20
+        result["stats_badge_clear10"] = sum(
+            1 for g in games if getattr(g, "cleared", False)) >= 10
+
+        lan_used = False
+        try:
+            if LAN_HISTORY_DIR.exists():
+                lan_used = any(LAN_HISTORY_DIR.glob("*.jsonl"))
+        except Exception:
+            pass
+        result["stats_badge_lan"] = lan_used
+
+        # 新平台启动
+        played_platforms = {g.platform for g in games if g.last_played}
+        result["stats_badge_wii"] = "wii" in played_platforms
+        result["stats_badge_ps3"] = "ps3" in played_platforms
+
         return result
 
 
@@ -6435,13 +9119,14 @@ class ResourcesPage(QWidget):
                 RESOURCES_CONFIG = data
                 save_resources()
                 self.refresh()
-                QMessageBox.information(self, tr("msg_info"), tr("resources_saved"))
+                QMessageBox.information(self, tr("msg_info"),
+                                        tr("resources_saved"))
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"), str(e))
 
 
 # ============================================================
-# 22.5 页面：局域网（独立版完整功能）
+# 23.5 局域网页面
 # ============================================================
 class EmojiPanel(QDialog):
     emoji_picked = Signal(str)
@@ -6468,7 +9153,6 @@ class EmojiPanel(QDialog):
 
 
 class LanPage(QWidget):
-    """独立版 mikan_lan v1.2.x 完整整合：聊天 + 共享 + 拖拽 + 表情 + 右键。"""
     settings_requested = Signal()
 
     def __init__(self):
@@ -6488,13 +9172,11 @@ class LanPage(QWidget):
         self._load_history_index()
         self._rebuild_peer_list()
 
-    # ---------- UI 构建 ----------
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(12)
 
-        # 顶栏
         topbar = QHBoxLayout()
         title = QLabel(tr("lan_title"))
         title.setObjectName("SectionTitle")
@@ -6528,11 +9210,9 @@ class LanPage(QWidget):
         note.setWordWrap(True)
         root.addWidget(note)
 
-        # 主体：左侧用户列表 + 右侧 Tab（聊天 / 共享）
         body = QHBoxLayout()
         body.setSpacing(12)
 
-        # 左：在线用户
         left = QVBoxLayout()
         lbl_peers = QLabel(tr("lan_peers"))
         lbl_peers.setObjectName("Hint")
@@ -6551,10 +9231,8 @@ class LanPage(QWidget):
         left.addWidget(self.lbl_empty)
         body.addLayout(left)
 
-        # 右：Tab
         self.tabs = QTabWidget()
 
-        # --- 聊天 Tab ---
         chat_tab = QWidget()
         chat_layout = QVBoxLayout(chat_tab)
         chat_layout.setContentsMargins(0, 0, 0, 0)
@@ -6601,7 +9279,6 @@ class LanPage(QWidget):
 
         self.tabs.addTab(chat_tab, tr("lan_tab_chat"))
 
-        # --- 共享 Tab ---
         share_tab = QWidget()
         share_layout = QVBoxLayout(share_tab)
         share_layout.setContentsMargins(0, 0, 0, 0)
@@ -6618,7 +9295,6 @@ class LanPage(QWidget):
 
         split = QSplitter(Qt.Horizontal)
 
-        # 左：我共享的
         left_box = QWidget()
         lv = QVBoxLayout(left_box)
         lv.setContentsMargins(0, 0, 0, 0)
@@ -6647,7 +9323,6 @@ class LanPage(QWidget):
         lv.addLayout(lrow)
         split.addWidget(left_box)
 
-        # 右：别人的共享
         right_box = QWidget()
         rv = QVBoxLayout(right_box)
         rv.setContentsMargins(0, 0, 0, 0)
@@ -6689,15 +9364,11 @@ class LanPage(QWidget):
         body.addWidget(self.tabs, 1)
         root.addLayout(body, 1)
 
-        # 拖拽
         self.setAcceptDrops(True)
 
-        self._refresh_my_label()
-        self._update_empty_hint()
         self._refresh_input_state()
         self._share_refresh_local()
 
-    # ---------- 拖拽 ----------
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -6721,7 +9392,8 @@ class LanPage(QWidget):
             event.acceptProposedAction()
             return
         if not self._current_peer:
-            QMessageBox.information(self, tr("msg_info"), tr("lan_drop_no_target"))
+            QMessageBox.information(self, tr("msg_info"),
+                                    tr("lan_drop_no_target"))
             return
         if len(files) == 1:
             self._send_file_path(files[0])
@@ -6737,7 +9409,6 @@ class LanPage(QWidget):
                 self._send_file_path(f)
         event.acceptProposedAction()
 
-    # ---------- 生命周期 ----------
     def start_service(self):
         if self._discovery is not None and self._discovery.isRunning():
             return
@@ -6814,17 +9485,12 @@ class LanPage(QWidget):
     def shutdown(self):
         self.stop_service()
 
-    # ---------- 昵称 ----------
-    def _refresh_my_label(self):
-        pass
-
     def _on_nickname_changed(self):
         name = self.edit_nick.text().strip()
         if not name or name == self._identity.name:
             return
         self._identity.set_name(name)
 
-    # ---------- 用户列表 ----------
     def _on_peer_found(self, peer):
         is_new = peer.id not in self._seen_peer_ids
         self._seen_peer_ids.add(peer.id)
@@ -6873,9 +9539,6 @@ class LanPage(QWidget):
                 self.list_peers.setCurrentItem(it)
 
         self.list_peers.blockSignals(False)
-        self._update_empty_hint()
-
-    def _update_empty_hint(self):
         self.lbl_empty.setVisible(len(self._peers) == 0)
 
     def _select_peer(self, peer_id: str):
@@ -6914,7 +9577,6 @@ class LanPage(QWidget):
         self.btn_emoji.setEnabled(has)
         self.btn_clear.setEnabled(has)
 
-    # ---------- 历史 ----------
     def _load_history_index(self):
         if not LAN_HISTORY_DIR.exists():
             return
@@ -7008,9 +9670,7 @@ class LanPage(QWidget):
             return False
         return self._current_peer.id == key
 
-    # ---------- 收消息 / 文件 ----------
     def _on_message_received(self, pid, pname, text, is_broadcast):
-        # 从消息补入 peer
         if pid not in self._peers:
             self._peers[pid] = LanPeer(pid, pname, "", 0, time.time())
             self._seen_peer_ids.add(pid)
@@ -7050,7 +9710,6 @@ class LanPage(QWidget):
             msg = tr("lan_file_hash_bad")
         self._append_system(peer_id, msg)
 
-        # 弹窗提示
         if SETTINGS.get("lan_notify_on_receive", True):
             peer_name = self._peers[peer_id].name if peer_id in self._peers else peer_id[:8]
             if ok:
@@ -7063,7 +9722,6 @@ class LanPage(QWidget):
                     self, tr("msg_warning"),
                     f"来自 {peer_name} 的文件未能接收/校验失败。")
 
-    # ---------- 发消息 ----------
     def _popup_emoji(self):
         panel = EmojiPanel(self)
         pos = self.btn_emoji.mapToGlobal(
@@ -7102,7 +9760,8 @@ class LanPage(QWidget):
             self._append_history(LAN_BROADCAST_ID, "me", text)
             self._append_line("me", text, time.time(), peer_id=LAN_BROADCAST_ID)
             if ok_count == 0:
-                QMessageBox.warning(self, tr("msg_warning"), tr("lan_msg_failed"))
+                QMessageBox.warning(self, tr("msg_warning"),
+                                    tr("lan_msg_failed"))
             return
 
         peer = self._current_peer
@@ -7123,7 +9782,6 @@ class LanPage(QWidget):
         else:
             QMessageBox.warning(self, tr("msg_warning"), tr("lan_msg_failed"))
 
-    # ---------- 发文件 ----------
     def _on_send_file(self):
         if not self._current_peer:
             return
@@ -7203,7 +9861,6 @@ class LanPage(QWidget):
         self._refresh_input_state()
         self.progress.setVisible(False)
 
-    # ---------- 清空 ----------
     def _on_clear_history(self):
         if self._current_is_broadcast:
             key = LAN_BROADCAST_ID
@@ -7226,7 +9883,6 @@ class LanPage(QWidget):
             pass
         self.chat_view.clear()
 
-    # ---------- 右键菜单 ----------
     def _on_peer_menu(self, pos):
         it = self.list_peers.itemAt(pos)
         if not it:
@@ -7282,7 +9938,7 @@ class LanPage(QWidget):
             target_key = LAN_BROADCAST_ID if kind == "broadcast" else key
             self._history[target_key] = []
             try:
-                fp = HISTORY_DIR / f"{target_key}.jsonl"
+                fp = LAN_HISTORY_DIR / f"{target_key}.jsonl"
                 if fp.exists():
                     fp.unlink()
             except Exception:
@@ -7341,8 +9997,7 @@ class LanPage(QWidget):
 
         def one_send(peer):
             ok, reason = LanChatClient.send_file(
-                peer, self._identity, path, pwd_hash, want_hash,
-                None)
+                peer, self._identity, path, pwd_hash, want_hash, None)
             with lock:
                 counter["done"] += 1
                 if ok:
@@ -7386,7 +10041,6 @@ class LanPage(QWidget):
             LAN_BROADCAST_ID,
             tr("lan_broadcast_done", name=path.name, ok=ok_n, total=total))
 
-    # ---------- 共享 ----------
     def _share_refresh_local(self):
         files = _scan_shared_dir()
         self.table_local.setRowCount(len(files))
@@ -7529,11 +10183,9 @@ class LanPage(QWidget):
 
 
 # ============================================================
-# 22.7 页面：局域网传输（内嵌 LocalSend Web）
+# 23.7 局域网传输（内嵌 LocalSend Web）
 # ============================================================
 class WebTransferPage(QWidget):
-    """内嵌 LocalSend Web。若 QtWebEngine 不可用，降级为外部浏览器。"""
-
     def __init__(self):
         super().__init__()
         self._view = None
@@ -7592,7 +10244,6 @@ class WebTransferPage(QWidget):
             except Exception as e:
                 logger.debug(f"WebEngine profile 配置: {e}")
 
-            # 下载处理：保存到系统默认下载目录
             try:
                 profile.downloadRequested.connect(self._on_download_requested)
             except Exception as e:
@@ -7687,7 +10338,6 @@ class WebTransferPage(QWidget):
             QMessageBox.critical(self, tr("msg_error"),
                                  tr("webtransfer_install_failed"))
 
-    # ---------- 下载处理 ----------
     def _on_download_requested(self, download):
         target_dir = None
         try:
@@ -7780,10 +10430,9 @@ class WebTransferPage(QWidget):
             except Exception:
                 pass
 
-# ===== 第 4/5 段结束，回复"继续"输出第 5/5 段 =====
 
 # ============================================================
-# 23. 页面：设置
+# 24. 设置页
 # ============================================================
 class SettingsPage(QWidget):
     lang_changed = Signal(str)
@@ -7791,6 +10440,7 @@ class SettingsPage(QWidget):
     retroarch_changed = Signal()
     platforms_changed = Signal()
     lan_changed = Signal()
+    theme_changed = Signal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -7813,6 +10463,44 @@ class SettingsPage(QWidget):
         title = QLabel(tr("settings_title"))
         title.setObjectName("SectionTitle")
         v.addWidget(title)
+
+        # --- 外观 ---
+        box_theme = QGroupBox(tr("settings_theme"))
+        ft = QVBoxLayout(box_theme)
+
+        row_t = QHBoxLayout()
+        row_t.addWidget(QLabel(tr("settings_theme")))
+        self.combo_theme = QComboBox()
+        self.combo_theme.addItem(tr("settings_theme_auto"), "auto")
+        self.combo_theme.addItem(tr("settings_theme_light"), "light")
+        self.combo_theme.addItem(tr("settings_theme_dark"), "dark")
+        idx = self.combo_theme.findData(SETTINGS.get("theme", "auto"))
+        if idx >= 0:
+            self.combo_theme.setCurrentIndex(idx)
+        self.combo_theme.currentIndexChanged.connect(self._on_theme_changed)
+        row_t.addWidget(self.combo_theme)
+        row_t.addStretch(1)
+        ft.addLayout(row_t)
+
+        row_c = QHBoxLayout()
+        row_c.addWidget(QLabel(tr("settings_accent")))
+        self.btn_accent = QPushButton("选择…")
+        self.btn_accent.clicked.connect(self._pick_accent)
+        row_c.addWidget(self.btn_accent)
+        self.btn_accent_reset = QPushButton("重置")
+        self.btn_accent_reset.clicked.connect(self._reset_accent)
+        row_c.addWidget(self.btn_accent_reset)
+        row_c.addStretch(1)
+        ft.addLayout(row_c)
+
+        cur_accent = SETTINGS.get("accent_color", "")
+        if cur_accent:
+            self.btn_accent.setStyleSheet(
+                f"background:{cur_accent};color:white;"
+                f"border-radius:4px;padding:4px 12px;")
+            self.btn_accent.setText(cur_accent)
+
+        v.addWidget(box_theme)
 
         # --- 语言 ---
         box1 = QGroupBox(tr("settings_lang"))
@@ -7950,6 +10638,26 @@ class SettingsPage(QWidget):
         row_opt.addStretch(1)
         fopt.addLayout(row_opt)
         v.addWidget(box_opt)
+
+        # --- 配置包 ---
+        box_pack = QGroupBox(tr("pack_title"))
+        fpack = QVBoxLayout(box_pack)
+        h_pack = QLabel(tr("pack_hint"))
+        h_pack.setObjectName("Hint")
+        h_pack.setWordWrap(True)
+        fpack.addWidget(h_pack)
+
+        row_pack = QHBoxLayout()
+        b_exp = QPushButton(tr("pack_export"))
+        b_exp.setObjectName("PrimaryBtn")
+        b_exp.clicked.connect(self._export_pack)
+        row_pack.addWidget(b_exp)
+        b_imp = QPushButton(tr("pack_import"))
+        b_imp.clicked.connect(self._import_pack)
+        row_pack.addWidget(b_imp)
+        row_pack.addStretch(1)
+        fpack.addLayout(row_pack)
+        v.addWidget(box_pack)
 
         # --- 平台管理 ---
         box_plat = QGroupBox(tr("settings_platform_mgr"))
@@ -8093,6 +10801,35 @@ class SettingsPage(QWidget):
         fra.addLayout(row_ra)
         v.addWidget(box_ra)
 
+        # --- 启动模板 ---
+        box_prof = QGroupBox(tr("config_profile_group"))
+        fprof = QVBoxLayout(box_prof)
+        hint_prof = QLabel(tr("config_profile_hint"))
+        hint_prof.setObjectName("Hint")
+        hint_prof.setWordWrap(True)
+        fprof.addWidget(hint_prof)
+
+        self.table_prof = QTableWidget(0, 2)
+        self.table_prof.setHorizontalHeaderLabels(["名称", "参数"])
+        self.table_prof.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table_prof.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table_prof.verticalHeader().setVisible(False)
+        self.table_prof.setMinimumHeight(140)
+        self._reload_profiles_table()
+        fprof.addWidget(self.table_prof)
+
+        row_pf = QHBoxLayout()
+        b_add_pf = QPushButton("添加模板")
+        b_add_pf.clicked.connect(self._add_profile_row)
+        row_pf.addWidget(b_add_pf)
+        b_save_pf = QPushButton(tr("settings_saves_save"))
+        b_save_pf.setObjectName("PrimaryBtn")
+        b_save_pf.clicked.connect(self._save_profiles)
+        row_pf.addWidget(b_save_pf)
+        row_pf.addStretch(1)
+        fprof.addLayout(row_pf)
+        v.addWidget(box_prof)
+
         # --- 金手指 ---
         box_ch = QGroupBox(tr("settings_cheats"))
         fch = QVBoxLayout(box_ch)
@@ -8131,25 +10868,25 @@ class SettingsPage(QWidget):
         fch.addWidget(b_save_ch)
         v.addWidget(box_ch)
 
-        # --- 托盘 + 性能小窗 ---
+        # --- 托盘 + 性能 ---
         box_tray = QGroupBox(tr("settings_tray"))
-        ft = QVBoxLayout(box_tray)
+        ftr = QVBoxLayout(box_tray)
         self.check_tray_min = QCheckBox(tr("settings_tray_minimize"))
         self.check_tray_min.setChecked(SETTINGS.get("tray_minimize_on_close", False))
         self.check_tray_min.toggled.connect(
             lambda val: self._set_setting("tray_minimize_on_close", val))
-        ft.addWidget(self.check_tray_min)
+        ftr.addWidget(self.check_tray_min)
         self.check_tray_launch = QCheckBox(tr("settings_tray_minimize_launch"))
         self.check_tray_launch.setChecked(SETTINGS.get("tray_minimize_after_launch", False))
         self.check_tray_launch.toggled.connect(
             lambda val: self._set_setting("tray_minimize_after_launch", val))
-        ft.addWidget(self.check_tray_launch)
+        ftr.addWidget(self.check_tray_launch)
 
         self.check_perf = QCheckBox(tr("settings_perf_monitor"))
         self.check_perf.setChecked(SETTINGS.get("perf_monitor_on_launch", True))
         self.check_perf.toggled.connect(
             lambda val: self._set_setting("perf_monitor_on_launch", val))
-        ft.addWidget(self.check_perf)
+        ftr.addWidget(self.check_perf)
         v.addWidget(box_tray)
 
         # --- 工作区 ---
@@ -8247,6 +10984,34 @@ class SettingsPage(QWidget):
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
 
+    # ---- 主题 ----
+    def _on_theme_changed(self, _i):
+        mode = self.combo_theme.currentData()
+        SETTINGS["theme"] = mode
+        save_settings()
+        self.theme_changed.emit(mode, SETTINGS.get("accent_color", ""))
+
+    def _pick_accent(self):
+        c = QColorDialog.getColor(
+            QColor(SETTINGS.get("accent_color") or "#0067c0"),
+            self, tr("settings_accent"))
+        if not c.isValid():
+            return
+        SETTINGS["accent_color"] = c.name()
+        save_settings()
+        self.btn_accent.setStyleSheet(
+            f"background:{c.name()};color:white;"
+            f"border-radius:4px;padding:4px 12px;")
+        self.btn_accent.setText(c.name())
+        self.theme_changed.emit(SETTINGS.get("theme", "auto"), c.name())
+
+    def _reset_accent(self):
+        SETTINGS["accent_color"] = ""
+        save_settings()
+        self.btn_accent.setStyleSheet("")
+        self.btn_accent.setText("选择…")
+        self.theme_changed.emit(SETTINGS.get("theme", "auto"), "")
+
     # ---- 可选依赖 ----
     def _refresh_optional_label(self):
         lines = []
@@ -8282,7 +11047,46 @@ class SettingsPage(QWidget):
             "已在新窗口开始安装。\n"
             "安装完成后请关闭并重新启动 mikan_emu。")
 
-    # ---- 局域网回调 ----
+    # ---- 配置包 ----
+    def _export_pack(self):
+        dlg = ConfigPackDialog("export", self)
+        dlg.exec()
+
+    def _import_pack(self):
+        dlg = ConfigPackDialog("import", self)
+        if dlg.exec() == QDialog.Accepted:
+            self.platforms_changed.emit()
+            self.saves_changed.emit()
+
+    # ---- 启动模板 ----
+    def _reload_profiles_table(self):
+        self.table_prof.setRowCount(0)
+        profiles = SETTINGS.get("launch_profiles", {}) or {}
+        for name, args in profiles.items():
+            r = self.table_prof.rowCount()
+            self.table_prof.insertRow(r)
+            self.table_prof.setItem(r, 0, QTableWidgetItem(name))
+            self.table_prof.setItem(r, 1, QTableWidgetItem(args))
+
+    def _add_profile_row(self):
+        r = self.table_prof.rowCount()
+        self.table_prof.insertRow(r)
+        self.table_prof.setItem(r, 0, QTableWidgetItem("新模板"))
+        self.table_prof.setItem(r, 1, QTableWidgetItem(""))
+
+    def _save_profiles(self):
+        profiles = {}
+        for r in range(self.table_prof.rowCount()):
+            n = self.table_prof.item(r, 0)
+            a = self.table_prof.item(r, 1)
+            if not n or not n.text().strip():
+                continue
+            profiles[n.text().strip()] = (a.text() if a else "").strip()
+        SETTINGS["launch_profiles"] = profiles
+        save_settings()
+        QMessageBox.information(self, tr("msg_info"), "启动模板已保存")
+
+    # ---- 局域网 ----
     def _on_lan_enabled(self, checked: bool):
         self._set_setting("lan_enabled", checked)
         self.lan_changed.emit()
@@ -8296,14 +11100,12 @@ class SettingsPage(QWidget):
         self._set_setting("lan_port", int(val))
 
     def _on_lan_pwd_changed(self):
-        pwd = self.edit_lan_pwd.text()
-        self._set_setting("lan_password", pwd)
+        self._set_setting("lan_password", self.edit_lan_pwd.text())
 
     def _show_credits(self):
-        dlg = CreditsDialog(self)
-        dlg.exec()
+        CreditsDialog(self).exec()
 
-    # ---- 平台编辑器 ----
+    # ---- 平台 ----
     def _reload_platform_table(self):
         self.table_plat.setRowCount(0)
         engines_json = load_engines_json()
@@ -8371,7 +11173,7 @@ class SettingsPage(QWidget):
         self._reload_platform_table()
         self.platforms_changed.emit()
 
-    # ---- 镜像列表 ----
+    # ---- 镜像 ----
     def _refresh_mirror_list(self):
         self.list_mirrors.blockSignals(True)
         self.list_mirrors.clear()
@@ -8479,10 +11281,7 @@ class SettingsPage(QWidget):
     def _on_mirror_test_one(self, mirror: str, ok: bool, ms: float):
         status = f"✅ {ms:.0f} ms" if ok else "❌ 失败"
         item = QListWidgetItem(f"{mirror}    {status}")
-        if ok:
-            item.setForeground(QColor("#0f7b0f"))
-        else:
-            item.setForeground(QColor("#c42b1c"))
+        item.setForeground(QColor("#0f7b0f") if ok else QColor("#c42b1c"))
         self.list_mirrors.addItem(item)
 
     def _on_mirror_test_done(self, ok_count: int, fail_count: int):
@@ -8601,7 +11400,8 @@ class SettingsPage(QWidget):
                 QMessageBox.warning(self, tr("msg_warning"), tr("save_none"))
                 return
             QMessageBox.information(self, tr("msg_info"),
-                                    tr("save_backup_done", path=f"{len(results)} 个模拟器"))
+                                    tr("save_backup_done",
+                                       path=f"{len(results)} 个模拟器"))
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"),
                                  tr("save_backup_failed", err=str(e)))
@@ -8640,7 +11440,7 @@ class SettingsPage(QWidget):
 
 
 # ============================================================
-# 24. 导入对话框
+# 25. 导入对话框
 # ============================================================
 class ImportDialog(QDialog):
     def __init__(self, mode: str, engines_json: dict, parent=None):
@@ -8773,18 +11573,60 @@ class ImportDialog(QDialog):
         self.accept()
 
     def _on_game_done(self, games, skipped):
-        if games:
-            self.log_view.append(tr("rom_import_done", n=len(games)))
-            dlg = PlatformConfirmDialog(games, self._engines_json, self)
+        if not games:
+            if skipped:
+                self.log_view.append(tr("rom_import_skipped", n=skipped))
+            self.accept()
+            return
+
+        self.log_view.append(tr("rom_import_done", n=len(games)))
+
+        # === 重复检测 ===
+        existing = load_games()
+        existing_keys = {}
+        for g in existing:
+            try:
+                sz = Path(g.path).stat().st_size
+            except Exception:
+                sz = g.size
+            existing_keys[(g.name.lower(), sz)] = g
+
+        dup = []
+        fresh = []
+        for g in games:
+            try:
+                sz = Path(g.path).stat().st_size
+            except Exception:
+                sz = g.size
+            k = (g.name.lower(), sz)
+            if k in existing_keys:
+                dup.append((g, existing_keys[k]))
+            else:
+                fresh.append(g)
+
+        if dup:
+            dlg = DupResolveDialog(dup, self)
             if dlg.exec() == QDialog.Accepted:
-                games = dlg.result_games()
-            existing = load_games()
+                keep, skip, overwrite = dlg.result_action()
+                if overwrite:
+                    for new_g, old_g in dup:
+                        existing = [x for x in existing
+                                    if x.path != old_g.path]
+                        fresh.append(new_g)
+                elif keep:
+                    fresh.extend(g for g, _ in dup)
+
+        if fresh:
+            dlg = PlatformConfirmDialog(fresh, self._engines_json, self)
+            if dlg.exec() == QDialog.Accepted:
+                fresh = dlg.result_games()
             paths = {g.path for g in existing}
-            for g in games:
+            for g in fresh:
                 if g.path in paths:
                     continue
                 existing.append(g)
-            save_games(existing)
+
+        save_games(existing)
         if skipped:
             self.log_view.append(tr("rom_import_skipped", n=skipped))
         self.accept()
@@ -8796,7 +11638,7 @@ class ImportDialog(QDialog):
 
 
 # ============================================================
-# 25. 下载对话框
+# 26. 下载对话框
 # ============================================================
 class DownloadDialog(QDialog):
     def __init__(self, engines_json: dict, parent=None):
@@ -8931,7 +11773,8 @@ class DownloadDialog(QDialog):
         if not url or url == "manual":
             return
         reply = QMessageBox.question(self, tr("msg_confirm"),
-                                     tr("download_confirm", name=f"{platform}/{engine_name}"),
+                                     tr("download_confirm",
+                                        name=f"{platform}/{engine_name}"),
                                      QMessageBox.Yes | QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
@@ -8969,7 +11812,8 @@ class DownloadDialog(QDialog):
     def _on_dl_speed(self, speed, remain):
         self.lbl_status.setText(
             f"{tr('download_progress')} "
-            + tr("download_speed", speed=human_size(int(speed)), eta=human_eta(remain)))
+            + tr("download_speed", speed=human_size(int(speed)),
+                 eta=human_eta(remain)))
 
     def _on_dl_done(self, path):
         self.lbl_status.setText(tr("download_extract"))
@@ -8985,7 +11829,8 @@ class DownloadDialog(QDialog):
 
     def _on_dl_fail(self, err):
         self.lbl_status.setText(f"❌ {tr('download_failed', err=err)}")
-        QMessageBox.critical(self, tr("msg_error"), tr("download_failed", err=err))
+        QMessageBox.critical(self, tr("msg_error"),
+                             tr("download_failed", err=err))
 
     def _on_dl_finished(self):
         self.progress.setVisible(False)
@@ -9016,7 +11861,8 @@ class DownloadDialog(QDialog):
             )
             engines = load_installed()
             engines = [e for e in engines
-                       if not (e.platform == installed.platform and e.engine == installed.engine)]
+                       if not (e.platform == installed.platform
+                               and e.engine == installed.engine)]
             engines.append(installed)
             save_installed(engines)
             try:
@@ -9060,8 +11906,177 @@ class DownloadDialog(QDialog):
                 pass
 
 
+class BatchUpdateDialog(QDialog):
+    def __init__(self, pending, parent=None):
+        super().__init__(parent)
+        self._pending = pending
+        self._idx = 0
+        self._ok = 0
+        self._fail = 0
+        self._worker = None
+        self.setWindowTitle(tr("engines_batch_title"))
+        self.setMinimumSize(640, 420)
+        self._build_ui()
+        QTimer.singleShot(100, self._next)
+
+    def _build_ui(self):
+        v = QVBoxLayout(self)
+        self.lbl_head = QLabel(f"共 {len(self._pending)} 个引擎待更新")
+        self.lbl_head.setObjectName("SectionTitle")
+        v.addWidget(self.lbl_head)
+
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        v.addWidget(self.log, 1)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, len(self._pending))
+        self.progress.setValue(0)
+        v.addWidget(self.progress)
+
+        self.progress_file = QProgressBar()
+        self.progress_file.setRange(0, 100)
+        self.progress_file.setValue(0)
+        v.addWidget(self.progress_file)
+
+        self.lbl_cur = QLabel("")
+        self.lbl_cur.setObjectName("Hint")
+        v.addWidget(self.lbl_cur)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Close)
+        btns.rejected.connect(self.reject)
+        btns.button(QDialogButtonBox.Close).clicked.connect(self.reject)
+        v.addWidget(btns)
+
+    def _next(self):
+        if self._idx >= len(self._pending):
+            self.lbl_head.setText(
+                tr("engines_batch_done", ok=self._ok, fail=self._fail))
+            self.lbl_cur.setText("")
+            self.progress_file.setValue(100)
+            return
+
+        engine, version, url = self._pending[self._idx]
+        self.progress.setValue(self._idx)
+        self.lbl_cur.setText(
+            f"[{self._idx + 1}/{len(self._pending)}] "
+            f"{engine.platform_name}/{engine.engine} → {version}")
+        self.log.append(f"\n>>> 更新 {engine.engine} → {version}")
+
+        ext = ".zip"
+        archive = engine.archive or "zip"
+        if archive == "7z":
+            ext = ".7z"
+        elif archive in ("7z_sfx", "bare_exe"):
+            ext = ".exe"
+        tmp = TEMP_DIR / f"batch_{engine.platform}_{engine.engine}{ext}"
+
+        self.progress_file.setValue(0)
+        w = DownloadWorker(url, tmp, SETTINGS.get("download_threads", 8))
+        self._worker = w
+        w.progress.connect(
+            lambda cur, total: self.progress_file.setValue(
+                int(cur * 100 / total) if total > 0 else 0))
+        w.status.connect(lambda s: self.log.append("  " + s))
+        w.done.connect(lambda path, e=engine: self._on_one_done(e, path))
+        w.fail.connect(lambda err, e=engine: self._on_one_fail(e, err))
+        w.start()
+
+    def _on_one_done(self, engine, path):
+        try:
+            self._install(engine, Path(path))
+            self.log.append(f"  ✅ {engine.engine} 更新完成")
+            self._ok += 1
+        except Exception as e:
+            self.log.append(f"  ❌ {engine.engine} 安装失败: {e}")
+            self._fail += 1
+        self._idx += 1
+        QTimer.singleShot(100, self._next)
+
+    def _on_one_fail(self, engine, err):
+        self.log.append(f"  ❌ {engine.engine} 下载失败: {err}")
+        self._fail += 1
+        self._idx += 1
+        QTimer.singleShot(100, self._next)
+
+    def _install(self, engine, archive: Path):
+        cfg = {
+            "platform_name": engine.platform_name,
+            "version": engine.version,
+            "url": engine.url,
+            "url_type": engine.url_type,
+            "github_repo": engine.github_repo,
+            "archive": engine.archive,
+            "launch_template": engine.launch_template,
+            "match": {},
+        }
+        engines_json = load_engines_json()
+        real_cfg = (engines_json.get(engine.platform, {})
+                    .get("engines", {}).get(engine.engine))
+        if real_cfg:
+            cfg.update(real_cfg)
+
+        archive_type = cfg.get("archive", "zip")
+
+        if archive_type == "bare_exe":
+            target_dir = ENGINE_DOWNLOAD_DIR / engine.platform / engine.engine
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target_exe = target_dir / archive.name
+            shutil.copy2(archive, target_exe)
+            engines = load_installed()
+            for e in engines:
+                if e.platform == engine.platform and e.engine == engine.engine:
+                    e.engine_path = str(target_exe)
+                    e.engine_dir = str(target_dir)
+                    e.version = engine.version or e.version
+                    e.installed_at = time.strftime("%Y-%m-%d %H:%M:%S")
+                    break
+            save_installed(engines)
+            try:
+                archive.unlink()
+            except Exception:
+                pass
+            return
+
+        tmp_root = Path(tempfile.mkdtemp(prefix="mikan_batch_", dir=str(TEMP_DIR)))
+        try:
+            if archive_type == "7z_sfx":
+                try:
+                    sp.run([str(archive), f"-o{tmp_root}", "-y"],
+                           check=True, timeout=600,
+                           creationflags=getattr(sp, "CREATE_NO_WINDOW", 0))
+                except Exception:
+                    import py7zr
+                    with py7zr.SevenZipFile(archive, mode="r") as z:
+                        z.extractall(tmp_root)
+            else:
+                extract_archive(archive, tmp_root)
+
+            files = scan_files(tmp_root)
+            matches = match_engines(
+                files, {engine.platform: {"engines": {engine.engine: cfg}}})
+            if not matches:
+                raise RuntimeError("解压后没找到可执行文件")
+
+            new_cfg = install_engine_from_match(matches[0], tmp_root, "download")
+            new_cfg.version = engine.version or new_cfg.version
+
+            engines = load_installed()
+            engines = [e for e in engines
+                       if not (e.platform == new_cfg.platform
+                               and e.engine == new_cfg.engine)]
+            engines.append(new_cfg)
+            save_installed(engines)
+        finally:
+            shutil.rmtree(tmp_root, ignore_errors=True)
+            try:
+                archive.unlink()
+            except Exception:
+                pass
+
+
 # ============================================================
-# 26. 导出功能
+# 27. 导出功能
 # ============================================================
 def export_library(games, fmt, scope, include_playtime, include_cover) -> Path:
     if scope == "fav":
@@ -9109,11 +12124,13 @@ def export_library(games, fmt, scope, include_playtime, include_cover) -> Path:
                 if cover:
                     try:
                         data = base64.b64encode(cover.read_bytes()).decode()
-                        mime = "image/png" if cover.suffix.lower() == ".png" else "image/jpeg"
+                        mime = ("image/png" if cover.suffix.lower() == ".png"
+                                else "image/jpeg")
                         cover_html = f'<img src="data:{mime};base64,{data}">'
                     except Exception:
                         pass
-            pt = f"<p>时长: {human_duration(g.play_seconds)}</p>" if include_playtime else ""
+            pt = (f"<p>时长: {human_duration(g.play_seconds)}</p>"
+                  if include_playtime else "")
             html.append(
                 f'<div class="card">{cover_html}<h3>{g.name}</h3>'
                 f'<p>{g.platform}</p><p>{format_size(g.size)}</p>{pt}</div>')
@@ -9138,7 +12155,7 @@ def export_library(games, fmt, scope, include_playtime, include_cover) -> Path:
 
 
 # ============================================================
-# 27. 主窗口 + 托盘
+# 28. 主窗口
 # ============================================================
 class MainWindow(QMainWindow):
     NAV_LIBRARY = 0
@@ -9162,6 +12179,8 @@ class MainWindow(QMainWindow):
         self._perf_windows: list = []
         self._tray = None
         self._force_quit = False
+        self._current_theme_dark = False
+        self._theme_watcher = None
 
         self._settle_stale_launches()
 
@@ -9191,17 +12210,23 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
 
+        # ★ status 提前创建（页面里会用到 self.status）★
+        self.status = QStatusBar()
+        self.setStatusBar(self.status)
+        self.lbl_status = QLabel(f"就绪  |  数据目录: {DATA_DIR}")
+        self.status.addWidget(self.lbl_status)
+        self.lbl_admin = QLabel()
+        self.status.addPermanentWidget(self.lbl_admin)
+        self._refresh_admin_label()
+
         self.page_library = LibraryPage()
         self.page_library.launch_requested.connect(self._launch_game)
         self.page_library.open_folder_requested.connect(self._open_game_folder)
         self.page_library.remove_requested.connect(self._remove_game)
         self.page_library.favorite_toggled.connect(self._toggle_favorite)
-        self.page_library.set_cover_requested.connect(self._set_cover)
-        self.page_library.open_save_requested.connect(self._open_save_dir)
         self.page_library.config_requested.connect(self._config_launch)
-        self.page_library.cheat_requested.connect(self._manage_cheat)
-        self.page_library.bios_requested.connect(self._select_bios)
         self.page_library.controls_requested.connect(self._show_controls)
+        self.page_library.status_msg.connect(self.status.showMessage)
         self.stack.addWidget(self.page_library)
 
         self.page_engines = EnginePage()
@@ -9209,6 +12234,7 @@ class MainWindow(QMainWindow):
         self.page_engines.download_requested.connect(self._download_engine)
         self.page_engines.update_requested.connect(self._update_engine)
         self.page_engines.ignore_requested.connect(self._ignore_update)
+        self.page_engines.status_message.connect(self.status.showMessage)
         self.stack.addWidget(self.page_engines)
 
         self.page_bios = BiosPage()
@@ -9232,6 +12258,8 @@ class MainWindow(QMainWindow):
         self.page_settings.lang_changed.connect(self._on_lang_changed)
         self.page_settings.platforms_changed.connect(self._on_platforms_changed)
         self.page_settings.lan_changed.connect(self._on_lan_changed)
+        self.page_settings.theme_changed.connect(self._on_theme_changed)
+        self.page_settings.saves_changed.connect(self._reload_games)
         self.stack.addWidget(self.page_settings)
 
         splitter.addWidget(self.stack)
@@ -9240,14 +12268,7 @@ class MainWindow(QMainWindow):
         splitter.setSizes([170, 1110])
         root.addWidget(splitter, 1)
 
-        self.status = QStatusBar()
-        self.setStatusBar(self.status)
-        self.lbl_status = QLabel(f"就绪  |  数据目录: {DATA_DIR}")
-        self.status.addWidget(self.lbl_status)
-        self.lbl_admin = QLabel()
-        self.status.addPermanentWidget(self.lbl_admin)
-        self._refresh_admin_label()
-
+        self._apply_theme()
         self._setup_tray()
         self._reload_games()
 
@@ -9257,6 +12278,8 @@ class MainWindow(QMainWindow):
         if SETTINGS.get("lan_enabled", False):
             QTimer.singleShot(800, self.page_lan.start_service)
 
+        self._watch_system_theme()
+
     def _build_topbar(self):
         bar = QFrame()
         bar.setObjectName("TopBar")
@@ -9265,7 +12288,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(16, 0, 16, 0)
         lay.setSpacing(8)
 
-        title = QLabel(f"mikan_emu")
+        title = QLabel("mikan_emu")
         title.setObjectName("AppTitle")
         lay.addWidget(title)
         lay.addStretch(1)
@@ -9284,6 +12307,10 @@ class MainWindow(QMainWindow):
         btn_import_game = QPushButton(tr("toolbar_import_game"))
         btn_import_game.clicked.connect(self._import_game)
         lay.addWidget(btn_import_game)
+
+        btn_patch = QPushButton("🧩 补丁工具")
+        btn_patch.clicked.connect(self._open_patch_tool)
+        lay.addWidget(btn_patch)
 
         btn_export = QPushButton(tr("toolbar_export"))
         btn_export.clicked.connect(self._export_library)
@@ -9318,13 +12345,15 @@ class MainWindow(QMainWindow):
             a_show.triggered.connect(self._show_from_tray)
             menu.addSeparator()
 
-            games = sorted(load_games(), key=lambda g: g.last_played or "", reverse=True)
+            games = sorted(load_games(), key=lambda g: g.last_played or "",
+                           reverse=True)
             recent = [g for g in games if g.last_played][:5]
             if recent:
                 sub = menu.addMenu(tr("tray_recent"))
                 for g in recent:
                     a = sub.addAction(g.name)
-                    a.triggered.connect(lambda _=False, gg=g: self._launch_game(gg))
+                    a.triggered.connect(
+                        lambda _=False, gg=g: self._launch_game(gg))
             menu.addSeparator()
             a_quit = menu.addAction(tr("tray_quit"))
             a_quit.triggered.connect(self._quit_app)
@@ -9376,6 +12405,70 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         event.accept()
+
+    # ---------- 主题 ----------
+    def _apply_theme(self):
+        mode = SETTINGS.get("theme", "auto")
+        if mode == "auto":
+            dark = self._is_system_dark()
+        else:
+            dark = (mode == "dark")
+
+        accent = SETTINGS.get("accent_color", "")
+        base = WIN11_QSS
+
+        if dark:
+            base = base + "\n" + DARK_QSS_OVERLAY
+            if accent:
+                try:
+                    base = base.replace("#4cc2ff", accent)
+                    base = base.replace("#1e3a52",
+                                        QColor(accent).darker(300).name())
+                except Exception:
+                    pass
+        elif accent:
+            base = base.replace("#0067c0", accent)
+            try:
+                c = QColor(accent)
+                base = base.replace("#1975c5", c.lighter(115).name())
+                base = base.replace("#005ba8", c.darker(115).name())
+                base = base.replace("#e8f0fa", c.lighter(180).name())
+            except Exception:
+                pass
+
+        QApplication.instance().setStyleSheet(base)
+        self._current_theme_dark = dark
+
+    def _is_system_dark(self) -> bool:
+        if sys.platform != "win32":
+            return False
+        try:
+            import winreg
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.CloseKey(key)
+            return int(val) == 0
+        except Exception:
+            return False
+
+    def _on_theme_changed(self, mode: str, accent: str):
+        self._apply_theme()
+
+    def _watch_system_theme(self):
+        self._theme_watcher = QTimer(self)
+        self._theme_watcher.setInterval(3000)
+        self._theme_watcher.timeout.connect(self._check_theme_drift)
+        self._theme_watcher.start()
+
+    def _check_theme_drift(self):
+        if SETTINGS.get("theme", "auto") != "auto":
+            return
+        cur = self._is_system_dark()
+        if cur != self._current_theme_dark:
+            logger.info(f"系统主题变化: dark={cur}，重新应用")
+            self._apply_theme()
 
     def _refresh_admin_label(self):
         if is_admin():
@@ -9440,6 +12533,10 @@ class MainWindow(QMainWindow):
         dlg.exec()
         self._reload_games()
 
+    def _open_patch_tool(self):
+        dlg = PatchToolDialog(parent=self)
+        dlg.exec()
+
     def _export_library(self):
         games = load_games()
         if not games:
@@ -9462,39 +12559,11 @@ class MainWindow(QMainWindow):
                                  tr("export_failed", err=str(e)))
 
     def _config_launch(self, game):
-        dlg = LaunchConfigDialog(game, self)
-        if dlg.exec() != QDialog.Accepted:
-            return
-        result = dlg.result_data()
-        if not result:
-            return
-        games = load_games()
-        for g in games:
-            if g.path == game.path:
-                g.override_platform = result["override_platform"]
-                g.override_engine = result["override_engine"]
-                g.extra_args = result["extra_args"]
-                break
-        save_games(games)
+        dlg = GameConfigCenterDialog(game, self)
+        dlg.launch_requested.connect(self._launch_game)
+        dlg.open_folder_requested.connect(self._open_game_folder)
+        dlg.exec()
         self._reload_games()
-        self.status.showMessage(f"已保存 {game.name} 的启动配置")
-
-    def _select_bios(self, game):
-        dlg = BiosSelectDialog(game, self)
-        if dlg.exec() != QDialog.Accepted:
-            return
-        path = dlg.result_data()
-        games = load_games()
-        for g in games:
-            if g.path == game.path:
-                g.bios_file = path
-                break
-        save_games(games)
-        self._reload_games()
-        if path:
-            self.status.showMessage(tr("bios_select_ok", name=Path(path).name))
-        else:
-            self.status.showMessage("已清除 BIOS 设置")
 
     def _show_controls(self, game):
         engine = self._resolve_engine(game, silent=True)
@@ -9507,19 +12576,6 @@ class MainWindow(QMainWindow):
                     break
         dlg = ControlsDialog(engine_name or "unknown", self)
         dlg.exec()
-
-    def _manage_cheat(self, game):
-        engine = self._resolve_engine(game, silent=True)
-        if not engine:
-            QMessageBox.information(self, tr("msg_info"), tr("config_no_engine"))
-            return
-        cheat_dir = get_cheat_dir(engine.engine)
-        if cheat_dir:
-            os.startfile(str(cheat_dir))
-        else:
-            QMessageBox.information(self, tr("msg_info"),
-                                    tr("cheat_no_dir", engine=engine.engine))
-            os.startfile(str(CHEAT_DIR))
 
     def _resolve_engine(self, game, silent=False):
         installed = load_installed()
@@ -9599,6 +12655,13 @@ class MainWindow(QMainWindow):
                         self._on_game_closed(gp, secs, pf))
                 monitor.start()
                 self._monitor_workers.append(monitor)
+        except LaunchError as e:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Critical)
+            box.setWindowTitle(tr("launch_diag_title"))
+            box.setText(tr("launch_diag_header", name=game.name))
+            box.setDetailedText(str(e))
+            box.exec()
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"),
                                  tr("launch_failed", err=str(e)))
@@ -9645,21 +12708,6 @@ class MainWindow(QMainWindow):
         if os.path.isdir(folder):
             os.startfile(folder)
 
-    def _open_save_dir(self, game):
-        installed = load_installed()
-        target_platform = game.override_platform or game.platform
-        engines = [e for e in installed if e.platform == target_platform]
-        if not engines:
-            QMessageBox.information(self, tr("msg_info"), "没有可用的模拟器")
-            return
-        for e in engines:
-            p = get_save_path(e.engine)
-            if p:
-                os.startfile(str(p))
-                return
-        QMessageBox.information(self, tr("msg_info"),
-                                "没配置存档路径。到「设置 → 存档路径配置」里设置。")
-
     def _remove_game(self, game):
         reply = QMessageBox.question(self, tr("msg_confirm"),
                                      tr("ctx_remove_confirm", name=game.name),
@@ -9679,26 +12727,6 @@ class MainWindow(QMainWindow):
                 break
         save_games(games)
         self._reload_games()
-
-    def _set_cover(self, game):
-        fp, _ = QFileDialog.getOpenFileName(
-            self, tr("ctx_set_cover"), str(DATA_DIR),
-            "图片 (*.png *.jpg *.jpeg *.webp);;所有文件 (*)")
-        if not fp:
-            return
-        src = Path(fp)
-        ext = src.suffix.lower()
-        dst = COVER_DIR / f"{game.name}{ext}"
-        try:
-            shutil.copy2(src, dst)
-            for e in (".png", ".jpg", ".jpeg", ".webp"):
-                old = COVER_DIR / f"{game.name}{e}"
-                if old.exists() and old != dst:
-                    old.unlink()
-            self._reload_games()
-            self.status.showMessage(f"封面已设置: {dst.name}")
-        except Exception as e:
-            QMessageBox.critical(self, tr("msg_error"), str(e))
 
     def _on_lang_changed(self, lang: str):
         name = LANG_PACKS.get(lang, {}).get("_meta", {}).get("name", lang)
@@ -9744,7 +12772,8 @@ class MainWindow(QMainWindow):
         def on_done(path):
             try:
                 dlg._install_downloaded(Path(path))
-                QMessageBox.information(self, tr("msg_info"), tr("download_done"))
+                QMessageBox.information(self, tr("msg_info"),
+                                        tr("download_done"))
                 self.page_engines.refresh()
             except Exception as e:
                 QMessageBox.critical(self, tr("msg_error"), str(e))
@@ -9762,13 +12791,11 @@ class MainWindow(QMainWindow):
         self.page_engines.refresh()
         self.status.showMessage(f"已跳过 {platform}/{engine} {version}")
 
-
 # ============================================================
-# 28. 入口
+# 29. 入口
 # ============================================================
 def main():
     app = QApplication(sys.argv)
-    app.setStyleSheet(WIN11_QSS)
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
 

@@ -1,4 +1,6 @@
-# MikanEmu · 模拟器前端一体化管家
+# MikanEmu v1.2.0
+
+## 模拟器前端一体化管家
 
 <p>
   <img alt="license GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-green">
@@ -6,17 +8,31 @@
   <img alt="PySide6" src="https://img.shields.io/badge/PySide6-6.x-brightgreen">
 </p>
 
-> **版本 v1.1.0** ｜ 模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器 + 性能监控 + 局域网聊天 / 文件 / 共享（内嵌 LocalSend Web）
+> **版本 v1.2.0** ｜ 模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器 + 性能监控 + 局域网聊天 / 文件 / 共享（内嵌 LocalSend Web）+ ROM 补丁 + 配置包迁移 + 深色模式
 
 ---
 
 ## 项目介绍
 
-**MikanEmu** 是一款基于 PySide6 的桌面级模拟器综合管理前端，把「游戏库管理、模拟器引擎配置、BIOS 管理、存档备份、金手指管理、版本识别与更新检查、性能监控、多语言、平台编辑器」整合到一个统一界面中，并在 v1.1.0 起将局域网协作能力（聊天 / 文件传输 / 文件夹共享 / 内嵌 LocalSend Web）完整内置。
+**MikanEmu** 是一款基于 PySide6 的桌面级模拟器综合管理前端，把「游戏库管理、模拟器引擎配置、BIOS 管理、存档备份、金手指管理、版本识别与更新检查、性能监控、多语言、平台编辑器」整合到一个统一界面中，并在 v1.1.0 起将局域网协作能力（聊天 / 文件传输 / 文件夹共享 / 内嵌 LocalSend Web）完整内置。v1.2.0 进一步新增深色模式、ROM 补丁工具、配置包导出/导入、统一配置中心等核心功能。
 
-- **32 个游戏 / 计算平台**，覆盖 SFC、PS1/2、N64、Switch、GBA、MD、DC、街机、X68000、PC-98、FM Towns、86Box/PCem 等主机与复古 PC 平台。
-- **53 个内置引擎配置**，内置官方直链、GitHub Release、libretro 核心与手动下载指引，自动识别已安装的引擎目录与可执行文件。
+- **36 个游戏 / 计算平台**，覆盖 SFC、PS1/2/3/4/5、N64、Switch、GBA、MD、DC、街机、X68000、PC-98、FM Towns、Wii/Wii U、Xbox/Xbox 360、PS Vita、86Box/PCem 等主机与复古 PC 平台。
+- **57 个内置引擎配置**，内置官方直链、GitHub Release、libretro 核心与手动下载指引，自动识别已安装的引擎目录与可执行文件。
 - **局域网一体化**：v1.1.0 将独立版 `mikan_lan v1.2.x` 全功能整合，聊天、共享、拖拽、表情、右键发送一应俱全，并内嵌 LocalSend Web 传输页。
+- **深色模式**：支持跟随系统 / 亮色 / 深色 + 自定义主题色。
+- **ROM 补丁工具**：支持 IPS / UPS 补丁，独立工具 + 游戏右键应用。
+- **配置包迁移**：.mikanpack 导出/导入，跨机器迁移配置。
+- **统一配置中心**：右键"更多配置"整合启动/补丁/封面/BIOS/金手指/存档/信息。
+
+### v1.2.0 变更亮点
+
+- **深色模式**：跟随系统 / 亮色 / 深色 + 自定义主题色
+- **ROM 补丁工具**：支持 IPS / UPS 补丁，独立工具 + 游戏右键应用
+- **配置包导出/导入**：.mikanpack 格式，跨机器迁移配置
+- **新增平台**：Wii / GameCube（合并）、Wii U、PS3、PS Vita
+- **统一配置中心**：右键"更多配置"整合 启动/补丁/封面/BIOS/金手指/存档/信息
+- **load_engines_json 全量补齐缺失平台**
+- **保留 v1.1.0 全部功能**（含 LocalSend Web 内嵌页）
 
 ### v1.1.0 变更亮点
 
@@ -41,28 +57,59 @@
 - 游戏表格视图（`GameTableModel` + `GameFilterProxy`），列排序与关键词筛选
 - 封面（`covers/`）展示、平台编辑器自定义平台与 ROM 扩展名
 - 游戏统计与图表（`StatsPage` + `ChartWidget`），导出游戏库（`ExportDialog`）
+- 重复游戏检测与处理（`DupResolveDialog`）
 
 ### 模拟器引擎管理
-- 32 平台 / 53 引擎的内置配置库，支持官方直链、GitHub Release、libretro 核心、手动下载四类来源
+- 36 平台 / 57 引擎的内置配置库，支持官方直链、GitHub Release、libretro 核心、手动下载四类来源
 - 引擎目录自动匹配（按 exe / folder / keywords 识别已安装引擎）
 - 引擎下载（`DownloadWorker`）与镜像测速（`MirrorTestWorker`）
 - 版本识别（`version`）与更新检查（`UpdateCheckWorker`），可忽略指定版本
 - 启动模板引擎（`launch_template`），支持 `{exe} {rom} {retroarch} {core}` 变量
 - 手动引擎登记（`ManualEngineDialog`）
+- 批量更新（`BatchUpdateDialog`）
 
 ### BIOS 管理
 - BIOS 需求标记（`bios_required` / `bios_files` / `bios_dir`）
 - BIOS 文件列表（`BiosTableModel`）与选择对话框（`BiosSelectDialog`）
 - 按引擎约定目录放置 BIOS 的提示指引
+- PCem/86Box ROM 批量导入
 
 ### 存档 / 金手指
 - 存档目录与备份（`saves/` / `saves_backup/`），存档路径映射（`save_paths.json`）
 - 金手指管理与路径映射（`cheats/` / `cheat_paths.json`）
 
+### ROM 补丁工具（v1.2.0 新增）
+- 支持 IPS / UPS 补丁格式
+- 自动扫描 ROM 目录查找补丁文件
+- 应用补丁后生成新文件，原 ROM 自动备份为 .bak
+- 补丁历史追踪，标记已打补丁的游戏
+- 独立工具对话框（`PatchToolDialog`）+ 游戏右键菜单集成
+
+### 配置包管理（v1.2.0 新增）
+- 导出完整配置包（`.mikanpack`，ZIP 格式），包含所有配置、平台定义、引擎清单、游戏库
+- 可选包含封面图片、存档备份、统计数据
+- 导入配置包，合并模式不删除现有条目
+- 导入前自动备份当前配置
+
+### 统一配置中心（v1.2.0 新增）
+- 右键游戏"更多配置"整合以下子页：
+  - 启动配置（选择模拟器、覆盖平台、附加参数、启动模板）
+  - 补丁配置（IPS/UPS 补丁应用）
+  - 封面设置
+  - BIOS 选择
+  - 金手指管理
+  - 存档管理
+  - 游戏信息
+
+### 深色模式（v1.2.0 新增）
+- 跟随系统 / 亮色 / 深色 三种外观模式
+- 自定义主题色（强调色）配置
+
 ### 启动与运行
 - 进程启动与进程监控（`ProcessMonitorWorker`）
 - 性能监控窗口（`PerfMonitorWindow`，基于 psutil，可选依赖缺失时降级）
 - 键位说明（`ControlsDialog`）
+- 启动失败诊断（`LaunchError` 详细错误信息）
 
 ### 局域网协作（v1.1.0 核心）
 - **聊天 Tab + 共享文件夹 Tab**：UDP 发现（`LanDiscoveryWorker`）+ TCP 聊天服务 / 客户端（`LanChatServer` / `LanChatClient`）
@@ -74,10 +121,11 @@
 - **协议统一** `mikan_lan v1.2.x`（magic = `mikan_lan`）
 
 ### 通用
-- 多语言支持（`lang.json` + `lang/` 目录）
-- 资源导航页（`ResourcesPage`，`resources.json`）、操作说明 / 鸣谢页（`ManualEngineDialog` / `CreditsDialog`）
+- 多语言支持（简体中文 / English / Русский / 日本語 / Français，外置 JSON 语言包）
+- 资源导航页（`ResourcesPage`，`resources.json`）、操作说明 / 鸣谢页（`CreditsDialog`）
 - GitHub / pip 镜像加速、依赖自动安装、可选依赖一键安装
 - 系统托盘、配置 / 统计 / 设置持久化（`config/`）
+- 管理员权限支持、以管理员身份重启
 
 ---
 
@@ -95,6 +143,7 @@
 | psutil | 性能监控 | 进程 / CPU / 内存监控，缺失时降级 |
 | certifi | 证书 | HTTPS 根证书 |
 | socket / threading | 局域网 | UDP 发现 + TCP 聊天 / 文件传输 |
+| hashlib / hmac | 安全 | 文件 SHA-256 校验、局域网口令哈希 |
 
 ---
 
@@ -106,7 +155,7 @@
 
 ### 运行
 ```bash
-python mikan_emu_2.py
+python mikan_emu_3.py
 ```
 - 可选内嵌浏览器（LocalSend Web 页）：`pip install PySide6-WebEngine`，未安装时「局域网传输」页自动降级为外部浏览器模式。
 - 打包分发可使用 PyInstaller，程序会自动识别 `sys.frozen` 并以可执行文件所在目录为根目录。
@@ -116,11 +165,11 @@ python mikan_emu_2.py
 ## 项目结构
 
 ```
-mikan_emu_2.py                 # 单文件主程序（约 9782 行）
+mikan_emu_3.py                 # 单文件主程序（约 12809 行）
 mikan_emu/                    # 运行时自动创建的数据根目录
 ├── config/                  # 配置：folders / settings / lang / save_paths /
 │   │                       #   mirrors / cheat_paths / stats / update_ignore / resources
-│   └── lang/                # 多语言资源
+│   └── lang/                # 多语言资源（zh.json / en.json / ru.json / ja.json / fr.json）
 ├── engines/                 # 引擎配置 engines.json + installed.json
 │   └── downloaded/          # 引擎下载缓存
 ├── bios/                    # BIOS 文件
@@ -142,7 +191,7 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 
 ---
 
-## 支持的平台与引擎（内置 32 平台 / 53 引擎）
+## 支持的平台与引擎（内置 36 平台 / 57 引擎）
 
 | 平台键 | 平台名称 | 引擎 |
 | --- | --- | --- |
@@ -170,14 +219,18 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 | msx | MSX | openmsx, bluemsx |
 | x86box | 86Box / PC 模拟 | 86box |
 | pcem | PCem / PC 模拟 | pcem |
-| ps4 | PS4 | （占位 / 手动） |
-| ps5 | PS5 | （占位 / 手动） |
-| xbox | Xbox | （占位 / 手动） |
-| xbox360 | Xbox 360 | （占位 / 手动） |
-| switch_alt | Switch（备用） | （备用配置） |
-| 3ds | 3DS | （占位 / 手动） |
-| multi | 多平台 | （多平台引擎） |
-| unknown | 未识别 | （兜底） |
+| ps4 | PS4 / PlayStation 4 | shadps4 |
+| ps5 | PS5 / PlayStation 5 | kytyps5 |
+| xbox | 初代 Xbox | xemu |
+| xbox360 | Xbox 360 | xenia_canary, xenia_edge |
+| switch_alt | Switch（备用引擎） | suyu |
+| 3ds | 3DS | zakuro |
+| multi | 万能 / 前端 | retroarch |
+| wii | Wii / GameCube | dolphin |
+| wiiu | Wii U | cemu |
+| ps3 | PS3 / PlayStation 3 | rpcs3 |
+| psvita | PS Vita | vita3k |
+| unknown | 未知渠道 | google_drive_unknown |
 
 > 引擎来源分为 `direct`（官方直链）、`github_release`、`libretro`（需 RetroArch）与 `manual`（闭源 / 需手动下载，附官网指引）四类。BIOS 由各引擎 `bios_required` / `bios_files` / `bios_dir` 声明，本工具**不提供 BIOS、不提供 ROM、不二次分发模拟器**。
 
@@ -189,6 +242,7 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 | --- | --- |
 | `EmulatorConfig` | 全局配置单例，加载 / 保存 folders / settings / mirrors 等 |
 | `GameEntry` | 单条游戏记录（路径 / 平台 / 封面 / 元数据） |
+| `PatchError` | ROM 补丁工具异常类 |
 | `EngineImportWorker` | 引擎目录导入与自动匹配线程 |
 | `GameImportWorker` | 游戏库扫描导入线程 |
 | `DownloadWorker` | 引擎下载线程 |
@@ -209,7 +263,11 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 | `ManualEngineDialog` | 手动引擎登记对话框 |
 | `ExportDialog` | 游戏库导出对话框 |
 | `PlatformConfirmDialog` | 平台确认 / 平台编辑器对话框 |
+| `DupResolveDialog` | 重复游戏检测与处理对话框 |
+| `PatchToolDialog` | ROM 补丁工具对话框（IPS / UPS） |
+| `ConfigPackDialog` | 配置包导出/导入对话框（.mikanpack） |
 | `LibraryPage` | 游戏库主页（表格 / 筛选 / 封面 / 右键发送文件） |
+| `GameConfigCenterDialog` | 统一配置中心（启动/补丁/封面/BIOS/金手指/存档/信息） |
 | `EnginePage` | 引擎管理页（下载 / 导入 / 更新检查 / 镜像测速） |
 | `BiosPage` | BIOS 管理页 |
 | `ChartWidget` | 统计图表绘制控件 |
@@ -218,8 +276,9 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 | `EmojiPanel` | 表情面板控件 |
 | `LanPage` | 局域网页（聊天 + 共享，整合独立版 mikan_lan v1.2.x） |
 | `WebTransferPage` | 内嵌 LocalSend Web 传输页（QtWebEngine 不可用时降级外部浏览器） |
-| `SettingsPage` | 设置页（语言 / 路径 / 镜像 / 托盘等） |
+| `SettingsPage` | 设置页（语言 / 主题 / 路径 / 镜像 / 托盘 / 局域网等） |
 | `ImportDialog` / `DownloadDialog` | 游戏导入 / 引擎下载对话框 |
+| `BatchUpdateDialog` | 批量更新对话框 |
 | `MainWindow` | 主窗口（左侧导航 + 多页堆叠 + 状态栏 + 系统托盘） |
 
 ---
@@ -245,7 +304,7 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 - **扩展新引擎**：在对应平台 `engines` 下新增条目，区分 `url_type`（`direct` / `github_release` / `libretro` / `manual`），libretro 核心需同时声明 `libretro_core` 并使用 `{retroarch} -L "{core}" "{rom}"` 模板。
 - **扩展 BIOS 约定**：通过 `bios_required` / `bios_files` / `bios_dir` 声明，前端在 BIOS 页据此提示放置路径。
 - **扩展局域网功能**：聊天 / 文件收发逻辑在 `LanChatServer` / `LanChatClient`，发现逻辑在 `LanDiscoveryWorker`，消息 `broadcast` 标记区分私聊与全体；修改需保持 magic = `mikan_lan` 协议兼容。
-- **扩展多语言**：在 `config/lang/` 增加语言包，并通过 `lang.json` 注册。
+- **扩展多语言**：在 `DEFAULT_LANG_PACKS` 中追加语言包（zh / en 为完整翻译，ru / ja / fr 为机器翻译），运行时自动写入 `config/lang/` 目录，用户也可自行编辑 JSON 语言包。
 
 ---
 
@@ -260,8 +319,8 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 ## 致谢
 
 - **DeepSeek** —— 本项目在开发过程中由 DeepSeek 提供 AI 辅助编码支持。
-- 内置引擎所依赖的开源模拟器项目：snes9x、duckstation、ePSXe、XEBRA、Mednafen、SSF、Ymir、Brimir、Yaba Sanshiro、Flycast、Redream、Deecy、DreamPotato、mGBA、PCSX2、RetroArch、Mesen、RetroArch、mame、openMSX、blueMSX、86Box、PCem、PPSSPP、Ryujinx、Yuzu、desmume、melonDS、blastem、Kega Fusion、SameBoy、Gambatte、px68k、NP2kai、Tsugaru、PCFXemu、aRes、Simple64、RMG、cen64、Project64、gopher64、mupen64plus 等。
-- 框架与库：PySide6、requests、urllib3、loguru、py7zr、rarfile、psutil、certifi。
+- 内置引擎所依赖的开源模拟器项目：snes9x、duckstation、ePSXe、XEBRA、Mednafen、SSF、Ymir、Brimir、Yaba Sanshiro、Flycast、Redream、Deecy、DreamPotato、mGBA、PCSX2、RetroArch、Mesen、MAME、openMSX、blueMSX、86Box、PCem、PPSSPP、Ryujinx、Yuzu、suyu、desmume、melonDS、blastem、Kega Fusion、SameBoy、Gambatte、px68k、NP2kai、Tsugaru、PCFXemu、ares、simple64、RMG、cen64、Project64、gopher64、mupen64plus、shadPS4、KytyPS5、xemu、Xenia Canary、Xenia Edge、zakuro、Vita3K、Cemu、Dolphin、RPCS3 等。
+- 框架与库：PySide6、PySide6-WebEngine、requests、urllib3、loguru、py7zr、rarfile、psutil、certifi。
 
 ---
 
