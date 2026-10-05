@@ -1,4 +1,4 @@
-# MikanEmu v1.2.0
+# MikanEmu v1.3.0
 
 ## 模拟器前端一体化管家
 
@@ -8,21 +8,36 @@
   <img alt="PySide6" src="https://img.shields.io/badge/PySide6-6.x-brightgreen">
 </p>
 
-> **版本 v1.2.0** ｜ 模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器 + 性能监控 + 局域网聊天 / 文件 / 共享（内嵌 LocalSend Web）+ ROM 补丁 + 配置包迁移 + 深色模式
+> **版本 v1.3.0** ｜ 模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器 + 性能监控 + 局域网聊天 / 文件 / 共享（内嵌 LocalSend Web）+ 封面刮削（Libretro / SteamGridDB）+ 性能档位 + 系统优先级 + 版本适配 + 打开模拟器设置
 
 ---
 
 ## 项目介绍
 
-**MikanEmu** 是一款基于 PySide6 的桌面级模拟器综合管理前端，把「游戏库管理、模拟器引擎配置、BIOS 管理、存档备份、金手指管理、版本识别与更新检查、性能监控、多语言、平台编辑器」整合到一个统一界面中，并在 v1.1.0 起将局域网协作能力（聊天 / 文件传输 / 文件夹共享 / 内嵌 LocalSend Web）完整内置。v1.2.0 进一步新增深色模式、ROM 补丁工具、配置包导出/导入、统一配置中心等核心功能。
+**MikanEmu** 是一款基于 PySide6 的桌面级模拟器综合管理前端，把「游戏库管理、模拟器引擎配置、BIOS 管理、存档备份、金手指管理、版本识别与更新检查、性能监控、多语言、平台编辑器」整合到一个统一界面中，并在 v1.1.0 起将局域网协作能力（聊天 / 文件传输 / 文件夹共享 / 内嵌 LocalSend Web）完整内置。v1.2.0 进一步新增深色模式、ROM 补丁工具、配置包导出/导入、统一配置中心等核心功能。v1.3.0 全面升级封面刮削、性能档位、系统优先级、版本适配等能力。
 
-- **36 个游戏 / 计算平台**，覆盖 SFC、PS1/2/3/4/5、N64、Switch、GBA、MD、DC、街机、X68000、PC-98、FM Towns、Wii/Wii U、Xbox/Xbox 360、PS Vita、86Box/PCem 等主机与复古 PC 平台。
-- **57 个内置引擎配置**，内置官方直链、GitHub Release、libretro 核心与手动下载指引，自动识别已安装的引擎目录与可执行文件。
+- **46 个游戏 / 计算平台**，覆盖 SFC、PS1/2/3/4/5、N64、Switch、GBA、MD、DC、街机、X68000、PC-98、FM Towns、Wii/Wii U、Xbox/Xbox 360、PS Vita、Atari 2600、C64、Amstrad CPC、ZX Spectrum、DOS、BBC Micro、Atari ST 等主机与复古 PC 平台。
+- **79 个内置引擎配置**，内置官方直链、GitHub Release、libretro 核心与手动下载指引，自动识别已安装的引擎目录与可执行文件。
+- **封面刮削**：自动从 Libretro Thumbnails 获取封面图，SteamGridDB 兜底，支持手动改名重试。
+- **性能档位**：每引擎独立配置四档（省电 / 平衡 / 高性能 / 画质优先），启动时自动应用。
+- **系统优先级**：低 / 中 / 高（+ 可选实时），启动模拟器时自动设置进程优先级。
+- **版本适配**：version_overrides 按版本范围覆盖参数，兼容不同版本的模拟器命令行参数差异。
 - **局域网一体化**：v1.1.0 将独立版 `mikan_lan v1.2.x` 全功能整合，聊天、共享、拖拽、表情、右键发送一应俱全，并内嵌 LocalSend Web 传输页。
-- **深色模式**：支持跟随系统 / 亮色 / 深色 + 自定义主题色。
-- **ROM 补丁工具**：支持 IPS / UPS 补丁，独立工具 + 游戏右键应用。
-- **配置包迁移**：.mikanpack 导出/导入，跨机器迁移配置。
-- **统一配置中心**：右键"更多配置"整合启动/补丁/封面/BIOS/金手指/存档/信息。
+- **已打包分发**：本项目已使用 PyInstaller 打包为独立 exe 可执行文件，可直接运行无需配置 Python 环境；同时提供源代码供二次开发与审查。
+
+### v1.3.0 变更亮点
+
+- **封面刮削**：Libretro Thumbnails 为主 + SteamGridDB 兜底 + 手动改名重试
+- **性能档位**：四档（省电 / 平衡 / 高性能 / 画质优先），每引擎独立配置
+- **系统优先级**：低 / 中 / 高（+ 可选实时），启动时自动应用
+- **打开模拟器设置**：三处入口，走引擎自带设置界面
+- **版本适配**：version_overrides 按版本范围覆盖参数
+- **新增平台**：Atari 2600 / C64 / Amstrad CPC / ZX Spectrum / DOS / Master System / ColecoVision / Intellivision / BBC Micro / Atari ST
+- **新增引擎**：Nestopia / Nintendulator / BGB / VBA-M / Azahar / AMSpiriT / VICE / Hatari / dosbox-x / Stella / Neon64 / bsnes / NooDS / Geargrafx / Emulicious / Caprice32 / CPCSyntaxError / 1984 / b2 / ZEsarUX / Gearcoleco / jzIntvImGui 等
+- **engines.json 深度合并**：源码为真源，json 为外部覆盖
+- **统一取值入口** `resolve_engine_field()`，支持版本条件字段
+- **依赖新增** `packaging`（版本解析与范围匹配）
+- **保留 v1.2.0 全部功能**（含深色模式、ROM 补丁、配置包迁移、LocalSend Web 内嵌页）
 
 ### v1.2.0 变更亮点
 
@@ -56,15 +71,20 @@
 - 多文件夹游戏库管理，支持扫描导入 ROM / 压缩包
 - 游戏表格视图（`GameTableModel` + `GameFilterProxy`），列排序与关键词筛选
 - 封面（`covers/`）展示、平台编辑器自定义平台与 ROM 扩展名
+- **封面刮削**（v1.3.0 新增）：`LibretroScraperWorker`（Libretro Thumbnails）为主源 + `SteamGridDBScraperWorker` 兜底 + `ScrapeRetryDialog` 手动改名重试，`CoverScrapeDialog` 统一封面管理入口
 - 游戏统计与图表（`StatsPage` + `ChartWidget`），导出游戏库（`ExportDialog`）
 - 重复游戏检测与处理（`DupResolveDialog`）
 
 ### 模拟器引擎管理
-- 36 平台 / 57 引擎的内置配置库，支持官方直链、GitHub Release、libretro 核心、手动下载四类来源
+- 46 平台 / 79 引擎的内置配置库，支持官方直链、GitHub Release、libretro 核心、手动下载四类来源
 - 引擎目录自动匹配（按 exe / folder / keywords 识别已安装引擎）
 - 引擎下载（`DownloadWorker`）与镜像测速（`MirrorTestWorker`）
 - 版本识别（`version`）与更新检查（`UpdateCheckWorker`），可忽略指定版本
+- **版本适配**（v1.3.0 新增）：`version_overrides` 按版本范围覆盖参数，`resolve_engine_field()` 统一取值入口支持版本条件字段
+- **engines.json 深度合并**（v1.3.0 新增）：源码内置配置为真源，外部 `engines.json` 为覆盖层，`_deep_merge_dict` / `_merge_engines_with_defaults` 实现智能合并
 - 启动模板引擎（`launch_template`），支持 `{exe} {rom} {retroarch} {core}` 变量
+- **性能档位**（v1.3.0 新增）：每引擎独立配置四档性能参数（`perf_profiles`：省电 / 平衡 / 高性能 / 画质优先），`get_perf_profiles()` / `get_settings_args()` 自动解析
+- **打开模拟器设置**（v1.3.0 新增）：三处入口调用引擎自带设置界面
 - 手动引擎登记（`ManualEngineDialog`）
 - 批量更新（`BatchUpdateDialog`）
 
@@ -107,7 +127,9 @@
 
 ### 启动与运行
 - 进程启动与进程监控（`ProcessMonitorWorker`）
-- 性能监控窗口（`PerfMonitorWindow`，基于 psutil，可选依赖缺失时降级）
+- **性能监控窗口**（`PerfMonitorWindow`，基于 psutil，可选依赖缺失时降级）
+- **系统优先级**（v1.3.0 新增）：低 / 中 / 高（+ 可选实时），启动模拟器时自动设置进程优先级
+- **性能档位**（v1.3.0 新增）：四档（省电 / 平衡 / 高性能 / 画质优先），每引擎独立配置，启动时自动应用
 - 键位说明（`ControlsDialog`）
 - 启动失败诊断（`LaunchError` 详细错误信息）
 
@@ -136,11 +158,12 @@
 | Python 3.11+ | 运行环境 | 主语言 |
 | PySide6 | GUI 框架 | Qt6 Python 绑定，表格 / 模型视图 / 多线程 |
 | PySide6-WebEngine | 内嵌浏览器 | **可选**，用于 LocalSend Web 传输页，缺失时降级外部浏览器 |
-| requests | 网络请求 | 引擎下载、更新检查、镜像测速 |
+| requests | 网络请求 | 引擎下载、更新检查、镜像测速、封面刮削 |
 | urllib3 | 连接 / 证书 | 关闭不安全请求告警 |
 | loguru | 日志 | 按天 + 10MB 轮转，保留 14 天 |
 | py7zr / rarfile | 解压 | 7z / RAR 引擎包解压（zip / tar 用标准库） |
 | psutil | 性能监控 | 进程 / CPU / 内存监控，缺失时降级 |
+| packaging | 版本解析 | 版本比较与范围匹配（`Version` / `SpecifierSet`），v1.3.0 新增 |
 | certifi | 证书 | HTTPS 根证书 |
 | socket / threading | 局域网 | UDP 发现 + TCP 聊天 / 文件传输 |
 | hashlib / hmac | 安全 | 文件 SHA-256 校验、局域网口令哈希 |
@@ -149,14 +172,23 @@
 
 ## 安装与运行
 
-### 环境要求
-- Windows（引擎配置以 Windows x64 为主），Python 3.11 及以上。
-- 首次运行会自动检测并安装缺失的必需依赖（PySide6 / requests / loguru / py7zr / rarfile / certifi / psutil），优先使用清华 / 阿里镜像，失败回退官方 PyPI。
+### 方式一：已打包 exe（推荐）
 
-### 运行
-```bash
-python mikan_emu_3.py
+本项目已使用 **PyInstaller** 打包为独立 exe 可执行文件，可直接下载运行，无需安装 Python 环境。
+
 ```
+# 下载打包好的 exe 文件，双击运行即可
+```
+
+### 方式二：源代码运行
+
+如需从源代码运行或二次开发：
+
+```bash
+python mikan_emu_4.py
+```
+
+- 首次运行会自动检测并安装缺失的必需依赖（PySide6 / requests / loguru / py7zr / rarfile / certifi / psutil / packaging），优先使用清华 / 阿里镜像，失败回退官方 PyPI。
 - 可选内嵌浏览器（LocalSend Web 页）：`pip install PySide6-WebEngine`，未安装时「局域网传输」页自动降级为外部浏览器模式。
 - 打包分发可使用 PyInstaller，程序会自动识别 `sys.frozen` 并以可执行文件所在目录为根目录。
 
@@ -165,7 +197,7 @@ python mikan_emu_3.py
 ## 项目结构
 
 ```
-mikan_emu_3.py                 # 单文件主程序（约 12809 行）
+mikan_emu_4.py                 # 单文件主程序（约 14905 行）
 mikan_emu/                    # 运行时自动创建的数据根目录
 ├── config/                  # 配置：folders / settings / lang / save_paths /
 │   │                       #   mirrors / cheat_paths / stats / update_ignore / resources
@@ -186,50 +218,61 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 │   ├── received/            # 接收文件
 │   ├── shared/              # 共享文件夹（上传源）
 │   └── shared_download/     # 共享下载
-└── webengine/               # QtWebEngine 缓存（LocalSend Web）
+├── webengine/               # QtWebEngine 缓存（LocalSend Web）
+└── scrape_cache/            # 封面刮削缓存（v1.3.0 新增）
 ```
 
 ---
 
-## 支持的平台与引擎（内置 36 平台 / 57 引擎）
+## 支持的平台与引擎（内置 46 平台 / 79 引擎）
 
 | 平台键 | 平台名称 | 引擎 |
 | --- | --- | --- |
-| sfc | SFC / 超级任天堂 | snes9x |
+| sfc | SFC / 超级任天堂 | snes9x, bsnes |
 | ps1 | PS1 / PlayStation | duckstation, epsxe, xebra |
 | ss | SS / 世嘉土星 | mednafen, ssf, ymir, brimir, yaba_sanshiro_2 |
 | dc | DC / Dreamcast | flycast, redream, deecy |
 | vmu | VMU / 记忆卡 | dreampotato |
-| gba | GBA | mgba |
+| gba | GBA | mgba, vba-m |
 | ps2 | PS2 / PlayStation 2 | pcsx2 |
-| fc | FC / NES | fceux, mesence |
-| n64 | N64 | mupen64plus, gopher64, ares, simple64, rmg, project64, cen64 |
-| nds | NDS | desmume, melonds |
+| fc | FC / NES | fceux, mesence, nestopia, nintendulator |
+| n64 | N64 | mupen64plus, gopher64, ares, simple64, rmg, neon64, project64, cen64 |
+| nds | NDS | desmume, melonds, noods |
+| 3ds | 3DS | azahar, zakuro |
 | md | MD / Genesis | blastem, kega-fusion |
-| gb | GB / GBC | sameboy, gambatte |
+| sms | Master System / Game Gear | emulicious |
+| gb | GB / GBC | sameboy, bgb, gambatte |
 | psp | PSP | ppsspp |
 | switch | Switch | ryujinx, yuzu |
-| pce | PCE / TurboGrafx | mednafen |
+| switch_alt | Switch（备用引擎） | suyu |
+| pce | PCE / TurboGrafx | mednafen, geargrafx |
 | neogeo | Neo Geo | mame |
 | arcade | Arcade | mame |
-| x68000 | Sharp X68000 | px68k（libretro） |
-| pc98 | NEC PC-98 | np2kai（libretro） |
+| x68000 | Sharp X68000 | px68k |
+| pc98 | NEC PC-98 | np2kai |
 | fmtowns | FM Towns | tsugaru |
 | pcfx | PC-FX | pcfxemu |
 | msx | MSX | openmsx, bluemsx |
 | x86box | 86Box / PC 模拟 | 86box |
 | pcem | PCem / PC 模拟 | pcem |
+| dos | DOS | dosbox-x |
 | ps4 | PS4 / PlayStation 4 | shadps4 |
 | ps5 | PS5 / PlayStation 5 | kytyps5 |
 | xbox | 初代 Xbox | xemu |
 | xbox360 | Xbox 360 | xenia_canary, xenia_edge |
-| switch_alt | Switch（备用引擎） | suyu |
-| 3ds | 3DS | zakuro |
 | multi | 万能 / 前端 | retroarch |
 | wii | Wii / GameCube | dolphin |
 | wiiu | Wii U | cemu |
 | ps3 | PS3 / PlayStation 3 | rpcs3 |
 | psvita | PS Vita | vita3k |
+| cpc | Amstrad CPC | amspirit, caprice32, cpc_syntax_error |
+| c64 | Commodore 64 | vice |
+| atarist | Atari ST | hatari |
+| atari2600 | Atari 2600 | stella |
+| zxspectrum | ZX Spectrum | zesarux, 1984 |
+| colecovision | ColecoVision | gearcoleco |
+| intellivision | Intellivision | jzintv |
+| bbcmicro | BBC Micro | b2 |
 | unknown | 未知渠道 | google_drive_unknown |
 
 > 引擎来源分为 `direct`（官方直链）、`github_release`、`libretro`（需 RetroArch）与 `manual`（闭源 / 需手动下载，附官网指引）四类。BIOS 由各引擎 `bios_required` / `bios_files` / `bios_dir` 声明，本工具**不提供 BIOS、不提供 ROM、不二次分发模拟器**。
@@ -251,6 +294,10 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 | `BiosFile` | BIOS 文件记录 |
 | `ProcessMonitorWorker` | 模拟器进程运行状态监控线程 |
 | `PerfMonitorWindow` | 性能监控窗口（psutil：CPU / 内存等） |
+| `LibretroScraperWorker` | Libretro Thumbnails 封面刮削线程（v1.3.0 新增） |
+| `SteamGridDBScraperWorker` | SteamGridDB 封面刮削兜底线程（v1.3.0 新增） |
+| `ScrapeRetryDialog` | 封面刮削手动改名重试对话框（v1.3.0 新增） |
+| `CoverScrapeDialog` | 封面统一管理对话框（v1.3.0 新增） |
 | `LanIdentity` / `LanPeer` | 本机身份 / 局域网对等节点模型 |
 | `LanDiscoveryWorker` | 局域网设备发现线程（UDP） |
 | `LanChatServer` / `LanChatClient` | 聊天 / 文件传输的服务端与客户端（TCP，协议 magic = mikan_lan） |
@@ -286,7 +333,7 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 ## 注意事项
 
 - **管理员权限**：注册文件关联、写入系统目录或某些存档路径时可能需要以管理员身份运行。
-- **杀毒软件**：单文件脚本自动 pip 安装依赖、调用子进程启动模拟器，可能被杀毒软件 / Windows Defender 拦截，请添加信任。
+- **杀毒软件**：单文件脚本自动 pip 安装依赖、调用子进程启动模拟器，可能被杀毒软件 / Windows Defender 拦截，请添加信任。已打包 exe 同样可能被误报，请添加信任。
 - **依赖安装**：首次启动自动联网安装依赖，需可访问清华 / 阿里 / 官方 PyPI 镜像；离线环境需预先 `pip install`。
 - **QtWebEngine**：可选依赖，未安装时「局域网传输」页降级为外部浏览器模式（启动时 `QTWEBENGINE_CHROMIUM_FLAGS` 已带 `--disable-gpu --disable-software-rasterizer` 以提升兼容性）。
 - **psutil**：可选，缺失时性能监控功能降级，不影响主流程。
@@ -294,6 +341,7 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 - **法律合规**：本工具**不提供 BIOS、不提供 ROM、不二次分发模拟器**，仅管理用户自行获取的引擎与镜像；请遵守各模拟器与主机的版权 / 许可条款。
 - **网络与镜像**：部分引擎为 `manual` 闭源（如 ePSXe、SSF、Kega Fusion、Redream、Project64），需用户前往官网手动下载，工具仅提供官网指引与目录匹配。
 - **MEDNAFEN**：内置 `MEDNAFEN_ALLOWMULTI=1`，支持 Mednafen 多实例并行运行。
+- **PyInstaller 打包**：已打包的 exe 版本为 PyInstaller 打包产物，内含完整 Python 运行时与依赖；源代码版本需自行安装 Python 环境与依赖。打包时注意排除调试符号以减小体积。
 
 ---
 
@@ -301,10 +349,11 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 
 - **代码风格**：单文件结构，按编号注释分节（0 代理 / 1 依赖自检 / 2 导入 / 3 路径常量 / 3.5 内置 JSON / ... / 18 管理员 / 主程序）；类按「数据模型 → Worker 线程 → 表格模型 → 对话框 → 页面 → 主窗口」分层。
 - **扩展新平台**：在 `DEFAULT_ENGINES_JSON_STR` 中按 `{platform_id: {platform_name, rom_extensions, engines:{...}}}` 结构追加，声明 `match`（exe / folder / keywords）与 `launch_template`。
-- **扩展新引擎**：在对应平台 `engines` 下新增条目，区分 `url_type`（`direct` / `github_release` / `libretro` / `manual`），libretro 核心需同时声明 `libretro_core` 并使用 `{retroarch} -L "{core}" "{rom}"` 模板。
+- **扩展新引擎**：在对应平台 `engines` 下新增条目，区分 `url_type`（`direct` / `github_release` / `libretro` / `manual`），libretro 核心需同时声明 `libretro_core` 并使用 `{retroarch} -L \"{core}\" \"{rom}\"` 模板。
 - **扩展 BIOS 约定**：通过 `bios_required` / `bios_files` / `bios_dir` 声明，前端在 BIOS 页据此提示放置路径。
 - **扩展局域网功能**：聊天 / 文件收发逻辑在 `LanChatServer` / `LanChatClient`，发现逻辑在 `LanDiscoveryWorker`，消息 `broadcast` 标记区分私聊与全体；修改需保持 magic = `mikan_lan` 协议兼容。
 - **扩展多语言**：在 `DEFAULT_LANG_PACKS` 中追加语言包（zh / en 为完整翻译，ru / ja / fr 为机器翻译），运行时自动写入 `config/lang/` 目录，用户也可自行编辑 JSON 语言包。
+- **PyInstaller 打包**：使用 `pyinstaller --onefile --name mikan_emu mikan_emu_4.py` 即可打包为单文件 exe。注意在 `setup.py` 或 `.spec` 文件中正确声明数据文件与隐藏导入。
 
 ---
 
@@ -319,8 +368,8 @@ mikan_emu/                    # 运行时自动创建的数据根目录
 ## 致谢
 
 - **DeepSeek** —— 本项目在开发过程中由 DeepSeek 提供 AI 辅助编码支持。
-- 内置引擎所依赖的开源模拟器项目：snes9x、duckstation、ePSXe、XEBRA、Mednafen、SSF、Ymir、Brimir、Yaba Sanshiro、Flycast、Redream、Deecy、DreamPotato、mGBA、PCSX2、RetroArch、Mesen、MAME、openMSX、blueMSX、86Box、PCem、PPSSPP、Ryujinx、Yuzu、suyu、desmume、melonDS、blastem、Kega Fusion、SameBoy、Gambatte、px68k、NP2kai、Tsugaru、PCFXemu、ares、simple64、RMG、cen64、Project64、gopher64、mupen64plus、shadPS4、KytyPS5、xemu、Xenia Canary、Xenia Edge、zakuro、Vita3K、Cemu、Dolphin、RPCS3 等。
-- 框架与库：PySide6、PySide6-WebEngine、requests、urllib3、loguru、py7zr、rarfile、psutil、certifi。
+- 内置引擎所依赖的开源模拟器项目：snes9x、duckstation、ePSXe、XEBRA、Mednafen、SSF、Ymir、Brimir、Yaba Sanshiro、Flycast、Redream、Deecy、DreamPotato、mGBA、PCSX2、RetroArch、Mesen、MAME、openMSX、blueMSX、86Box、PCem、PPSSPP、Ryujinx、Yuzu、suyu、desmume、melonDS、blastem、Kega Fusion、SameBoy、Gambatte、px68k、NP2kai、Tsugaru、PCFXemu、ares、simple64、RMG、cen64、Project64、gopher64、mupen64plus、shadPS4、KytyPS5、xemu、Xenia Canary、Xenia Edge、zakuro、Vita3K、Cemu、Dolphin、RPCS3、Nestopia、Nintendulator、BGB、VBA-M、Azahar、AMSpiriT、VICE、Hatari、dosbox-x、Stella、Neon64、Geargrafx、Emulicious、Caprice32、CPCSyntaxError、1984、b2、ZEsarUX、Gearcoleco、jzIntv 等。
+- 框架与库：PySide6、PySide6-WebEngine、requests、urllib3、loguru、py7zr、rarfile、psutil、packaging、certifi。
 
 ---
 
