@@ -1,60 +1,28 @@
 # -*- coding: utf-8 -*-
 """
-mikan_emu v1.3.0
+mikan_emu v1.4.0
 模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器
 + 性能监控 + 局域网聊天/文件/共享 + 局域网传输（内嵌 LocalSend Web）
 + 封面刮削（Libretro / SteamGridDB）+ 性能档位 + 系统优先级
 + 版本适配（version_overrides）+ 打开模拟器设置
++ 引擎共享定义（_shared）+ BIOS 自动归类 + 统一代理 + 插件系统
 
 Python 3.11+ / PySide6 / requests / loguru / py7zr / rarfile / psutil / packaging
-可选：PySide6-WebEngine（内嵌浏览器）
+可选：PySide6-WebEngine（内嵌浏览器）、PySocks（SOCKS5 代理）
 
 【法律】不提供 BIOS、不提供 ROM、不二次分发模拟器
-
-v1.3.0 变更：
-- ★ 新增封面刮削：Libretro Thumbnails 为主 + SteamGridDB 兜底 + 手动改名重试
-- ★ 新增性能档位：四档（省电/平衡/高性能/画质优先），每引擎独立配置
-- ★ 新增系统优先级：低/中/高（+可选实时），启动时自动应用
-- ★ 新增打开模拟器设置：三处入口，走引擎自带设置界面
-- ★ 新增版本适配：version_overrides 按版本范围覆盖参数
-- ★ 新增平台：Atari 2600 / C64 / Amstrad CPC / ZX Spectrum / DOS /
-  Master System / ColecoVision / Intellivision / BBC Micro / Atari ST
-- ★ 新增引擎：Nestopia / Nintendulator / BGB / VBA-M / Azahar / AMSpiriT /
-  VICE / Hatari / dosbox-x / Stella / Neon64 / bsnes / NooDS / Geargrafx /
-  Emulicious / Caprice32 / CPCSyntaxError / 1984 / b2 / ZEsarUX /
-  Gearcoleco / jzIntvImGui 等
-- ★ engines.json 改为深度合并（源码为真源，json 为外部覆盖）
-- ★ 统一取值入口 resolve_engine_field()，支持版本条件字段
-- ★ 依赖新增 packaging
-
-v1.2.0 变更：
-- 深色模式、ROM 补丁工具（IPS/UPS）、配置包导出/导入、Wii/GC/WiiU/PS3/PSVita、
-  统一配置中心、load_engines_json 全量补齐、保留 v1.1.0 全部功能
-
-v1.1.0 变更：
-- 重写「局域网」页，协议 mikan_lan v1.2.x
 """
 
-# ============================================================
-# 0. 代理 + 环境变量
-# ============================================================
 import os
 
 os.environ.setdefault(
     "QTWEBENGINE_CHROMIUM_FLAGS",
     "--disable-gpu --disable-software-rasterizer"
 )
-
-PROXY_URL = ""
-if PROXY_URL:
-    os.environ["HTTP_PROXY"] = PROXY_URL
-    os.environ["HTTPS_PROXY"] = PROXY_URL
-    os.environ["ALL_PROXY"] = PROXY_URL
-
 os.environ["MEDNAFEN_ALLOWMULTI"] = "1"
 
 # ============================================================
-# 1. 依赖自检与自动安装
+# 1. 依赖自检
 # ============================================================
 import sys
 import subprocess
@@ -69,6 +37,7 @@ REQUIRED = {
     "certifi": "certifi",
     "psutil": "psutil",
     "packaging": "packaging",
+    "socks": "PySocks",
 }
 
 OPTIONAL = {
@@ -122,7 +91,6 @@ def _check_optional() -> dict:
             OPTIONAL_MISSING[mod] = pkg
     if OPTIONAL_MISSING:
         print(f"[启动] 可选依赖未安装: {list(OPTIONAL_MISSING.values())}")
-        print(f"       如需完整功能（内嵌浏览器），执行:")
         for pkg in OPTIONAL_MISSING.values():
             print(f"           pip install {pkg}")
     return OPTIONAL_MISSING
@@ -153,7 +121,7 @@ _check_optional()
 # ============================================================
 import ctypes
 import hashlib
-import hmac
+import importlib.util
 import json
 import re
 import shutil
@@ -166,6 +134,8 @@ import time
 import uuid as _uuid
 import webbrowser
 import zipfile
+import zlib
+from collections import defaultdict
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional, Any
@@ -225,7 +195,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # 3. 路径 & 常量
 # ============================================================
 APP_NAME = "mikan_emu"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).resolve().parent
@@ -254,12 +224,15 @@ LAN_SHARED_DIR = LAN_DIR / "shared"
 LAN_SHARED_DOWNLOAD_DIR = LAN_DIR / "shared_download"
 WEBENGINE_DIR = DATA_DIR / "webengine"
 SCRAPE_CACHE_DIR = DATA_DIR / "scrape_cache"
+PLUGINS_DIR = DATA_DIR / "plugins"
+PLUGIN_STORAGE_DIR = DATA_DIR / "plugin_storage"
 
 for d in (DATA_DIR, CONFIG_DIR, LANG_DIR, ENGINE_DIR, ENGINE_DOWNLOAD_DIR,
           BIOS_DIR, ROM_DIR, SAVE_DIR, SAVE_BACKUP_DIR, COVER_DIR,
           CHEAT_DIR, BACKUP_DIR, LOG_DIR, TEMP_DIR, EXPORT_DIR,
           LAN_DIR, LAN_HISTORY_DIR, LAN_FILES_DIR, LAN_SHARED_DIR,
-          LAN_SHARED_DOWNLOAD_DIR, WEBENGINE_DIR, SCRAPE_CACHE_DIR):
+          LAN_SHARED_DOWNLOAD_DIR, WEBENGINE_DIR, SCRAPE_CACHE_DIR,
+          PLUGINS_DIR, PLUGIN_STORAGE_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 FOLDERS_FILE = CONFIG_DIR / "folders.json"
@@ -275,6 +248,8 @@ ENGINES_JSON = ENGINE_DIR / "engines.json"
 INSTALLED_FILE = ENGINE_DIR / "installed.json"
 ROMS_FILE = ROM_DIR / "roms.json"
 LAN_IDENTITY_FILE = LAN_DIR / "identity.json"
+BIOS_DB_FILE = CONFIG_DIR / "bios_db.json"
+PLUGINS_ENABLED_FILE = CONFIG_DIR / "plugins_enabled.json"
 
 logger.remove()
 logger.add(
@@ -288,12 +263,59 @@ if sys.stderr is not None:
 if not HAS_WEBENGINE:
     logger.warning("QtWebEngine 未安装，「局域网传输」页将降级为外部浏览器模式")
 
-
 # ============================================================
 # 3.5 内置默认 JSON 数据
 # ============================================================
 DEFAULT_ENGINES_JSON_STR = r"""
 {
+  "_shared": {
+    "mednafen": {
+      "version": "1.32.1",
+      "url": "https://mednafen.github.io/releases/files/mednafen-1.32.1-win64.zip",
+      "url_type": "direct",
+      "archive": "zip",
+      "match": {"exe": ["mednafen.exe"], "folder": ["mednafen"], "keywords": ["mednafen"]},
+      "launch_template": "{exe} \"{rom}\"",
+      "settings_args": "",
+      "perf_profiles": {"省电": "", "平衡": "", "高性能": "", "画质优先": ""},
+      "official": true
+    },
+    "mame": {
+      "version": "0.289",
+      "url": "https://github.com/mamedev/mame/releases/download/mame0289/mame0289b_x64.exe",
+      "url_type": "direct",
+      "github_repo": "mamedev/mame",
+      "archive": "7z_sfx",
+      "match": {"exe": ["mame.exe", "mame64.exe"], "folder": ["mame", "MAME"], "keywords": ["mame"]},
+      "launch_template": "{exe} \"{rom}\"",
+      "settings_args": "",
+      "perf_profiles": {
+        "省电": "-nothrottle -frameskip 2",
+        "平衡": "",
+        "高性能": "-nothrottle",
+        "画质优先": "-nothrottle"
+      },
+      "official": true
+    },
+    "retroarch": {
+      "version": "1.22.2",
+      "url": "https://buildbot.libretro.com/stable/1.22.2/windows/x86_64/RetroArch.7z",
+      "url_type": "direct",
+      "archive": "7z",
+      "match": {"exe": ["retroarch.exe"], "folder": ["RetroArch", "retroarch"], "keywords": ["retroarch"]},
+      "launch_template": "{exe} -L \"{core}\" \"{rom}\"",
+      "settings_args": "",
+      "perf_profiles": {
+        "省电": "--menu",
+        "平衡": "",
+        "高性能": "--fullscreen",
+        "画质优先": "--fullscreen --set-shader"
+      },
+      "official": true,
+      "note": "libretro 前端，配合核心使用"
+    }
+  },
+
   "sfc": {
     "platform_name": "SFC / 超级任天堂",
     "rom_extensions": [".sfc", ".smc", ".fig", ".swc"],
@@ -334,6 +356,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "ps1": {
     "platform_name": "PS1 / PlayStation",
     "rom_extensions": [".bin", ".cue", ".iso", ".chd", ".pbp", ".img"],
@@ -391,28 +414,16 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "ss": {
     "platform_name": "SS / 世嘉土星",
     "rom_extensions": [".bin", ".cue", ".iso", ".chd", ".mds", ".mdf"],
     "engines": {
       "mednafen": {
-        "version": "1.32.1",
-        "url": "https://mednafen.github.io/releases/files/mednafen-1.32.1-win64.zip",
-        "url_type": "direct",
-        "archive": "zip",
-        "match": {"exe": ["mednafen.exe"], "folder": ["mednafen"], "keywords": ["mednafen"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "",
-          "画质优先": ""
-        },
+        "use_shared": "mednafen",
         "bios_required": true,
         "bios_files": ["mpr-17933.bin", "sega_101.bin"],
-        "bios_dir": "firmware",
-        "official": true
+        "bios_dir": "firmware"
       },
       "ssf": {
         "version": "PreviewVer R38",
@@ -471,6 +482,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "dc": {
     "platform_name": "DC / Dreamcast",
     "rom_extensions": [".gdi", ".cdi", ".chd", ".cue", ".bin", ".iso", ".mds"],
@@ -484,12 +496,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["flycast.exe", "Flycast.exe"], "folder": ["flycast", "Flycast"], "keywords": ["flycast"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "",
-          "画质优先": ""
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "", "画质优先": ""},
         "bios_required": true,
         "bios_files": ["dc_boot.bin", "dc_flash.bin"],
         "bios_dir": "data",
@@ -526,6 +533,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "vmu": {
     "platform_name": "VMU / 记忆卡",
     "rom_extensions": [".vmu", ".vms", ".dci"],
@@ -544,6 +552,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "gba": {
     "platform_name": "GBA",
     "rom_extensions": [".gba", ".agb"],
@@ -579,6 +588,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "ps2": {
     "platform_name": "PS2 / PlayStation 2",
     "rom_extensions": [".iso", ".bin", ".cue", ".chd", ".gz"],
@@ -611,6 +621,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "fc": {
     "platform_name": "FC / NES",
     "rom_extensions": [".nes", ".fds", ".unf", ".unif"],
@@ -671,6 +682,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "n64": {
     "platform_name": "N64",
     "rom_extensions": [".n64", ".z64", ".v64", ".rom"],
@@ -778,6 +790,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "nds": {
     "platform_name": "NDS",
     "rom_extensions": [".nds", ".dsi", ".ids"],
@@ -820,6 +833,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "3ds": {
     "platform_name": "3DS",
     "rom_extensions": [".3ds", ".cia", ".cci", ".cxi"],
@@ -833,12 +847,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["azahar.exe", "citra-qt.exe"], "folder": ["azahar", "Azahar"], "keywords": ["azahar"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "--fullscreen",
-          "画质优先": "--fullscreen"
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true,
         "note": "Citra 后继项目"
       },
@@ -853,10 +862,11 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true,
-        "note": "⚠ 实验性：Rust 重写的 3DS 模拟器，用 AOT 重编译。极早期，兼容性极差。"
+        "note": "⚠ 实验性：Rust 重写的 3DS 模拟器"
       }
     }
   },
+
   "md": {
     "platform_name": "MD / Genesis",
     "rom_extensions": [".md", ".gen", ".smd", ".bin", ".32x"],
@@ -887,6 +897,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "sms": {
     "platform_name": "Master System / Game Gear",
     "rom_extensions": [".sms", ".gg", ".sg"],
@@ -906,6 +917,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "gb": {
     "platform_name": "GB / GBC",
     "rom_extensions": [".gb", ".gbc", ".sgb"],
@@ -947,10 +959,11 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": false,
-        "note": "已停更，需手动下载。建议改用 mGBA"
+        "note": "已停更，建议改用 mGBA"
       }
     }
   },
+
   "psp": {
     "platform_name": "PSP",
     "rom_extensions": [".iso", ".cso", ".pbp"],
@@ -964,16 +977,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["PPSSPPWindows64.exe", "PPSSPPWindows.exe", "PPSSPP.exe"], "folder": ["PPSSPP", "ppsspp"], "keywords": ["ppsspp"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "--fullscreen",
-          "画质优先": "--fullscreen"
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true
       }
     }
   },
+
   "switch": {
     "platform_name": "Switch",
     "rom_extensions": [".nsp", ".xci", ".nsz", ".xcz"],
@@ -986,12 +995,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["Ryujinx.exe", "ryujinx.exe"], "folder": ["Ryujinx", "ryujinx", "publish"], "keywords": ["ryujinx"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "--fullscreen",
-          "画质优先": "--fullscreen"
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true
       },
       "yuzu": {
@@ -1009,42 +1013,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
-  "switch_alt": {
-    "platform_name": "Switch（备用引擎）",
-    "rom_extensions": [".nsp", ".xci", ".nsz", ".xcz"],
-    "engines": {
-      "suyu": {
-        "version": "0.0.12",
-        "url": "https://github.com/suyu-emu/suyu-main/releases/download/v0.0.12/suyu-windows-x86_64.zip",
-        "url_type": "direct",
-        "github_repo": "suyu-emu/suyu-main",
-        "archive": "zip",
-        "match": {"exe": ["suyu.exe"], "folder": ["suyu"], "keywords": ["suyu"]},
-        "launch_template": "{exe} -g \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "bios_required": true,
-        "bios_dir": "keys",
-        "official": false,
-        "note": "基于 yuzu 的分支，已停止开发。需要 prod.keys 和固件。"
-      }
-    }
-  },
+
   "pce": {
     "platform_name": "PCE / TurboGrafx",
     "rom_extensions": [".pce", ".sgx"],
     "engines": {
-      "mednafen": {
-        "version": "1.32.1",
-        "url": "https://mednafen.github.io/releases/files/mednafen-1.32.1-win64.zip",
-        "url_type": "direct",
-        "archive": "zip",
-        "match": {"exe": ["mednafen.exe"], "folder": ["mednafen"], "keywords": ["mednafen"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true
-      },
+      "mednafen": {"use_shared": "mednafen"},
       "geargrafx": {
         "version": "1.8.2",
         "url": "https://github.com/drhelius/Geargrafx/releases/download/1.8.2/Geargrafx-1.8.2-desktop-windows-x64.zip",
@@ -1060,52 +1034,23 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "neogeo": {
     "platform_name": "Neo Geo",
     "rom_extensions": [".zip", ".neo"],
     "engines": {
-      "mame": {
-        "version": "0.289",
-        "url": "https://github.com/mamedev/mame/releases/download/mame0289/mame0289b_x64.exe",
-        "url_type": "direct",
-        "github_repo": "mamedev/mame",
-        "archive": "7z_sfx",
-        "match": {"exe": ["mame.exe", "mame64.exe"], "folder": ["mame", "MAME"], "keywords": ["mame"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {
-          "省电": "-nothrottle -frameskip 2",
-          "平衡": "",
-          "高性能": "-nothrottle",
-          "画质优先": "-nothrottle"
-        },
-        "official": true
-      }
+      "mame": {"use_shared": "mame"}
     }
   },
+
   "arcade": {
     "platform_name": "Arcade",
     "rom_extensions": [".zip", ".7z"],
     "engines": {
-      "mame": {
-        "version": "0.289",
-        "url": "https://github.com/mamedev/mame/releases/download/mame0289/mame0289b_x64.exe",
-        "url_type": "direct",
-        "github_repo": "mamedev/mame",
-        "archive": "7z_sfx",
-        "match": {"exe": ["mame.exe", "mame64.exe"], "folder": ["mame", "MAME"], "keywords": ["mame"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {
-          "省电": "-nothrottle -frameskip 2",
-          "平衡": "",
-          "高性能": "-nothrottle",
-          "画质优先": "-nothrottle"
-        },
-        "official": true
-      }
+      "mame": {"use_shared": "mame"}
     }
   },
+
   "x68000": {
     "platform_name": "Sharp X68000",
     "rom_extensions": [".dim", ".zip", ".img", ".d88", ".88d", ".hdm", ".dup", ".2hd", ".xdf", ".hdf"],
@@ -1127,6 +1072,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "pc98": {
     "platform_name": "NEC PC-98",
     "rom_extensions": [".hdi", ".fdi", ".d98", ".hdm", ".d88", ".zip"],
@@ -1148,6 +1094,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "fmtowns": {
     "platform_name": "FM Towns",
     "rom_extensions": [".bin", ".cue", ".iso", ".chd", ".d88", ".hdm"],
@@ -1168,6 +1115,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "pcfx": {
     "platform_name": "PC-FX",
     "rom_extensions": [".cue", ".bin", ".iso", ".chd"],
@@ -1188,6 +1136,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "msx": {
     "platform_name": "MSX",
     "rom_extensions": [".rom", ".mx1", ".mx2", ".dsk", ".cas", ".zip"],
@@ -1219,6 +1168,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "x86box": {
     "platform_name": "86Box / PC 模拟",
     "rom_extensions": [".86f", ".img", ".ima", ".vfd", ".hdd", ".bin", ".rom"],
@@ -1236,10 +1186,11 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "bios_dir": "roms",
         "bios_required": true,
         "official": true,
-        "note": "x86 PC 模拟器。BIOS ROM 放 roms/ 子目录（86Box 默认）。启动后需在 UI 里选机型。"
+        "note": "x86 PC 模拟器。BIOS ROM 放 roms/ 子目录"
       }
     }
   },
+
   "pcem": {
     "platform_name": "PCem / PC 模拟",
     "rom_extensions": [".86f", ".img", ".ima", ".vfd", ".hdd", ".bin", ".rom"],
@@ -1257,10 +1208,11 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "bios_dir": "roms",
         "bios_required": true,
         "official": true,
-        "note": "x86 PC 模拟器。BIOS ROM 放 roms/ 子目录。启动后需在 UI 里选机型。"
+        "note": "x86 PC 模拟器。BIOS ROM 放 roms/ 子目录"
       }
     }
   },
+
   "dos": {
     "platform_name": "DOS",
     "rom_extensions": [".exe", ".com", ".bat", ".img", ".iso", ".zip"],
@@ -1280,6 +1232,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "ps4": {
     "platform_name": "PS4 / PlayStation 4",
     "rom_extensions": [".pkg", ".iso", ".bin", ".elf", ".self"],
@@ -1293,17 +1246,13 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["shadps4.exe", "shadPS4.exe", "shadPS4QtLauncher.exe"], "folder": ["shadPS4", "shadps4"], "keywords": ["shadps4"]},
         "launch_template": "{exe} -g \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "-g",
-          "画质优先": "-g"
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "-g", "画质优先": "-g"},
         "official": true,
-        "note": "⚠ 实验性：极早期，能跑的游戏有限。需要从自己的 PS4 导出游戏。"
+        "note": "⚠ 实验性：极早期"
       }
     }
   },
+
   "ps5": {
     "platform_name": "PS5 / PlayStation 5",
     "rom_extensions": [".pkg", ".elf", ".self"],
@@ -1319,10 +1268,11 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true,
-        "note": "⚠ 实验性：极早期，目前只能跑极少数游戏，需要高端硬件。"
+        "note": "⚠ 实验性：极早期"
       }
     }
   },
+
   "xbox": {
     "platform_name": "初代 Xbox",
     "rom_extensions": [".xiso", ".iso", ".xbe"],
@@ -1340,10 +1290,11 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "bios_required": true,
         "bios_dir": "bios",
         "official": true,
-        "note": "需要 Xbox BIOS（mcpx_1.0.bin 等），游戏需从自己光盘提取。"
+        "note": "需要 Xbox BIOS"
       }
     }
   },
+
   "xbox360": {
     "platform_name": "Xbox 360",
     "rom_extensions": [".iso", ".xex", ".zar", ".god"],
@@ -1359,7 +1310,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true,
-        "note": "Canary 分支，主开发分支。需要 64 位 CPU + AVX。"
+        "note": "Canary 分支，主开发分支"
       },
       "xenia_edge": {
         "version": "edge",
@@ -1372,33 +1323,19 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": false,
-        "note": "第三方优化分支，兼容性可能不如 Canary。"
+        "note": "第三方优化分支"
       }
     }
   },
+
   "multi": {
     "platform_name": "万能 / 前端",
     "rom_extensions": [],
     "engines": {
-      "retroarch": {
-        "version": "1.22.2",
-        "url": "https://buildbot.libretro.com/stable/1.22.2/windows/x86_64/RetroArch.7z",
-        "url_type": "direct",
-        "archive": "7z",
-        "match": {"exe": ["retroarch.exe"], "folder": ["RetroArch", "retroarch"], "keywords": ["retroarch"]},
-        "launch_template": "{exe} -L \"{core}\" \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {
-          "省电": "--menu",
-          "平衡": "",
-          "高性能": "--fullscreen",
-          "画质优先": "--fullscreen --set-shader"
-        },
-        "official": true,
-        "note": "libretro 前端，配合核心使用"
-      }
+      "retroarch": {"use_shared": "retroarch"}
     }
   },
+
   "wii": {
     "platform_name": "Wii / GameCube",
     "rom_extensions": [".iso", ".gcm", ".wbfs", ".wad", ".dol", ".elf", ".rvz"],
@@ -1412,17 +1349,13 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["Dolphin.exe", "dolphin.exe"], "folder": ["Dolphin", "dolphin"], "keywords": ["dolphin"]},
         "launch_template": "{exe} -b -e \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "-b",
-          "平衡": "-b",
-          "高性能": "-b --fullscreen",
-          "画质优先": "-b --fullscreen"
-        },
+        "perf_profiles": {"省电": "-b", "平衡": "-b", "高性能": "-b --fullscreen", "画质优先": "-b --fullscreen"},
         "official": true,
-        "note": "Wii / GameCube 通用。需要从自己主机导出游戏。"
+        "note": "Wii / GameCube 通用"
       }
     }
   },
+
   "wiiu": {
     "platform_name": "Wii U",
     "rom_extensions": [".wud", ".wux", ".rpx", ".wua"],
@@ -1436,17 +1369,13 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["Cemu.exe", "cemu.exe"], "folder": ["Cemu", "cemu"], "keywords": ["cemu"]},
         "launch_template": "{exe} -g \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "-g",
-          "画质优先": "-g"
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "-g", "画质优先": "-g"},
         "official": true,
         "note": "Wii U 模拟器。需要 keys.txt 和在线更新数据。"
       }
     }
   },
+
   "ps3": {
     "platform_name": "PS3 / PlayStation 3",
     "rom_extensions": [".pkg", ".iso", ".bin", ".elf", ".self", ".sprx"],
@@ -1460,19 +1389,15 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["rpcs3.exe", "RPCS3.exe"], "folder": ["rpcs3", "RPCS3"], "keywords": ["rpcs3"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "--fullscreen",
-          "画质优先": "--fullscreen"
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "bios_required": true,
         "bios_dir": "dev_flash",
         "official": true,
-        "note": "需要 PS3 固件（从自己主机提取）。"
+        "note": "需要 PS3 固件"
       }
     }
   },
+
   "psvita": {
     "platform_name": "PS Vita",
     "rom_extensions": [".vpk", ".mai", ".bin", ".elf"],
@@ -1494,6 +1419,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "cpc": {
     "platform_name": "Amstrad CPC",
     "rom_extensions": [".dsk", ".cdt", ".sna", ".tap", ".cpr"],
@@ -1537,6 +1463,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "c64": {
     "platform_name": "Commodore 64",
     "rom_extensions": [".d64", ".d71", ".d81", ".prg", ".tap", ".crt", ".g64", ".x64"],
@@ -1556,6 +1483,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "atarist": {
     "platform_name": "Atari ST",
     "rom_extensions": [".st", ".msa", ".stx", ".img", ".zip"],
@@ -1575,6 +1503,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "atari2600": {
     "platform_name": "Atari 2600",
     "rom_extensions": [".a26", ".bin", ".rom", ".zip"],
@@ -1594,6 +1523,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "zxspectrum": {
     "platform_name": "ZX Spectrum",
     "rom_extensions": [".tzx", ".tap", ".z80", ".sna", ".szx", ".trd", ".dsk", ".zip"],
@@ -1625,6 +1555,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "colecovision": {
     "platform_name": "ColecoVision",
     "rom_extensions": [".col", ".rom", ".bin", ".zip"],
@@ -1643,6 +1574,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "intellivision": {
     "platform_name": "Intellivision",
     "rom_extensions": [".int", ".bin", ".rom", ".zip"],
@@ -1665,6 +1597,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "bbcmicro": {
     "platform_name": "BBC Micro",
     "rom_extensions": [".ssd", ".dsd", ".adf", ".uef", ".tap", ".zip"],
@@ -1684,6 +1617,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       }
     }
   },
+
   "unknown": {
     "platform_name": "未知渠道",
     "rom_extensions": [],
@@ -1722,12 +1656,9 @@ DEFAULT_SETTINGS_JSON = {
     "export_include_cover": True,
     "check_update_on_start": True,
     "perf_monitor_on_launch": True,
-    # 外观
     "theme": "auto",
     "accent_color": "",
-    # 补丁
     "patch_dir": "",
-    # 启动模板
     "launch_profiles": {
         "默认": "",
         "全屏": "--fullscreen",
@@ -1735,7 +1666,6 @@ DEFAULT_SETTINGS_JSON = {
         "静音": "--mute",
     },
     "default_profile": "默认",
-    # 局域网
     "lan_enabled": False,
     "lan_nickname": "",
     "lan_port": 54322,
@@ -1746,17 +1676,21 @@ DEFAULT_SETTINGS_JSON = {
     "lan_max_file_mb": 512,
     "lan_share_enabled": True,
     "lan_notify_on_receive": True,
-    # 刮削
     "steamgriddb_api_key": "",
     "scrape_image_type": "boxart",
     "scrape_overwrite": False,
     "scrape_auto_on_import": False,
-    # 系统优先级
     "process_priority": "normal",
     "process_priority_children": True,
     "process_priority_auto": True,
-    # 版本探测
     "auto_detect_engine_version": True,
+    "proxy_mode": "none",
+    "proxy_host": "",
+    "proxy_port": 0,
+    "proxy_user": "",
+    "proxy_pwd": "",
+    "proxy_bypass": "",
+    "plugins_auto_load": True,
 }
 
 DEFAULT_MIRRORS_JSON = {
@@ -1817,6 +1751,132 @@ DEFAULT_RESOURCES_JSON = {
 }
 
 
+DEFAULT_BIOS_DB = {
+    "version": "1.0",
+    "platforms": {
+        "ps1": {
+            "display": "PlayStation",
+            "required_any": ["scph1001.bin", "scph5501.bin", "scph7001.bin"],
+            "files": {
+                "scph1001.bin": {"md5": "924e392ed05558ffdb115408c263dccf", "region": "US", "ver": "2.2"},
+                "scph5501.bin": {"md5": "490f666e1afb15b7362b406ed1cea246", "region": "US", "ver": "3.0"},
+                "scph7001.bin": {"md5": "0555c6fae8906f3f09baf5988f00e943", "region": "EU", "ver": "4.1"},
+                "scph10000.bin": {"md5": "8dd7d5296a650fac7319bcecf08d9a3c", "region": "JP", "ver": "1.0"},
+                "scph7502.bin": {"md5": "b9d9a0286c33dc6b7237bb13cd46fdee", "region": "EU", "ver": "2.2"}
+            },
+            "aliases": {
+                "SCPH1001.BIN": "scph1001.bin",
+                "bios.bin": "scph1001.bin",
+                "ps1bios.bin": "scph1001.bin",
+                "psx.bin": "scph1001.bin"
+            }
+        },
+        "ss": {
+            "display": "Sega Saturn",
+            "required_any": ["sega_101.bin", "mpr-17933.bin"],
+            "files": {
+                "sega_101.bin": {"md5": "85ec9ca47d8f6807718151cbcca8b9f2", "region": "JP"},
+                "mpr-17933.bin": {"md5": "3240872c70984b6cbfda1586cab68dbe", "region": "US/EU"}
+            },
+            "aliases": {}
+        },
+        "dc": {
+            "display": "Dreamcast",
+            "required_any": ["dc_boot.bin"],
+            "files": {
+                "dc_boot.bin": {"md5": "e10c53c2f8b90bab96ead2d368858623"},
+                "dc_flash.bin": {"md5": "0a93f7940c455905bea6e392dfde92a4"}
+            },
+            "aliases": {}
+        },
+        "gba": {
+            "display": "Game Boy Advance",
+            "required_any": ["gba_bios.bin"],
+            "files": {
+                "gba_bios.bin": {"md5": "a860e8c0b6d573d19181b6bc8e02dd4d"}
+            },
+            "aliases": {
+                "gba_bios.rom": "gba_bios.bin",
+                "gba.rom": "gba_bios.bin"
+            }
+        },
+        "nds": {
+            "display": "Nintendo DS",
+            "required_any": ["bios7.bin", "bios9.bin", "firmware.bin"],
+            "files": {
+                "bios7.bin": {"md5": "df692a80a5b1bc90728bc3dfc76cd948"},
+                "bios9.bin": {"md5": "a392174eb3e572fed6447e956bde4b25"},
+                "firmware.bin": {"md5": "8ad9c21c2b3280e45e8bfd1749f0b0e8"}
+            },
+            "aliases": {
+                "nds_bios_arm7.bin": "bios7.bin",
+                "nds_bios_arm9.bin": "bios9.bin"
+            }
+        },
+        "switch": {
+            "display": "Nintendo Switch",
+            "required_any": ["prod.keys"],
+            "files": {
+                "prod.keys": {"md5": ""},
+                "title.keys": {"md5": ""}
+            },
+            "aliases": {}
+        },
+        "ps2": {
+            "display": "PlayStation 2",
+            "required_any": ["scph10000.bin", "scph39001.bin"],
+            "files": {},
+            "aliases": {}
+        },
+        "pce": {
+            "display": "PC Engine",
+            "required_any": ["syscard3.pce"],
+            "files": {"syscard3.pce": {"md5": ""}},
+            "aliases": {"syscard3.bin": "syscard3.pce"}
+        },
+        "neogeo": {
+            "display": "Neo Geo",
+            "required_any": ["neogeo.zip"],
+            "files": {"neogeo.zip": {"md5": ""}},
+            "aliases": {}
+        },
+        "intellivision": {
+            "display": "Intellivision",
+            "required_any": ["exec.bin", "grom.bin"],
+            "files": {
+                "exec.bin": {"md5": ""},
+                "grom.bin": {"md5": ""}
+            },
+            "aliases": {}
+        },
+        "pcfx": {
+            "display": "PC-FX",
+            "required_any": ["pcfx.rom"],
+            "files": {"pcfx.rom": {"md5": "08e36edbea1f1882b5a4f9c9d0f6e5a5"}},
+            "aliases": {}
+        },
+        "x68000": {
+            "display": "Sharp X68000",
+            "required_any": ["iplrom.dat", "cgrom.dat"],
+            "files": {
+                "iplrom.dat": {"md5": "8dd0edcdd9f2b78a5a8b4e4c6a2b8f5e"},
+                "cgrom.dat": {"md5": "1f4b0a3c8d9e6f2a3b5c7d8e9f0a1b2c"}
+            },
+            "aliases": {"keropi": "iplrom.dat"}
+        },
+        "pc98": {
+            "display": "NEC PC-98",
+            "required_any": ["bios.rom", "font.rom"],
+            "files": {
+                "bios.rom": {"md5": ""},
+                "font.rom": {"md5": ""}
+            },
+            "aliases": {}
+        }
+    }
+}
+
+
 def _ensure_json_file(path: Path, default_data):
     if path.exists():
         return
@@ -1839,6 +1899,8 @@ def _ensure_all_json_files():
     _ensure_json_file(RESOURCES_FILE, DEFAULT_RESOURCES_JSON)
     _ensure_json_file(INSTALLED_FILE, DEFAULT_INSTALLED_JSON)
     _ensure_json_file(ROMS_FILE, DEFAULT_ROMS_JSON)
+    _ensure_json_file(BIOS_DB_FILE, DEFAULT_BIOS_DB)
+    _ensure_json_file(PLUGINS_ENABLED_FILE, {})
     if not ENGINES_JSON.exists():
         try:
             data = json.loads(DEFAULT_ENGINES_JSON_STR)
@@ -2136,7 +2198,6 @@ DEFAULT_LANG_PACKS = {
         "save_backup_failed": "备份失败: {err}",
         "save_restore_confirm": "还原备份 {name}？当前存档会先自动备份。",
         "save_restore_done": "已还原: {name}",
-        # ---- 补丁工具 ----
         "patch_title": "ROM 补丁工具",
         "patch_hint": "支持 IPS / UPS 补丁。\n把补丁文件放在 ROM 同目录（或下方「补丁目录」）会自动列出。\n应用后生成新文件，原 ROM 自动备份为 .bak。",
         "patch_state_clean": "当前是原始 ROM（未打补丁）。",
@@ -2170,7 +2231,6 @@ DEFAULT_LANG_PACKS = {
         "patch_tool_browse": "浏览…",
         "patch_tool_apply": "应用补丁",
         "patch_failed": "补丁应用失败: {err}",
-        # ---- 配置包 ----
         "pack_title": "配置包",
         "pack_hint": "把整个配置打包成一个文件，方便迁移 / 备份。",
         "pack_export": "📦 导出完整配置包",
@@ -2191,7 +2251,6 @@ DEFAULT_LANG_PACKS = {
         "pack_exported": "配置包已保存:\n{path}\n\n大小: {size}",
         "pack_imported": "配置: {config}\n引擎: {engines}\n游戏: {roms}\n封面: {covers}\n存档: {saves}\n\n部分设置需重启程序才完全生效。",
         "pack_file_missing": "文件不存在: {path}",
-        # ---- 刮削 ----
         "scrape_title": "封面刮削",
         "scrape_choose_source": "选择刮削源",
         "scrape_source_auto": "自动（Libretro 优先，失败用 SteamGridDB）",
@@ -2230,7 +2289,6 @@ DEFAULT_LANG_PACKS = {
         "scrape_failed_list": "失败列表（可手动重试）",
         "scrape_retry_failed": "重试全部失败项",
         "scrape_source_note": "Libretro Thumbnails 为社区维护的免费图库，覆盖经典平台。\nSteamGridDB 覆盖现代平台，需自行申请 API key。",
-        # ---- 系统优先级 ----
         "settings_priority": "进程优先级",
         "settings_priority_hint": "启动游戏后自动提升其进程优先级，改善帧数稳定性。\n「高」不需要管理员；「实时」需要管理员，且可能拖慢整个系统。",
         "settings_priority_low": "低（IDLE）",
@@ -2243,17 +2301,14 @@ DEFAULT_LANG_PACKS = {
         "settings_priority_failed": "应用优先级失败（可能需要管理员）",
         "settings_priority_realtime_warn": "实时优先级会拖慢整个系统（键鼠都可能卡顿），确定？",
         "settings_priority_relaunch": "需要管理员权限，是否以管理员重启？",
-        # ---- 引擎设置 ----
         "engine_settings_title": "打开模拟器设置",
         "engine_settings_hint": "将不带游戏启动该模拟器，进入它自带的设置界面。",
         "engine_settings_launched": "已启动 {engine} 的设置界面",
         "engine_settings_failed": "启动失败: {err}",
-        # ---- 版本适配 ----
         "settings_version": "引擎版本",
         "settings_version_auto_detect": "启动时自动探测引擎版本",
         "settings_version_hint": "探测到的版本会用于套用 version_overrides（不同版本的参数差异）。",
         "version_unknown_warn": "该引擎版本未知，将使用默认参数。可右键「重新检测版本」。",
-        # ---- 局域网聊天 ----
         "lan_title": "局域网",
         "lan_tab_chat": "💬 聊天",
         "lan_tab_share": "📁 共享",
@@ -2354,6 +2409,27 @@ DEFAULT_LANG_PACKS = {
         "webtransfer_install_failed": "启动安装进程失败。",
         "msg_ok": "确定", "msg_cancel": "取消", "msg_warning": "警告",
         "msg_error": "错误", "msg_info": "提示", "msg_confirm": "确认",
+        # ★ 插件相关
+        "plugins_title": "插件",
+        "plugins_hint": "插件放在 data/mikan_emu/plugins/<id>/ 下，每个插件包含 plugin.json 和 main.py。\n启用/禁用或导入新插件后，需要点「重启程序」才能生效。",
+        "plugins_col_enabled": "启用",
+        "plugins_col_id": "ID",
+        "plugins_col_name": "名称",
+        "plugins_col_version": "版本",
+        "plugins_open_dir": "📂 打开插件目录",
+        "plugins_import_zip": "📥 导入插件压缩包",
+        "plugins_rescan": "🔄 重新扫描",
+        "plugins_restart": "♻ 重启程序",
+        "plugins_import_title": "导入插件",
+        "plugins_import_success": "插件「{name}」已导入。\n请点「重启程序」使其生效。",
+        "plugins_import_no_meta": "压缩包里没有找到 plugin.json",
+        "plugins_import_overwrite": "插件 {pid} 已存在，覆盖？",
+        "plugins_import_failed": "导入失败: {err}",
+        "plugins_toggle_hint": "插件 {pid} 已{state}。\n请点「重启程序」使其生效。",
+        "plugins_state_enabled": "启用",
+        "plugins_state_disabled": "禁用",
+        "plugins_restart_confirm": "将关闭当前窗口并重新启动程序。\n继续？",
+        "plugins_load_failed": "插件 {pid} 加载失败: {err}",
     },
     "en": {
         "_meta": {"name": "English", "code": "en", "translator": "Official"},
@@ -2700,7 +2776,6 @@ DEFAULT_LANG_PACKS = {
         "pack_exported": "Config pack saved:\n{path}\n\nSize: {size}",
         "pack_imported": "Config: {config}\nEngines: {engines}\nGames: {roms}\nCovers: {covers}\nSaves: {saves}\n\nRestart for some settings to take effect.",
         "pack_file_missing": "File not found: {path}",
-        # ---- Scrape ----
         "scrape_title": "Cover Scraper",
         "scrape_choose_source": "Scrape Source",
         "scrape_source_auto": "Auto (Libretro first, SteamGridDB fallback)",
@@ -2739,7 +2814,6 @@ DEFAULT_LANG_PACKS = {
         "scrape_failed_list": "Failed list (manual retry)",
         "scrape_retry_failed": "Retry all failed",
         "scrape_source_note": "Libretro Thumbnails is a free community library for classic platforms.\nSteamGridDB covers modern platforms, needs your own API key.",
-        # ---- Process priority ----
         "settings_priority": "Process Priority",
         "settings_priority_hint": "Boost the game process priority on launch for steadier framerate.\n'High' needs no admin; 'Realtime' needs admin and may lag the whole system.",
         "settings_priority_low": "Low (IDLE)",
@@ -2752,17 +2826,14 @@ DEFAULT_LANG_PACKS = {
         "settings_priority_failed": "Failed to set priority (may need admin)",
         "settings_priority_realtime_warn": "Realtime priority may lag the whole system (keyboard/mouse). Continue?",
         "settings_priority_relaunch": "Admin rights required. Relaunch as admin?",
-        # ---- Engine settings ----
         "engine_settings_title": "Open Emulator Settings",
         "engine_settings_hint": "Launches the emulator without a game, entering its own settings UI.",
         "engine_settings_launched": "Opened {engine} settings",
         "engine_settings_failed": "Launch failed: {err}",
-        # ---- Version adaptation ----
         "settings_version": "Engine Version",
         "settings_version_auto_detect": "Auto-detect engine version on launch",
         "settings_version_hint": "Detected version is used to apply version_overrides (per-version arg differences).",
         "version_unknown_warn": "Engine version unknown, using defaults. Right-click 'Re-detect version' to retry.",
-        # ---- LAN ----
         "lan_title": "LAN",
         "lan_tab_chat": "💬 Chat",
         "lan_tab_share": "📁 Share",
@@ -2862,12 +2933,32 @@ DEFAULT_LANG_PACKS = {
         "webtransfer_install_failed": "Failed to start installer.",
         "msg_ok": "OK", "msg_cancel": "Cancel", "msg_warning": "Warning",
         "msg_error": "Error", "msg_info": "Info", "msg_confirm": "Confirm",
+        # ★ 插件相关
+        "plugins_title": "Plugins",
+        "plugins_hint": "Plugins go in data/mikan_emu/plugins/<id>/, with plugin.json and main.py.\nEnable/disable or import new plugins, then click 'Restart App' to apply.",
+        "plugins_col_enabled": "Enabled",
+        "plugins_col_id": "ID",
+        "plugins_col_name": "Name",
+        "plugins_col_version": "Version",
+        "plugins_open_dir": "📂 Open Plugins Dir",
+        "plugins_import_zip": "📥 Import Plugin Zip",
+        "plugins_rescan": "🔄 Rescan",
+        "plugins_restart": "♻ Restart App",
+        "plugins_import_title": "Import Plugin",
+        "plugins_import_success": "Plugin '{name}' imported.\nClick 'Restart App' to apply.",
+        "plugins_import_no_meta": "No plugin.json found in the archive",
+        "plugins_import_overwrite": "Plugin {pid} already exists, overwrite?",
+        "plugins_import_failed": "Import failed: {err}",
+        "plugins_toggle_hint": "Plugin {pid} {state}.\nClick 'Restart App' to apply.",
+        "plugins_state_enabled": "enabled",
+        "plugins_state_disabled": "disabled",
+        "plugins_restart_confirm": "The app will close and restart.\nContinue?",
+        "plugins_load_failed": "Plugin {pid} failed to load: {err}",
     },
 }
 
 
 def _machine_translate(zh_pack: dict, lang: str) -> dict:
-    """轻量机器翻译，只翻译界面里几个常用词，其它保留中文。"""
     MAPS = {
         "ru": {
             "游戏库": "Библиотека", "模拟器": "Эмуляторы", "设置": "Настройки",
@@ -3071,6 +3162,13 @@ SETTINGS = {
     "process_priority_children": True,
     "process_priority_auto": True,
     "auto_detect_engine_version": True,
+    "proxy_mode": "none",
+    "proxy_host": "",
+    "proxy_port": 0,
+    "proxy_user": "",
+    "proxy_pwd": "",
+    "proxy_bypass": "",
+    "plugins_auto_load": True,
 }
 SAVE_PATHS: dict = {}
 CHEAT_PATHS: dict = {}
@@ -3316,9 +3414,7 @@ def autodetect_save_paths(engines_json: dict) -> dict:
     localappdata = Path(os.environ.get("LOCALAPPDATA", ""))
     candidates = {
         "snes9x": [docs / "Snes9x" / "Saves", DATA_DIR / "snes9x"],
-        "duckstation": [docs / "DuckStation",
-                        home / ".local/share/DuckStation",
-                        localappdata / "DuckStation"],
+        "duckstation": [docs / "DuckStation", home / ".local/share/DuckStation", localappdata / "DuckStation"],
         "mednafen": [home / ".mednafen" / "sav", DATA_DIR / "mednafen" / "sav"],
         "mgba": [docs / "mGBA", DATA_DIR / "mgba"],
         "pcsx2": [docs / "PCSX2" / "memcards", home / ".config" / "PCSX2"],
@@ -3337,8 +3433,7 @@ def autodetect_save_paths(engines_json: dict) -> dict:
         "ymir": [docs / "Ymir", appdata / "Ymir"],
         "86box": [DATA_DIR / "86box", appdata / "86Box"],
         "pcem": [DATA_DIR / "pcem", appdata / "PCem"],
-        "dolphin": [docs / "Dolphin Emulator",
-                    appdata / "Dolphin Emulator"],
+        "dolphin": [docs / "Dolphin Emulator", appdata / "Dolphin Emulator"],
         "cemu": [DATA_DIR / "cemu", appdata / "Cemu"],
         "rpcs3": [DATA_DIR / "rpcs3", appdata / "rpcs3"],
         "vita3k": [appdata / "Vita3K", DATA_DIR / "Vita3K"],
@@ -3376,6 +3471,7 @@ def autodetect_retroarch_core_dir() -> str:
         if c.exists() and c.is_dir():
             return str(c)
     return ""
+
 
 # ============================================================
 # 5.5 操作说明数据库
@@ -3651,10 +3747,9 @@ def get_generic_controls() -> dict:
 
 
 # ============================================================
-# 6. engines.json 加载（深度合并 + 版本适配）
+# 6. engines.json 加载（深度合并 + 版本适配 + 共享定义）
 # ============================================================
 def _deep_merge_dict(base: dict, incoming: dict) -> dict:
-    """递归合并：incoming 的值优先，base 独有的键保留。"""
     if not isinstance(base, dict) or not isinstance(incoming, dict):
         return incoming if incoming is not None else base
     result = dict(base)
@@ -3667,53 +3762,86 @@ def _deep_merge_dict(base: dict, incoming: dict) -> dict:
 
 
 def _merge_engines_with_defaults(user_data: dict, default_data: dict) -> tuple:
-    """把源码内置的 DEFAULT_ENGINES_JSON_STR 深度合并进用户 engines.json。
-
-    策略：
-      - 源码有、json 没有 → 补上
-      - json 有、源码没有 → 保留
-      - 两边都有 → 递归合并，json 值优先
-      - engines 下的每个引擎条目也按同样规则合并
-    返回 (合并后数据, 是否有变化)。
-    """
     changed = False
     result = dict(user_data)
 
-    for pid, pcfg_default in default_data.items():
-        if pid not in result:
-            result[pid] = json.loads(json.dumps(pcfg_default))
+    # _shared 也参与合并
+    for key in default_data:
+        if key == "_shared":
+            continue
+        if key not in result:
+            result[key] = json.loads(json.dumps(default_data[key]))
             changed = True
             continue
-
-        pcfg_user = result[pid]
+        pcfg_user = result[key]
+        pcfg_default = default_data[key]
         if not isinstance(pcfg_user, dict):
-            result[pid] = json.loads(json.dumps(pcfg_default))
+            result[key] = json.loads(json.dumps(pcfg_default))
             changed = True
             continue
-
-        for key in ("platform_name", "rom_extensions"):
-            if key not in pcfg_user and key in pcfg_default:
-                pcfg_user[key] = json.loads(json.dumps(pcfg_default[key]))
+        for k in ("platform_name", "rom_extensions"):
+            if k not in pcfg_user and k in pcfg_default:
+                pcfg_user[k] = json.loads(json.dumps(pcfg_default[k]))
                 changed = True
-
         if "engines" in pcfg_default:
             pcfg_user.setdefault("engines", {})
             for en, ecfg_default in pcfg_default["engines"].items():
                 if en not in pcfg_user["engines"]:
-                    pcfg_user["engines"][en] = json.loads(
-                        json.dumps(ecfg_default))
+                    pcfg_user["engines"][en] = json.loads(json.dumps(ecfg_default))
                     changed = True
                 else:
                     ecfg_user = pcfg_user["engines"][en]
                     if not isinstance(ecfg_user, dict):
-                        pcfg_user["engines"][en] = json.loads(
-                            json.dumps(ecfg_default))
+                        pcfg_user["engines"][en] = json.loads(json.dumps(ecfg_default))
                         changed = True
                         continue
                     for fk, fv in ecfg_default.items():
                         if fk not in ecfg_user:
                             ecfg_user[fk] = json.loads(json.dumps(fv))
                             changed = True
+    return result, changed
+
+
+def _expand_shared_engines(data: dict) -> tuple:
+    shared = data.get("_shared", {})
+    if not isinstance(shared, dict) or not shared:
+        return data, False
+
+    changed = False
+    result = dict(data)
+
+    for pid, pcfg in result.items():
+        if pid == "_shared":
+            continue
+        if not isinstance(pcfg, dict):
+            continue
+        engines = pcfg.get("engines", {})
+        if not isinstance(engines, dict):
+            continue
+        for en, ecfg in engines.items():
+            if not isinstance(ecfg, dict):
+                continue
+            ref = ecfg.get("use_shared", "")
+            if not ref:
+                continue
+            base = shared.get(ref)
+            if not isinstance(base, dict):
+                logger.warning(f"引擎 {pid}/{en} 引用未知共享: {ref}")
+                continue
+            merged = dict(base)
+            for k, v in ecfg.items():
+                if k == "use_shared":
+                    continue
+                if (k in merged
+                        and isinstance(merged[k], dict)
+                        and isinstance(v, dict)):
+                    tmp = dict(merged[k])
+                    tmp.update(v)
+                    merged[k] = tmp
+                else:
+                    merged[k] = v
+            engines[en] = merged
+            changed = True
 
     return result, changed
 
@@ -3740,17 +3868,28 @@ def load_engines_json() -> dict:
     try:
         defaults = json.loads(DEFAULT_ENGINES_JSON_STR)
         merged, changed = _merge_engines_with_defaults(data, defaults)
-        if changed:
-            try:
-                with open(ENGINES_JSON, "w", encoding="utf-8") as f:
-                    json.dump(merged, f, indent=2, ensure_ascii=False)
-                logger.info("engines.json 已自动补齐源码内置字段")
-            except Exception as e:
-                logger.warning(f"回写 engines.json 失败: {e}")
-        return merged
     except Exception as e:
         logger.debug(f"合并 engines.json 失败，使用原始数据: {e}")
-        return data
+        merged = data
+        changed = False
+
+    try:
+        merged2, changed2 = _expand_shared_engines(merged)
+        if changed2:
+            merged = merged2
+            changed = True
+    except Exception as e:
+        logger.debug(f"展开 _shared 失败: {e}")
+
+    if changed:
+        try:
+            with open(ENGINES_JSON, "w", encoding="utf-8") as f:
+                json.dump(merged, f, indent=2, ensure_ascii=False)
+            logger.info("engines.json 已自动补齐/展开")
+        except Exception as e:
+            logger.warning(f"回写 engines.json 失败: {e}")
+
+    return merged
 
 
 def save_engines_json(data: dict):
@@ -3764,14 +3903,14 @@ def save_engines_json(data: dict):
 def get_all_platform_rom_extensions(engines_json: dict) -> dict:
     result = {}
     for platform, pcfg in engines_json.items():
+        if platform.startswith("_"):
+            continue
         for ext in pcfg.get("rom_extensions", []):
             result.setdefault(ext.lower(), []).append(platform)
     return result
 
 
-# ---- 版本适配工具 ----
 def _norm_version(v: str) -> Optional[Version]:
-    """把版本字符串规整为 packaging.Version，失败返回 None。"""
     if not v:
         return None
     v = v.strip().lstrip("vV")
@@ -3784,34 +3923,21 @@ def _norm_version(v: str) -> Optional[Version]:
 
 
 def version_newer(a: str, b: str) -> bool:
-    """判断 a 是否比 b 新。
-
-    兼容语义版本与日期版本；跨命名风格（如 '2506' vs '2.6'）
-    视为不可比，返回 False，避免把日期号当主版本号误判。
-    """
     va, vb = _norm_version(a), _norm_version(b)
     if va is None or vb is None:
         return False
-
     try:
         head_a = va.release[0] if va.release else 0
         head_b = vb.release[0] if vb.release else 0
     except Exception:
         return va > vb
-
     lo, hi = (head_a, head_b) if head_a <= head_b else (head_b, head_a)
     if lo > 0 and hi >= lo * 1000:
         return False
-
     return va > vb
 
 
 def match_version_range(ver: str, range_expr: str) -> bool:
-    """判断版本 ver 是否落在 range_expr 描述的范围内。
-
-    range_expr 语法（packaging.SpecifierSet）：
-      "<1.0.0"、">=1.0.0,<2.0.0"、"==1.2.3"、"*" 或 ""（任意）
-    """
     if range_expr in ("", "*", None):
         return True
     v = _norm_version(ver)
@@ -3841,11 +3967,6 @@ VERSION_OVERRIDABLE_FIELDS = {
 def resolve_engine_cfg(platform: str, engine_name: str,
                        version: str = "",
                        engines_json: Optional[dict] = None) -> dict:
-    """返回某引擎在指定版本下最终生效的配置 dict。
-
-    - 顶层字段作为兜底默认值
-    - version_overrides 中第一个匹配 range 的条目覆盖白名单字段
-    """
     if engines_json is None:
         engines_json = load_engines_json()
 
@@ -3877,10 +3998,6 @@ def resolve_engine_cfg(platform: str, engine_name: str,
 
 
 def resolve_engine_field(engine, field: str, default: Any = "") -> Any:
-    """统一取值入口：按引擎记录/探测到的版本，返回字段最终值。
-
-    所有拼参数、取模板的地方都应走这里，不要再直接读 engine.xxx。
-    """
     if engine is None:
         return default
     version = getattr(engine, "version", "") or ""
@@ -3895,7 +4012,6 @@ def resolve_engine_field(engine, field: str, default: Any = "") -> Any:
 
 
 def get_perf_profiles(engine) -> dict:
-    """取引擎最终生效的 perf_profiles。"""
     if engine is None:
         return {}
     v = resolve_engine_field(engine, "perf_profiles", {})
@@ -3903,10 +4019,8 @@ def get_perf_profiles(engine) -> dict:
 
 
 def get_settings_args(engine) -> str:
-    """取引擎最终生效的 settings_args。"""
     v = resolve_engine_field(engine, "settings_args", "")
     return v if isinstance(v, str) else ""
-
 
 # ============================================================
 # 7. 数据结构
@@ -4056,6 +4170,20 @@ def md5_of_file(path: Path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
+def crc32_of_file(path: Path, chunk: int = 1 << 20) -> str:
+    crc = 0
+    try:
+        with open(path, "rb") as f:
+            while True:
+                b = f.read(chunk)
+                if not b:
+                    break
+                crc = zlib.crc32(b, crc)
+    except Exception:
+        return ""
+    return f"{crc & 0xFFFFFFFF:08x}"
+
+
 def human_size(n: int) -> str:
     if n <= 0:
         return "?"
@@ -4139,12 +4267,6 @@ def parse_github_repo(url: str) -> Optional[str]:
 
 def detect_engine_version(engine: "EmulatorConfig",
                           force: bool = False) -> str:
-    """尝试探测引擎版本号，成功返回版本字符串，失败返回空。
-
-    - 先看 installed.json 里记录的版本（非 manual/unknown/latest）
-    - 再尝试执行 `{exe} --version` / `-v` / `-version`，抓数字
-    - 结果缓存写回 installed.json
-    """
     if not engine:
         return ""
     recorded = (engine.version or "").strip()
@@ -4325,6 +4447,8 @@ def match_engines(files: list, engines_json: dict) -> list:
     results = []
     seen = set()
     for platform, pcfg in engines_json.items():
+        if platform.startswith("_"):
+            continue
         engines = pcfg.get("engines", {})
         for engine_name, cfg in engines.items():
             match = cfg.get("match", {})
@@ -4463,6 +4587,259 @@ def install_manual_engine(exe_path: Path, platform: str, engine_name: str,
         installed_at=time.strftime("%Y-%m-%d %H:%M:%S"),
         url_type="manual", archive="none",
     )
+
+
+# ============================================================
+# 12.x 统一 HTTP 会话（代理 + 重试 + 镜像）
+# ============================================================
+class HttpSession:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __init__(self):
+        self._session = requests.Session()
+        self._session.headers.update({
+            "User-Agent": f"{APP_NAME}/{APP_VERSION}",
+        })
+        self._verify = self._init_verify()
+        self._refresh_proxy()
+
+    @classmethod
+    def get(cls) -> "HttpSession":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    @staticmethod
+    def _init_verify():
+        try:
+            import certifi
+            return certifi.where()
+        except ImportError:
+            return True
+
+    def refresh(self):
+        self._refresh_proxy()
+
+    def _refresh_proxy(self):
+        mode = (SETTINGS.get("proxy_mode", "none") or "none").lower()
+        proxies = {}
+        if mode == "none":
+            pass
+        elif mode == "system":
+            try:
+                proxies = requests.utils.getproxies()
+            except Exception:
+                proxies = {}
+        elif mode in ("http", "https", "socks5"):
+            host = SETTINGS.get("proxy_host", "")
+            port = int(SETTINGS.get("proxy_port", 0) or 0)
+            if host and port:
+                user = SETTINGS.get("proxy_user", "")
+                pwd = SETTINGS.get("proxy_pwd", "")
+                auth = f"{user}:{pwd}@" if user else ""
+                url = f"{mode}://{auth}{host}:{port}"
+                proxies = {"http": url, "https": url}
+        self._session.proxies = proxies
+        logger.debug(f"代理已刷新: mode={mode}, 有代理={bool(proxies)}")
+
+    def _need_bypass(self, url: str) -> bool:
+        bypass = (SETTINGS.get("proxy_bypass", "") or "").strip()
+        if not bypass:
+            return False
+        for pat in bypass.split(","):
+            pat = pat.strip().lower()
+            if pat and pat in url.lower():
+                return True
+        return False
+
+    def request(self, method: str, url: str, **kwargs):
+        kwargs.setdefault("timeout", 30)
+        if "verify" not in kwargs:
+            kwargs["verify"] = self._verify
+        if self._need_bypass(url):
+            kwargs["proxies"] = {}
+        try:
+            return self._session.request(method, url, **kwargs)
+        except requests.exceptions.SSLError:
+            logger.warning(f"SSL 失败，降级 verify=False: {url}")
+            kwargs["verify"] = False
+            return self._session.request(method, url, **kwargs)
+        except requests.exceptions.ProxyError as e:
+            logger.warning(f"代理错误: {e}，尝试直连")
+            kwargs["proxies"] = {}
+            return self._session.request(method, url, **kwargs)
+
+    # ---------- 实例方法：改名，避免和 classmethod get 冲突 ----------
+    def http_get(self, url, **kwargs):
+        return self.request("GET", url, **kwargs)
+
+    def http_post(self, url, **kwargs):
+        return self.request("POST", url, **kwargs)
+
+    def http_head(self, url, **kwargs):
+        return self.request("HEAD", url, **kwargs)
+
+    def test(self, test_url: str = "https://api.github.com/rate_limit") -> tuple:
+        try:
+            r = self.http_get(test_url)
+            if r.status_code < 400:
+                try:
+                    ip = self.http_get("https://api.ipify.org").text.strip()
+                except Exception:
+                    ip = "?"
+                return True, f"HTTP {r.status_code}  出口 IP: {ip}"
+            return False, f"HTTP {r.status_code}"
+        except Exception as e:
+            return False, str(e)
+
+
+# ============================================================
+# 16.x BIOS 数据库 + 自动归类
+# ============================================================
+BIOS_DB: dict = {}
+BIOS_MD5_INDEX: dict = {}
+
+
+def load_bios_db():
+    global BIOS_DB, BIOS_MD5_INDEX
+    if BIOS_DB_FILE.exists():
+        try:
+            with open(BIOS_DB_FILE, "r", encoding="utf-8") as f:
+                BIOS_DB = json.load(f)
+        except Exception as e:
+            logger.exception(f"读取 bios_db.json 失败: {e}")
+            BIOS_DB = {}
+    if not BIOS_DB:
+        BIOS_DB = json.loads(json.dumps(DEFAULT_BIOS_DB))
+        try:
+            with open(BIOS_DB_FILE, "w", encoding="utf-8") as f:
+                json.dump(BIOS_DB, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    BIOS_MD5_INDEX = {}
+    for plat, pcfg in BIOS_DB.get("platforms", {}).items():
+        for fname, finfo in (pcfg.get("files") or {}).items():
+            md5 = (finfo.get("md5") or "").lower()
+            if md5:
+                BIOS_MD5_INDEX[md5] = (plat, fname)
+    logger.info(f"BIOS DB: {len(BIOS_MD5_INDEX)} 条 MD5 记录")
+
+
+def identify_bios_platform(path: Path, md5: str = "") -> Optional[str]:
+    if not BIOS_DB:
+        return None
+
+    if not md5:
+        try:
+            md5 = md5_of_file(path)
+        except Exception:
+            md5 = ""
+    if md5 and md5.lower() in BIOS_MD5_INDEX:
+        return BIOS_MD5_INDEX[md5.lower()][0]
+
+    fname_lower = path.name.lower()
+    for plat, pcfg in BIOS_DB.get("platforms", {}).items():
+        files = {k.lower() for k in (pcfg.get("files") or {})}
+        aliases = {k.lower() for k in (pcfg.get("aliases") or {})}
+        if fname_lower in files or fname_lower in aliases:
+            return plat
+
+    norm = re.sub(r"[\s_\-\.]", "", fname_lower)
+    for plat, pcfg in BIOS_DB.get("platforms", {}).items():
+        for known in (pcfg.get("files") or {}):
+            if re.sub(r"[\s_\-\.]", "", known.lower()) == norm:
+                return plat
+    return None
+
+
+def auto_organize_bios(dry_run: bool = False) -> dict:
+    if not BIOS_DB:
+        load_bios_db()
+    result: dict = {}
+    if not BIOS_DIR.exists():
+        return result
+
+    for f in BIOS_DIR.rglob("*"):
+        if not f.is_file():
+            continue
+        try:
+            rel = f.relative_to(BIOS_DIR)
+            if len(rel.parts) > 1:
+                continue
+        except ValueError:
+            continue
+
+        try:
+            md5 = md5_of_file(f)
+        except Exception:
+            md5 = ""
+        plat = identify_bios_platform(f, md5)
+        if not plat:
+            continue
+
+        dst_dir = BIOS_DIR / plat
+        dst = dst_dir / f.name
+        result[plat] = result.get(plat, 0) + 1
+
+        if dry_run:
+            continue
+        try:
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(f), str(dst))
+            logger.info(f"BIOS 归类: {f.name} -> {plat}/")
+        except Exception as e:
+            logger.exception(f"移动 BIOS 失败: {e}")
+    return result
+
+
+def check_bios_ready(engine: "EmulatorConfig") -> tuple:
+    if not engine:
+        return True, []
+    if not engine.bios_required:
+        return True, []
+    if not BIOS_DB:
+        load_bios_db()
+
+    pcfg = BIOS_DB.get("platforms", {}).get(engine.platform, {})
+    required = pcfg.get("required_any") or []
+    if not required:
+        required = resolve_engine_field(engine, "bios_files", []) or []
+
+    bios_dir_rel = resolve_engine_field(engine, "bios_dir", "") or ""
+    search_dirs = []
+    if bios_dir_rel:
+        search_dirs.append(Path(engine.engine_dir) / bios_dir_rel)
+    search_dirs.append(Path(engine.engine_dir))
+    search_dirs.append(BIOS_DIR)
+    search_dirs.append(BIOS_DIR / engine.platform)
+
+    missing = []
+    for req in required:
+        found = False
+        req_lower = req.lower()
+        for d in search_dirs:
+            if not d.exists():
+                continue
+            try:
+                for f in d.rglob("*"):
+                    if f.is_file() and f.name.lower() == req_lower:
+                        found = True
+                        break
+            except Exception:
+                pass
+            if found:
+                break
+        if not found:
+            missing.append(req)
+
+    return (len(missing) == 0), missing
+
+
+load_bios_db()
 
 
 # ============================================================
@@ -4667,20 +5044,7 @@ class DownloadWorker(QThread):
         self._cancel = True
 
     def _request(self, method: str, url: str, **kwargs):
-        headers = {"User-Agent": f"{APP_NAME}/{APP_VERSION}"}
-        headers.update(kwargs.pop("headers", {}) or {})
-        try:
-            import certifi
-            verify_opt = certifi.where()
-        except ImportError:
-            verify_opt = True
-        try:
-            return requests.request(method, url, headers=headers,
-                                    timeout=30, verify=verify_opt, **kwargs)
-        except requests.exceptions.SSLError:
-            logger.warning("SSL 验证失败，降级 verify=False")
-            return requests.request(method, url, headers=headers,
-                                    timeout=30, verify=False, **kwargs)
+        return HttpSession.get().request(method, url, **kwargs)
 
     def _try_mirrors(self):
         mirrors = get_mirror_list()
@@ -4847,27 +5211,19 @@ class MirrorTestWorker(QThread):
         mirrors = get_api_mirror_list() if self._use_api else get_mirror_list()
         ok_count = 0
         fail_count = 0
-        headers = {"User-Agent": f"{APP_NAME}/{APP_VERSION}"}
-        try:
-            import certifi
-            verify_opt = certifi.where()
-        except ImportError:
-            verify_opt = True
+        http = HttpSession.get()
 
         for m in mirrors:
             url = m + self._test_url if m else self._test_url
             t0 = time.time()
             ok = False
             try:
-                r = requests.head(url, headers=headers, timeout=5,
-                                  verify=verify_opt, allow_redirects=True)
+                r = http.head(url, timeout=5, allow_redirects=True)
                 if r.status_code < 400:
                     ok = True
             except Exception:
                 try:
-                    r = requests.get(url, headers=headers, timeout=5,
-                                     verify=verify_opt, stream=True,
-                                     allow_redirects=True)
+                    r = http.get(url, timeout=5, stream=True, allow_redirects=True)
                     if r.status_code < 400:
                         ok = True
                     r.close()
@@ -4893,18 +5249,11 @@ class UpdateCheckWorker(QThread):
         self._engines_json = engines_json
 
     def _api_get(self, url: str, timeout: int = 10):
-        headers = {"User-Agent": f"{APP_NAME}/{APP_VERSION}",
-                   "Accept": "application/vnd.github+json"}
-        try:
-            import certifi
-            verify_opt = certifi.where()
-        except ImportError:
-            verify_opt = True
+        headers = {"Accept": "application/vnd.github+json"}
         for m in get_api_mirror_list():
             test_url = m + url if m else url
             try:
-                r = requests.get(test_url, headers=headers, timeout=timeout,
-                                 verify=verify_opt)
+                r = HttpSession.get().get(test_url, headers=headers, timeout=timeout)
                 if r.status_code < 400:
                     return r.json()
             except Exception:
@@ -4960,10 +5309,6 @@ def find_retroarch() -> Optional[EmulatorConfig]:
 
 
 def _split_cmd(cmd_str: str) -> list:
-    """把命令行字符串拆成参数列表，保留引号内空格。
-
-    处理反斜杠转义：\\" 视为字面引号，不切换引号状态。
-    """
     args = []
     buf = ""
     in_quote = False
@@ -5006,8 +5351,7 @@ def _split_cmd(cmd_str: str) -> list:
 def resolve_launch_args(engine: EmulatorConfig, game: GameEntry,
                         rom_path: str = "") -> list:
     actual_rom = rom_path or game.path
-    tpl = resolve_engine_field(engine, "launch_template",
-                               "{exe} \"{rom}\"")
+    tpl = resolve_engine_field(engine, "launch_template", "{exe} \"{rom}\"")
 
     bios_rom_dir = ""
     bios_dir_field = resolve_engine_field(engine, "bios_dir", "") or ""
@@ -5046,7 +5390,6 @@ def resolve_launch_args(engine: EmulatorConfig, game: GameEntry,
     except KeyError as e:
         raise RuntimeError(f"启动模板缺少占位符: {e}")
 
-    # 性能档位（先拼）
     perf_arg = ""
     perf_name = getattr(game, "perf_profile", "") or ""
     if perf_name:
@@ -5054,14 +5397,12 @@ def resolve_launch_args(engine: EmulatorConfig, game: GameEntry,
         if perf_name in profiles:
             perf_arg = (profiles[perf_name] or "").strip()
 
-    # 启动模板（后拼）
     profile_args = ""
     prof_name = game.profile or SETTINGS.get("default_profile", "")
     profiles = SETTINGS.get("launch_profiles") or {}
     if prof_name and prof_name in profiles:
         profile_args = (profiles[prof_name] or "").strip()
 
-    # 顺序：模板命令 → 性能档位 → 启动模板 → 用户附加参数
     full_cmd = cmd_str
     if perf_arg:
         full_cmd += " " + perf_arg
@@ -5074,7 +5415,6 @@ def resolve_launch_args(engine: EmulatorConfig, game: GameEntry,
 
 
 def resolve_settings_args(engine: EmulatorConfig) -> list:
-    """拼打开引擎设置界面的命令（不带 ROM）。"""
     settings_arg = get_settings_args(engine)
     exe = engine.engine_path
     if settings_arg:
@@ -5171,7 +5511,6 @@ def diagnose_launch_failure(engine: EmulatorConfig, game: GameEntry,
 
 def _apply_priority_to_pid(pid: int, level: str,
                            include_children: bool = True) -> tuple:
-    """给进程（及其子进程）设置优先级。返回 (成功, 错误消息)。"""
     if not HAS_PSUTIL:
         return False, "psutil 未安装"
     priority_map = {
@@ -5202,7 +5541,6 @@ def _apply_priority_to_pid(pid: int, level: str,
             if sys.platform == "win32":
                 p.nice(priority_map[level])
             else:
-                # POSIX 下 nice 值越小优先级越高
                 nice_map = {"low": 19, "normal": 0, "high": -10, "realtime": -20}
                 p.nice(nice_map[level])
             ok_any = True
@@ -5268,7 +5606,6 @@ def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
 
     logger.info(f"已启动: {' '.join(args)}" + (" (auto .cue)" if switched else ""))
 
-    # 应用进程优先级
     if (SETTINGS.get("process_priority_auto", True)
             and SETTINGS.get("process_priority", "normal") != "normal"):
         level = SETTINGS.get("process_priority", "normal")
@@ -5288,7 +5625,6 @@ def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
 
 
 def open_engine_settings(engine: EmulatorConfig) -> tuple:
-    """打开模拟器自带设置（不带 ROM 启动引擎）。"""
     args = resolve_settings_args(engine)
     exe_dir = str(Path(engine.engine_path).parent)
 
@@ -5649,7 +5985,7 @@ class PerfMonitorWindow(QWidget):
 
 
 # ============================================================
-# 16.5 局域网核心（独立版 mikan_lan v1.2.x 协议）
+# 16.5 局域网核心（mikan_lan v1.2.x 协议）
 # ============================================================
 LAN_MAGIC = "mikan_lan"
 LAN_DISCOVERY_PORT = 41234
@@ -6666,9 +7002,6 @@ QToolButton:hover { background-color: #f5f5f5; }
 """
 
 
-# ============================================================
-# 17.5 深色模式 QSS
-# ============================================================
 DARK_QSS_OVERLAY = """
 * { color: #e8e8e8; }
 QMainWindow, QWidget { background-color: #1f1f1f; }
@@ -6973,6 +7306,8 @@ class GameFilterProxy(QSortFilterProxyModel):
 
     def lessThan(self, left, right):
         lm = self.sourceModel()
+        if lm is None:
+            return False
         lg = lm.get(left.row())
         rg = lm.get(right.row())
         if lg is None or rg is None:
@@ -7356,7 +7691,7 @@ def import_config_pack(pack_path: Path,
 
 
 # ============================================================
-# 20.5 封面刮削（Libretro + SteamGridDB）
+# 20.5 封面刮削
 # ============================================================
 LIBRETRO_BASE = "https://thumbnails.libretro.com/"
 
@@ -7406,18 +7741,14 @@ LIBRETRO_IMG_SUBDIRS = {
 
 
 def _libretro_guess_names(game_name: str) -> list:
-    """生成可能的 Libretro 文件名候选。"""
     base = game_name.strip()
     cands = [base]
-    # 去掉括号内容
     cleaned = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", base).strip()
     if cleaned and cleaned != base:
         cands.append(cleaned)
-    # 常见后缀替换（日版/美版）
     for suffix in (" (USA)", " (Europe)", " (Japan)",
                    " (World)", " (En)", " (Ja)"):
         cands.append(cleaned + suffix)
-    # 去重保序
     seen = set()
     out = []
     for c in cands:
@@ -7437,9 +7768,9 @@ def _libretro_url(platform: str, img_type: str, name: str) -> Optional[str]:
 
 
 class LibretroScraperWorker(QThread):
-    one_done = Signal(str, bool, str)  # game_path, ok, cover_path_or_msg
+    one_done = Signal(str, bool, str)
     progress = Signal(int, int)
-    done = Signal(int, int, list)  # ok, fail, failed_items
+    done = Signal(int, int, list)
 
     def __init__(self, games: list, img_type: str = "boxart",
                  overwrite: bool = False):
@@ -7454,14 +7785,7 @@ class LibretroScraperWorker(QThread):
 
     def _download(self, url: str, dst: Path) -> bool:
         try:
-            import certifi
-            verify_opt = certifi.where()
-        except ImportError:
-            verify_opt = True
-        try:
-            r = requests.get(
-                url, timeout=15, verify=verify_opt,
-                headers={"User-Agent": f"{APP_NAME}/{APP_VERSION}"})
+            r = HttpSession.get().get(url, timeout=15)
             if r.status_code != 200:
                 return False
             if not r.content or len(r.content) < 128:
@@ -7505,7 +7829,6 @@ class LibretroScraperWorker(QThread):
                     continue
                 dst = COVER_DIR / f"{g.name}.png"
                 if self._download(url, dst):
-                    # 删除其它扩展名的旧封面
                     for e in (".jpg", ".jpeg", ".webp"):
                         old = COVER_DIR / f"{g.name}{e}"
                         if old.exists():
@@ -7546,75 +7869,42 @@ class SteamGridDBScraperWorker(QThread):
         self._stop = True
 
     def _headers(self) -> dict:
-        return {
-            "Authorization": f"Bearer {self._api_key}",
-            "User-Agent": f"{APP_NAME}/{APP_VERSION}",
-        }
+        return {"Authorization": f"Bearer {self._api_key}"}
 
     def _search_game(self, name: str) -> Optional[int]:
-        try:
-            import certifi
-            verify_opt = certifi.where()
-        except ImportError:
-            verify_opt = True
         url = f"{self.SGDB_BASE}/search/autocomplete/{name}"
         try:
-            r = requests.get(url, headers=self._headers(),
-                             timeout=15, verify=verify_opt)
+            r = HttpSession.get().get(url, headers=self._headers(), timeout=15)
             if r.status_code != 200:
                 return None
             data = r.json()
             if not data.get("success"):
                 return None
             arr = data.get("data", [])
-            if not arr:
-                return None
-            return arr[0].get("id")
+            return arr[0].get("id") if arr else None
         except Exception as e:
             logger.debug(f"SGDB 搜索失败: {e}")
             return None
 
     def _get_images(self, game_id: int) -> Optional[str]:
-        try:
-            import certifi
-            verify_opt = certifi.where()
-        except ImportError:
-            verify_opt = True
-        if self._img_type == "snap":
-            endpoint = "grids"
-            params = "?dimensions=600x900,460x215,920x430"
-        elif self._img_type == "title":
-            endpoint = "grids"
-            params = "?dimensions=600x900"
-        else:
-            endpoint = "grids"
-            params = "?dimensions=600x900"
+        params = "?dimensions=600x900,460x215,920x430"
         url = f"{self.SGDB_BASE}/grids/game/{game_id}{params}"
         try:
-            r = requests.get(url, headers=self._headers(),
-                             timeout=15, verify=verify_opt)
+            r = HttpSession.get().get(url, headers=self._headers(), timeout=15)
             if r.status_code != 200:
                 return None
             data = r.json()
             if not data.get("success"):
                 return None
             arr = data.get("data", [])
-            if not arr:
-                return None
-            return arr[0].get("url")
+            return arr[0].get("url") if arr else None
         except Exception as e:
             logger.debug(f"SGDB 图片获取失败: {e}")
             return None
 
     def _download(self, url: str, dst: Path) -> bool:
         try:
-            import certifi
-            verify_opt = certifi.where()
-        except ImportError:
-            verify_opt = True
-        try:
-            r = requests.get(url, timeout=20, verify=verify_opt,
-                             headers={"User-Agent": f"{APP_NAME}/{APP_VERSION}"})
+            r = HttpSession.get().get(url, timeout=20)
             if r.status_code != 200 or not r.content:
                 return False
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -7680,73 +7970,10 @@ class SteamGridDBScraperWorker(QThread):
 
         self.done.emit(ok_count, fail_count, failed)
 
-
-class ScrapeRetryDialog(QDialog):
-    """刮削失败时的手动改名重试。"""
-    def __init__(self, game, worker_factory, parent=None):
-        super().__init__(parent)
-        self._game = game
-        self._worker_factory = worker_factory
-        self._worker = None
-        self.setWindowTitle(tr("scrape_manual_title"))
-        self.setMinimumWidth(480)
-        self._build_ui()
-
-    def _build_ui(self):
-        v = QVBoxLayout(self)
-        hint = QLabel(tr("scrape_manual_hint"))
-        hint.setObjectName("Hint")
-        hint.setWordWrap(True)
-        v.addWidget(hint)
-
-        form = QFormLayout()
-        self.edit_name = QLineEdit(self._game.name)
-        form.addRow(tr("scrape_manual_prompt"), self.edit_name)
-        v.addLayout(form)
-
-        self.log = QTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setMaximumHeight(120)
-        v.addWidget(self.log)
-
-        btns = QDialogButtonBox()
-        b_retry = btns.addButton(tr("scrape_manual_retry"),
-                                 QDialogButtonBox.ActionRole)
-        b_retry.setObjectName("PrimaryBtn")
-        b_retry.clicked.connect(self._retry)
-        b_skip = btns.addButton(tr("scrape_manual_skip"),
-                                QDialogButtonBox.RejectRole)
-        b_skip.clicked.connect(self.reject)
-        v.addWidget(btns)
-
-    def _retry(self):
-        new_name = self.edit_name.text().strip()
-        if not new_name:
-            return
-        g = self._game
-        g.name = new_name
-        worker = self._worker_factory([g])
-        self._worker = worker
-        worker.one_done.connect(self._on_one)
-        worker.done.connect(self._on_done)
-        self.log.append(tr("scrape_searching", name=new_name))
-        worker.start()
-
-    def _on_one(self, path, ok, msg):
-        if ok:
-            self.log.append(tr("scrape_ok", name=self._game.name))
-        else:
-            self.log.append(tr("scrape_fail", name=self._game.name) + f"  ({msg})")
-
-    def _on_done(self, ok, fail, _failed):
-        if ok > 0:
-            QTimer.singleShot(300, self.accept)
-
 # ============================================================
 # 21. 基础对话框
 # ============================================================
 class LaunchConfigDialog(QDialog):
-    """（保留兼容）"""
     def __init__(self, game, parent=None):
         super().__init__(parent)
         self._game = game
@@ -7790,6 +8017,8 @@ class LaunchConfigDialog(QDialog):
         self.combo_override.addItem(tr("config_platform_none"), "")
         engines_json = load_engines_json()
         for p, pcfg in engines_json.items():
+            if p.startswith("_"):
+                continue
             self.combo_override.addItem(pcfg.get("platform_name", p), p)
         gp.addWidget(self.combo_override)
         layout.addWidget(grp_plat)
@@ -8005,6 +8234,7 @@ class CreditsDialog(QDialog):
             "<b>certifi</b> — MPL 2.0<br>"
             "<b>psutil</b> — BSD-3-Clause<br>"
             "<b>packaging</b> — Apache 2.0 / BSD<br>"
+            "<b>PySocks</b> — BSD<br>"
             "<b>PySide6-WebEngine</b>（可选）— LGPL v3<br>"
             "<b>LocalSend</b>（Web 版）— MIT"
         )
@@ -8103,6 +8333,8 @@ class ManualEngineDialog(QDialog):
         form = QFormLayout()
         self.combo_platform = QComboBox()
         for p, pcfg in self._engines_json.items():
+            if p.startswith("_"):
+                continue
             self.combo_platform.addItem(pcfg.get("platform_name", p), p)
         self.combo_platform.addItem("未知/自定义", "unknown")
         form.addRow(tr("import_manual_platform"), self.combo_platform)
@@ -8218,6 +8450,8 @@ class PlatformConfirmDialog(QDialog):
         top.addWidget(QLabel(tr("import_game_set_all")))
         self.combo_set_all = QComboBox()
         for p, pcfg in self._engines_json.items():
+            if p.startswith("_"):
+                continue
             self.combo_set_all.addItem(pcfg.get("platform_name", p), p)
         top.addWidget(self.combo_set_all)
         btn_set = QPushButton("应用")
@@ -8239,6 +8473,8 @@ class PlatformConfirmDialog(QDialog):
             self.table.setItem(i, 0, QTableWidgetItem(g.name))
             combo = QComboBox()
             for p, pcfg in self._engines_json.items():
+                if p.startswith("_"):
+                    continue
                 combo.addItem(pcfg.get("platform_name", p), p)
             combo.addItem(tr("import_game_custom"), "__custom__")
             idx = combo.findData(g.platform)
@@ -8592,7 +8828,6 @@ class ConfigPackDialog(QDialog):
 
 
 class CoverScrapeDialog(QDialog):
-    """单游戏 / 批量刮削对话框。"""
     def __init__(self, games, parent=None):
         super().__init__(parent)
         self._games = list(games)
@@ -8734,7 +8969,6 @@ class CoverScrapeDialog(QDialog):
     def _on_done(self, ok, fail, failed):
         self._failed = list(failed or [])
 
-        # auto 模式 + 有失败项 + 配了 SGDB key → 自动兜底
         if (self._auto_mode
                 and self._failed
                 and SETTINGS.get("steamgriddb_api_key", "").strip()):
@@ -8795,6 +9029,7 @@ class CoverScrapeDialog(QDialog):
             except Exception:
                 pass
         super().closeEvent(event)
+
 
 # ============================================================
 # 22. 页面：游戏库
@@ -8943,6 +9178,8 @@ class LibraryPage(QWidget):
         self.combo_platform.addItem(tr("library_platform_all"), "")
         engines_json = load_engines_json()
         for p, pcfg in engines_json.items():
+            if p.startswith("_"):
+                continue
             self.combo_platform.addItem(pcfg.get("platform_name", p), p)
         if current:
             idx = self.combo_platform.findData(current)
@@ -9269,7 +9506,6 @@ class LibraryPage(QWidget):
         elif self._view_mode == "timeline":
             self._rebuild_timeline()
 
-
 # ============================================================
 # 22.5 统一配置中心对话框
 # ============================================================
@@ -9442,6 +9678,8 @@ class GameConfigCenterDialog(QDialog):
         self.combo_override = QComboBox()
         self.combo_override.addItem(tr("config_platform_none"), "")
         for p, pcfg in load_engines_json().items():
+            if p.startswith("_"):
+                continue
             self.combo_override.addItem(pcfg.get("platform_name", p), p)
         self.combo_override.currentIndexChanged.connect(self._on_launch_changed)
         fp.addWidget(self.combo_override)
@@ -9521,7 +9759,6 @@ class GameConfigCenterDialog(QDialog):
             for name in profiles:
                 self.combo_perf.addItem(name, name)
             if not profiles:
-                self.combo_perf.addItem(tr("config_perf_none"), "")
                 self.combo_perf.setEnabled(False)
             else:
                 self.combo_perf.setEnabled(True)
@@ -10535,6 +10772,11 @@ class BiosPage(QWidget):
         btn_pcem.clicked.connect(self._import_pcem_rom)
         bar.addWidget(btn_pcem)
 
+        btn_organize = QPushButton("🗂 自动归类")
+        btn_organize.setToolTip("扫描 bios/，按平台识别并移动到子目录")
+        btn_organize.clicked.connect(self._auto_organize)
+        bar.addWidget(btn_organize)
+
         bar.addStretch(1)
         root.addLayout(bar)
 
@@ -10555,6 +10797,29 @@ class BiosPage(QWidget):
 
     def refresh(self):
         self._model.set_rows(scan_bios())
+
+    def _auto_organize(self):
+        if not BIOS_DB:
+            QMessageBox.warning(self, tr("msg_warning"),
+                                "bios_db.json 未加载")
+            return
+        preview = auto_organize_bios(dry_run=True)
+        if not preview:
+            QMessageBox.information(self, tr("msg_info"),
+                                    "没有可归类的 BIOS 文件")
+            return
+        lines = [f"  {plat}: {n} 个" for plat, n in sorted(preview.items())]
+        reply = QMessageBox.question(
+            self, tr("msg_confirm"),
+            "将归类以下文件：\n" + "\n".join(lines) + "\n\n继续？",
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        result = auto_organize_bios(dry_run=False)
+        total = sum(result.values())
+        QMessageBox.information(self, tr("msg_info"),
+                                f"已归类 {total} 个文件")
+        self.refresh()
 
     def _import_pcem_rom(self):
         d = QFileDialog.getExistingDirectory(
@@ -10883,7 +11148,7 @@ class StatsPage(QWidget):
         result["stats_badge_day8"] = any(
             sum(plats.values()) >= 8 * 3600 for plats in daily.values())
 
-        all_plats = set(load_engines_json().keys())
+        all_plats = set(k for k in load_engines_json().keys() if not k.startswith("_"))
         played_plats = {g.platform for g in games if g.play_seconds > 0}
         result["stats_badge_allplat"] = bool(all_plats) and all_plats.issubset(played_plats)
 
@@ -12360,13 +12625,17 @@ class SettingsPage(QWidget):
     platforms_changed = Signal()
     lan_changed = Signal()
     theme_changed = Signal(str, str)
+    plugins_changed = Signal()
 
     def __init__(self):
         super().__init__()
         self._mirror_test_worker = None
         self._api_test_worker = None
+        self._save_rows = {}
+        self._cheat_rows = {}
         self._build_ui()
         self._refresh()
+        self.setAcceptDrops(True)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -12420,6 +12689,72 @@ class SettingsPage(QWidget):
             self.btn_accent.setText(cur_accent)
 
         v.addWidget(box_theme)
+
+        # --- 网络代理 ---
+        box_proxy = QGroupBox("网络代理")
+        fp = QVBoxLayout(box_proxy)
+
+        row_p1 = QHBoxLayout()
+        row_p1.addWidget(QLabel("模式"))
+        self.combo_proxy_mode = QComboBox()
+        self.combo_proxy_mode.addItem("不使用", "none")
+        self.combo_proxy_mode.addItem("跟随系统", "system")
+        self.combo_proxy_mode.addItem("HTTP", "http")
+        self.combo_proxy_mode.addItem("HTTPS", "https")
+        self.combo_proxy_mode.addItem("SOCKS5", "socks5")
+        idx = self.combo_proxy_mode.findData(SETTINGS.get("proxy_mode", "none"))
+        if idx >= 0:
+            self.combo_proxy_mode.setCurrentIndex(idx)
+        self.combo_proxy_mode.currentIndexChanged.connect(self._on_proxy_changed)
+        row_p1.addWidget(self.combo_proxy_mode)
+        row_p1.addStretch(1)
+        fp.addLayout(row_p1)
+
+        row_p2 = QHBoxLayout()
+        row_p2.addWidget(QLabel("地址"))
+        self.edit_proxy_host = QLineEdit(SETTINGS.get("proxy_host", ""))
+        self.edit_proxy_host.setPlaceholderText("127.0.0.1")
+        self.edit_proxy_host.editingFinished.connect(self._on_proxy_changed)
+        row_p2.addWidget(self.edit_proxy_host, 1)
+        row_p2.addWidget(QLabel("端口"))
+        self.spin_proxy_port = QSpinBox()
+        self.spin_proxy_port.setRange(0, 65535)
+        self.spin_proxy_port.setValue(int(SETTINGS.get("proxy_port", 0)))
+        self.spin_proxy_port.valueChanged.connect(self._on_proxy_changed)
+        row_p2.addWidget(self.spin_proxy_port)
+        fp.addLayout(row_p2)
+
+        row_p3 = QHBoxLayout()
+        row_p3.addWidget(QLabel("用户名"))
+        self.edit_proxy_user = QLineEdit(SETTINGS.get("proxy_user", ""))
+        self.edit_proxy_user.editingFinished.connect(self._on_proxy_changed)
+        row_p3.addWidget(self.edit_proxy_user, 1)
+        row_p3.addWidget(QLabel("密码"))
+        self.edit_proxy_pwd = QLineEdit(SETTINGS.get("proxy_pwd", ""))
+        self.edit_proxy_pwd.setEchoMode(QLineEdit.Password)
+        self.edit_proxy_pwd.editingFinished.connect(self._on_proxy_changed)
+        row_p3.addWidget(self.edit_proxy_pwd, 1)
+        fp.addLayout(row_p3)
+
+        row_p4 = QHBoxLayout()
+        row_p4.addWidget(QLabel("直连域名"))
+        self.edit_proxy_bypass = QLineEdit(SETTINGS.get("proxy_bypass", ""))
+        self.edit_proxy_bypass.setPlaceholderText("逗号分隔，例如 github.com,localhost")
+        self.edit_proxy_bypass.editingFinished.connect(self._on_proxy_changed)
+        row_p4.addWidget(self.edit_proxy_bypass, 1)
+        fp.addLayout(row_p4)
+
+        row_p5 = QHBoxLayout()
+        btn_proxy_test = QPushButton("测试代理")
+        btn_proxy_test.setObjectName("PrimaryBtn")
+        btn_proxy_test.clicked.connect(self._test_proxy)
+        row_p5.addWidget(btn_proxy_test)
+        self.lbl_proxy_test = QLabel("")
+        self.lbl_proxy_test.setObjectName("Hint")
+        row_p5.addWidget(self.lbl_proxy_test, 1)
+        fp.addLayout(row_p5)
+
+        v.addWidget(box_proxy)
 
         # --- 语言 ---
         box1 = QGroupBox(tr("settings_lang"))
@@ -12643,6 +12978,61 @@ class SettingsPage(QWidget):
         fver.addWidget(self.check_ver_auto)
         v.addWidget(box_ver)
 
+        # --- 插件 ---
+        box_plug = QGroupBox(tr("plugins_title"))
+        fplug = QVBoxLayout(box_plug)
+
+        h_plug = QLabel(tr("plugins_hint"))
+        h_plug.setObjectName("Hint")
+        h_plug.setWordWrap(True)
+        fplug.addWidget(h_plug)
+
+        hint_import = QLabel(
+            "💡 小贴士：直接把 .zip / .7z / .json / .py / 插件文件夹"
+            "拖到设置页任意位置，即可一键导入。")
+        hint_import.setObjectName("Hint")
+        hint_import.setWordWrap(True)
+        fplug.addWidget(hint_import)
+
+        self.table_plug = QTableWidget(0, 4)
+        self.table_plug.setHorizontalHeaderLabels([
+            tr("plugins_col_enabled"), tr("plugins_col_id"),
+            tr("plugins_col_name"), tr("plugins_col_version")])
+        self.table_plug.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table_plug.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table_plug.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table_plug.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table_plug.verticalHeader().setVisible(False)
+        self.table_plug.setMinimumHeight(200)
+        fplug.addWidget(self.table_plug)
+
+        row_plug = QHBoxLayout()
+        b_open_plug = QPushButton(tr("plugins_open_dir"))
+        b_open_plug.clicked.connect(lambda: os.startfile(str(PLUGINS_DIR)))
+        row_plug.addWidget(b_open_plug)
+        b_import_plug = QPushButton("📥 导入插件（zip / 7z / json / 文件夹）")
+        b_import_plug.setToolTip(
+            "支持一次性多选：\n"
+            "  • .zip / .7z / .rar  插件压缩包\n"
+            "  • plugin.json       单个元数据（自动生成骨架代码）\n"
+            "  • main.py           单个脚本（自动生成 plugin.json）\n"
+            "  • 文件夹            直接拖进窗口也行\n\n"
+            "缺什么会自动补什么，导入后点「♻ 重启程序」生效。")
+        b_import_plug.setObjectName("PrimaryBtn")
+        b_import_plug.clicked.connect(self._import_plugin_zip)
+        row_plug.addWidget(b_import_plug)
+        b_reload_plug = QPushButton(tr("plugins_rescan"))
+        b_reload_plug.clicked.connect(self._reload_plugin_table)
+        row_plug.addWidget(b_reload_plug)
+        row_plug.addStretch(1)
+        b_restart = QPushButton(tr("plugins_restart"))
+        b_restart.setObjectName("DangerBtn")
+        b_restart.clicked.connect(self._restart_app)
+        row_plug.addWidget(b_restart)
+        fplug.addLayout(row_plug)
+
+        v.addWidget(box_plug)
+
         # --- 可选依赖 ---
         box_opt = QGroupBox("可选依赖")
         fopt = QVBoxLayout(box_opt)
@@ -12685,11 +13075,11 @@ class SettingsPage(QWidget):
 
         # --- 平台管理 ---
         box_plat = QGroupBox(tr("settings_platform_mgr"))
-        fp = QVBoxLayout(box_plat)
-        hint_p = QLabel(tr("settings_platform_mgr_hint"))
-        hint_p.setObjectName("Hint")
-        hint_p.setWordWrap(True)
-        fp.addWidget(hint_p)
+        fpl = QVBoxLayout(box_plat)
+        hint_pl = QLabel(tr("settings_platform_mgr_hint"))
+        hint_pl.setObjectName("Hint")
+        hint_pl.setWordWrap(True)
+        fpl.addWidget(hint_pl)
 
         self.table_plat = QTableWidget(0, 4)
         self.table_plat.setHorizontalHeaderLabels([
@@ -12705,18 +13095,18 @@ class SettingsPage(QWidget):
         self.table_plat.verticalHeader().setVisible(False)
         self.table_plat.setMinimumHeight(240)
         self._reload_platform_table()
-        fp.addWidget(self.table_plat)
+        fpl.addWidget(self.table_plat)
 
-        row_p = QHBoxLayout()
-        b_add_p = QPushButton(tr("settings_platform_add"))
-        b_add_p.clicked.connect(self._add_platform)
-        row_p.addWidget(b_add_p)
-        b_save_p = QPushButton(tr("settings_platform_save"))
-        b_save_p.setObjectName("PrimaryBtn")
-        b_save_p.clicked.connect(self._save_platforms)
-        row_p.addWidget(b_save_p)
-        row_p.addStretch(1)
-        fp.addLayout(row_p)
+        row_pl = QHBoxLayout()
+        b_add_pl = QPushButton(tr("settings_platform_add"))
+        b_add_pl.clicked.connect(self._add_platform)
+        row_pl.addWidget(b_add_pl)
+        b_save_pl = QPushButton(tr("settings_platform_save"))
+        b_save_pl.setObjectName("PrimaryBtn")
+        b_save_pl.clicked.connect(self._save_platforms)
+        row_pl.addWidget(b_save_pl)
+        row_pl.addStretch(1)
+        fpl.addLayout(row_pl)
 
         v.addWidget(box_plat)
 
@@ -12854,6 +13244,15 @@ class SettingsPage(QWidget):
         fprof.addLayout(row_pf)
         v.addWidget(box_prof)
 
+        # 收集所有引擎名
+        engines_json = load_engines_json()
+        all_engines = set()
+        for pcfg in engines_json.values():
+            if not isinstance(pcfg, dict):
+                continue
+            for eng in pcfg.get("engines", {}):
+                all_engines.add(eng)
+
         # --- 金手指 ---
         box_ch = QGroupBox(tr("settings_cheats"))
         fch = QVBoxLayout(box_ch)
@@ -12861,12 +13260,6 @@ class SettingsPage(QWidget):
         h_ch.setObjectName("Hint")
         h_ch.setWordWrap(True)
         fch.addWidget(h_ch)
-        self._cheat_rows = {}
-        engines_json = load_engines_json()
-        all_engines = set()
-        for pcfg in engines_json.values():
-            for eng in pcfg.get("engines", {}):
-                all_engines.add(eng)
         for eng in sorted(all_engines):
             row = QHBoxLayout()
             label = QLabel(eng)
@@ -12937,7 +13330,6 @@ class SettingsPage(QWidget):
         hint_sv.setWordWrap(True)
         fsv.addWidget(hint_sv)
 
-        self._save_rows = {}
         for eng in sorted(all_engines):
             row = QHBoxLayout()
             label = QLabel(eng)
@@ -13008,6 +13400,8 @@ class SettingsPage(QWidget):
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
 
+        QTimer.singleShot(0, self._reload_plugin_table)
+
     # ---- 主题 ----
     def _on_theme_changed(self, _i):
         mode = self.combo_theme.currentData()
@@ -13035,6 +13429,31 @@ class SettingsPage(QWidget):
         self.btn_accent.setStyleSheet("")
         self.btn_accent.setText("选择…")
         self.theme_changed.emit(SETTINGS.get("theme", "auto"), "")
+
+    # ---- 代理 ----
+    def _on_proxy_changed(self, *_):
+        SETTINGS["proxy_mode"] = self.combo_proxy_mode.currentData()
+        SETTINGS["proxy_host"] = self.edit_proxy_host.text().strip()
+        SETTINGS["proxy_port"] = int(self.spin_proxy_port.value())
+        SETTINGS["proxy_user"] = self.edit_proxy_user.text().strip()
+        SETTINGS["proxy_pwd"] = self.edit_proxy_pwd.text()
+        SETTINGS["proxy_bypass"] = self.edit_proxy_bypass.text().strip()
+        save_settings()
+        try:
+            HttpSession.get().refresh()
+        except Exception as e:
+            logger.debug(f"刷新代理失败: {e}")
+
+    def _test_proxy(self):
+        self.lbl_proxy_test.setText("测试中…")
+        QApplication.processEvents()
+        ok, msg = HttpSession.get().test()
+        if ok:
+            self.lbl_proxy_test.setText(f"✅ {msg}")
+            self.lbl_proxy_test.setStyleSheet("color:#0f7b0f;")
+        else:
+            self.lbl_proxy_test.setText(f"❌ {msg}")
+            self.lbl_proxy_test.setStyleSheet("color:#c42b1c;")
 
     # ---- 优先级 ----
     def _on_priority_toggled(self, btn, checked):
@@ -13153,6 +13572,8 @@ class SettingsPage(QWidget):
         self.table_plat.setRowCount(0)
         engines_json = load_engines_json()
         for p, pcfg in engines_json.items():
+            if p.startswith("_"):
+                continue
             row = self.table_plat.rowCount()
             self.table_plat.insertRow(row)
             self.table_plat.setItem(row, 0, QTableWidgetItem(p))
@@ -13472,6 +13893,145 @@ class SettingsPage(QWidget):
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"), str(e))
 
+    # ---- 插件 ----
+    def _reload_plugin_table(self):
+        pm = getattr(self.window(), "_plugin_manager", None)
+        if pm is None:
+            return
+        infos = pm.scan_all()
+        self.table_plug.setRowCount(len(infos))
+        for i, info in enumerate(infos):
+            cb = QCheckBox()
+            cb.setChecked(info.get("enabled", True))
+            cb.toggled.connect(
+                lambda checked, pid=info["id"]:
+                    self._toggle_plugin(pid, checked))
+            self.table_plug.setCellWidget(i, 0, cb)
+
+            self.table_plug.setItem(i, 1, QTableWidgetItem(info["id"]))
+
+            meta = info.get("meta", {})
+            name = meta.get("name", info["id"])
+            if info.get("error"):
+                name += f"   ⚠ {info['error']}"
+            self.table_plug.setItem(i, 2, QTableWidgetItem(name))
+            self.table_plug.setItem(
+                i, 3,
+                QTableWidgetItem(str(meta.get("version", "?"))))
+
+    def _toggle_plugin(self, pid: str, enabled: bool):
+        pm = getattr(self.window(), "_plugin_manager", None)
+        if pm is None:
+            return
+        pm.set_enabled(pid, enabled)
+        QMessageBox.information(
+            self, tr("msg_info"),
+            f"插件 {pid} 已{'启用' if enabled else '禁用'}。\n"
+            f"请点「重启程序」使其生效。")
+
+    def _import_plugin_zip(self):
+        """一键导入插件：支持多选 zip / 7z / rar / json / py / 文件夹"""
+        files, _ = QFileDialog.getOpenFileNames(
+            self, tr("plugins_import_title"), str(Path.home()),
+            "插件包 (*.zip *.7z *.rar *.json *.py);;所有文件 (*)")
+        if not files:
+            reply = QMessageBox.question(
+                self, tr("plugins_import_title"),
+                "没有选择文件。是否改为选择一个插件文件夹？",
+                QMessageBox.Yes | QMessageBox.No)
+            if reply != QMessageBox.Yes:
+                return
+            d = QFileDialog.getExistingDirectory(
+                self, tr("plugins_import_title"), str(Path.home()))
+            if not d:
+                return
+            files = [d]
+
+        self._do_batch_import(files, source="文件")
+
+    def _do_batch_import(self, paths, source="文件"):
+        """批量导入路径，弹窗汇总。"""
+        ok_list = []
+        fail_list = []
+        filled_all = []
+
+        for fp in paths:
+            src = Path(fp)
+            try:
+                ok, pid, filled, msg = _import_plugin_any(src, overwrite=True)
+            except Exception as e:
+                logger.exception(f"导入插件失败: {src}")
+                ok, pid, filled, msg = False, "", [], str(e)
+
+            if ok:
+                ok_list.append(pid)
+                if filled:
+                    filled_all.append((pid, filled))
+                logger.info(f"插件已导入: {pid}  自动补全: {filled}")
+            else:
+                fail_list.append((src.name, msg or "未知错误"))
+
+        lines = []
+        if ok_list:
+            lines.append(f"✅ 成功导入 {len(ok_list)} 个插件：")
+            for pid in ok_list:
+                lines.append(f"   • {pid}")
+        if filled_all:
+            lines.append("")
+            lines.append("🔧 自动补全的字段：")
+            for pid, keys in filled_all:
+                lines.append(f"   • {pid}: {', '.join(keys)}")
+        if fail_list:
+            lines.append("")
+            lines.append(f"❌ 失败 {len(fail_list)} 个：")
+            for name, msg in fail_list:
+                lines.append(f"   • {name}: {msg}")
+        lines.append("")
+        lines.append("点「♻ 重启程序」后生效。")
+
+        title = f"{source}导入"
+        if ok_list and not fail_list:
+            QMessageBox.information(self, title, "\n".join(lines))
+        elif ok_list and fail_list:
+            QMessageBox.warning(self, title, "\n".join(lines))
+        else:
+            QMessageBox.critical(self, title, "\n".join(lines))
+
+        self._reload_plugin_table()
+
+    # ---- 拖拽导入 ----
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        paths = [u.toLocalFile() for u in urls]
+        paths = [p for p in paths if Path(p).exists()]
+        if not paths:
+            return
+        self._do_batch_import(paths, source="拖拽")
+
+    def _restart_app(self):
+        reply = QMessageBox.question(
+            self, tr("msg_confirm"),
+            tr("plugins_restart_confirm"),
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        win = self.window()
+        try:
+            win._force_quit = True
+        except Exception:
+            pass
+        if getattr(sys, "frozen", False):
+            sp.Popen([sys.executable])
+        else:
+            sp.Popen([sys.executable] + sys.argv)
+        QApplication.quit()
+
     def _relaunch_admin(self):
         if is_admin():
             QMessageBox.information(self, tr("msg_info"), "已是管理员")
@@ -13717,6 +14277,8 @@ class DownloadDialog(QDialog):
         lay.setContentsMargins(8, 8, 8, 8)
         self.list_auto = QListWidget()
         for platform, pcfg in self._engines_json.items():
+            if platform.startswith("_"):
+                continue
             for engine_name, cfg in pcfg.get("engines", {}).items():
                 url = cfg.get("url", "manual")
                 if url == "manual" or not url:
@@ -13755,6 +14317,8 @@ class DownloadDialog(QDialog):
         v = QVBoxLayout(content)
         v.setSpacing(8)
         for platform, pcfg in self._engines_json.items():
+            if platform.startswith("_"):
+                continue
             for engine_name, cfg in pcfg.get("engines", {}).items():
                 if cfg.get("url", "manual") != "manual":
                     continue
@@ -14197,6 +14761,606 @@ def export_library(games, fmt, scope, include_playtime, include_cover) -> Path:
 
 
 # ============================================================
+# 30. 插件系统
+# ============================================================
+PLUGIN_API_VERSION = "1.0"
+
+PLUGIN_TEMPLATE_MAIN = '''# -*- coding: utf-8 -*-
+"""
+{name}
+自动生成的插件骨架
+"""
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QPushButton
+)
+
+
+class MainPage(QWidget):
+    def __init__(self, api):
+        super().__init__()
+        self._api = api
+        self._build_ui()
+
+    def _build_ui(self):
+        v = QVBoxLayout(self)
+        v.setContentsMargins(30, 30, 30, 30)
+        v.setSpacing(16)
+
+        title = QLabel("{name}")
+        title.setObjectName("SectionTitle")
+        v.addWidget(title)
+
+        hint = QLabel("这是一个自动生成的插件骨架。\\n"
+                      "打开 main.py 修改 register() 里的内容即可。")
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        v.addWidget(hint)
+
+        btn = QPushButton("测试按钮")
+        btn.setObjectName("PrimaryBtn")
+        btn.clicked.connect(self._on_click)
+        v.addWidget(btn)
+
+        self.lbl = QLabel("")
+        v.addWidget(self.lbl)
+
+    def _on_click(self):
+        games = self._api.get_games()
+        self.lbl.setText(f"游戏库里有 {len(games)} 个游戏")
+
+
+def register(api):
+    api.add_page("{name}", lambda: MainPage(api), icon="{icon}")
+    api.log("{name} 已加载")
+'''
+
+
+# ---------- 插件导入工具 ----------
+def _safe_plugin_id(raw: str) -> str:
+    """把任意字符串规整为合法的插件 id。"""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    raw = re.sub(r"[^\w\-]", "_", raw, flags=re.UNICODE)
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if not raw:
+        return ""
+    if raw[0].isdigit():
+        raw = "p_" + raw
+    return raw[:64]
+
+
+def _validate_and_fill_plugin_meta(
+    meta: dict,
+    fallback_id: str = "",
+    fallback_name: str = "",
+) -> tuple:
+    """校验并补全 plugin.json 的字段。返回 (meta, filled_keys)。"""
+    meta = dict(meta or {})
+    filled = []
+
+    pid = _safe_plugin_id(meta.get("id") or fallback_id)
+    if not pid:
+        pid = _safe_plugin_id(fallback_name) or "plugin"
+    if meta.get("id") != pid:
+        meta["id"] = pid
+        filled.append("id")
+
+    if not meta.get("name"):
+        meta["name"] = fallback_name or pid
+        filled.append("name")
+
+    if not meta.get("version"):
+        meta["version"] = "1.0.0"
+        filled.append("version")
+
+    if not meta.get("author"):
+        meta["author"] = "unknown"
+        filled.append("author")
+
+    if not meta.get("description"):
+        meta["description"] = meta["name"]
+        filled.append("description")
+
+    if not meta.get("api_version"):
+        meta["api_version"] = PLUGIN_API_VERSION
+        filled.append("api_version")
+
+    if not meta.get("min_app_version"):
+        meta["min_app_version"] = APP_VERSION
+        filled.append("min_app_version")
+
+    if not meta.get("entry"):
+        meta["entry"] = "main.py"
+        filled.append("entry")
+
+    if not meta.get("icon"):
+        meta["icon"] = "🔌"
+        filled.append("icon")
+
+    if not isinstance(meta.get("permissions"), list):
+        meta["permissions"] = ["read_games"]
+        filled.append("permissions")
+
+    return meta, filled
+
+
+def _find_plugin_root(scan_root: Path) -> Optional[Path]:
+    """在解压/文件夹里找插件根目录。"""
+    if not scan_root.exists():
+        return None
+
+    candidates = sorted(
+        scan_root.rglob("plugin.json"),
+        key=lambda p: len(p.relative_to(scan_root).parts),
+    )
+    if candidates:
+        return candidates[0].parent
+
+    candidates = sorted(
+        scan_root.rglob("main.py"),
+        key=lambda p: len(p.relative_to(scan_root).parts),
+    )
+    if candidates:
+        return candidates[0].parent
+
+    candidates = sorted(
+        (p for p in scan_root.rglob("*.py")),
+        key=lambda p: len(p.relative_to(scan_root).parts),
+    )
+    if candidates:
+        return candidates[0].parent
+
+    subdirs = [d for d in scan_root.iterdir() if d.is_dir()]
+    files = [f for f in scan_root.iterdir() if f.is_file()]
+    if not files and len(subdirs) == 1:
+        return subdirs[0]
+
+    return scan_root
+
+
+def _read_plugin_meta_safe(plugin_root: Path) -> tuple:
+    """读 plugin.json。返回 (meta, error_msg, from_existing_file)。"""
+    meta_file = plugin_root / "plugin.json"
+    if not meta_file.exists():
+        return {}, "", False
+    try:
+        with open(meta_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}, "plugin.json 顶层必须是对象", True
+        return data, "", True
+    except json.JSONDecodeError as e:
+        return {}, f"plugin.json 语法错误: {e}", True
+    except Exception as e:
+        return {}, f"plugin.json 读取失败: {e}", True
+
+
+def _install_plugin_from_dir(
+    plugin_root: Path,
+    fallback_id: str = "",
+    fallback_name: str = "",
+    overwrite: bool = True,
+) -> tuple:
+    """把 plugin_root 目录安装为插件。返回 (ok, pid, filled, msg)。"""
+    meta, err, _ = _read_plugin_meta_safe(plugin_root)
+    if err:
+        return False, "", [], err
+
+    if not fallback_name:
+        fallback_name = plugin_root.name
+
+    meta, filled = _validate_and_fill_plugin_meta(
+        meta,
+        fallback_id=fallback_id or plugin_root.name,
+        fallback_name=fallback_name,
+    )
+    pid = meta["id"]
+    dst = PLUGINS_DIR / pid
+
+    if dst.exists():
+        if not overwrite:
+            return False, pid, filled, f"插件 {pid} 已存在"
+        try:
+            old_meta_file = dst / "plugin.json"
+            if old_meta_file.exists():
+                old_meta = json.loads(old_meta_file.read_text("utf-8"))
+                if isinstance(old_meta, dict):
+                    for k, v in old_meta.items():
+                        meta.setdefault(k, v)
+        except Exception:
+            pass
+        shutil.rmtree(dst, ignore_errors=True)
+
+    try:
+        shutil.copytree(plugin_root, dst)
+    except Exception as e:
+        return False, pid, filled, f"复制失败: {e}"
+
+    entry_name = meta.get("entry", "main.py")
+    entry_file = dst / entry_name
+    if not entry_file.exists():
+        pys = [p for p in dst.rglob("*.py") if p.name != "__init__.py"]
+        if pys:
+            rel = pys[0].relative_to(dst)
+            meta["entry"] = str(rel).replace("\\", "/")
+            filled.append("entry(自动识别)")
+        else:
+            entry_file.parent.mkdir(parents=True, exist_ok=True)
+            entry_file.write_text(
+                PLUGIN_TEMPLATE_MAIN.format(
+                    name=meta["name"], icon=meta.get("icon", "🔌")
+                ),
+                encoding="utf-8",
+            )
+            filled.append("main.py(生成骨架)")
+
+    try:
+        with open(dst / "plugin.json", "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return False, pid, filled, f"写入 plugin.json 失败: {e}"
+
+    return True, pid, filled, ""
+
+
+def _install_plugin_from_json_file(
+    json_path: Path,
+    overwrite: bool = True,
+) -> tuple:
+    """从一个 json 文件创建插件（自动生成 main.py 骨架）。"""
+    try:
+        data = json.loads(json_path.read_text("utf-8"))
+        if not isinstance(data, dict):
+            return False, "", [], "json 顶层必须是对象"
+    except json.JSONDecodeError as e:
+        return False, "", [], f"JSON 语法错误: {e}"
+    except Exception as e:
+        return False, "", [], f"读取失败: {e}"
+
+    fallback_name = json_path.stem
+    meta, filled = _validate_and_fill_plugin_meta(
+        data,
+        fallback_id=fallback_name,
+        fallback_name=fallback_name,
+    )
+    pid = meta["id"]
+    dst = PLUGINS_DIR / pid
+
+    if dst.exists():
+        if not overwrite:
+            return False, pid, filled, f"插件 {pid} 已存在"
+        shutil.rmtree(dst, ignore_errors=True)
+
+    dst.mkdir(parents=True, exist_ok=True)
+
+    entry_name = meta.get("entry", "main.py")
+    (dst / entry_name).parent.mkdir(parents=True, exist_ok=True)
+    (dst / entry_name).write_text(
+        PLUGIN_TEMPLATE_MAIN.format(
+            name=meta["name"], icon=meta.get("icon", "🔌")
+        ),
+        encoding="utf-8",
+    )
+    filled.append(f"{entry_name}(生成骨架)")
+
+    with open(dst / "plugin.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+
+    return True, pid, filled, ""
+
+
+def _import_plugin_any(
+    src: Path,
+    overwrite: bool = True,
+) -> tuple:
+    """通用导入：自动判断 zip / 7z / rar / 文件夹 / json / py。"""
+    if not src.exists():
+        return False, "", [], f"路径不存在: {src}"
+
+    if src.is_file() and src.suffix.lower() == ".json":
+        return _install_plugin_from_json_file(src, overwrite)
+
+    if src.is_file() and src.suffix.lower() in (".zip", ".7z", ".rar"):
+        tmp = Path(tempfile.mkdtemp(
+            prefix="mikan_plugin_", dir=str(TEMP_DIR)))
+        try:
+            extract_archive(src, tmp)
+            root = _find_plugin_root(tmp)
+            if root is None:
+                return False, "", [], "压缩包为空"
+            return _install_plugin_from_dir(
+                root,
+                fallback_id=src.stem,
+                fallback_name=src.stem,
+                overwrite=overwrite,
+            )
+        except Exception as e:
+            return False, "", [], f"解压失败: {e}"
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    if src.is_dir():
+        root = _find_plugin_root(src)
+        if root is None:
+            return False, "", [], "文件夹为空"
+        return _install_plugin_from_dir(
+            root,
+            fallback_id=src.name,
+            fallback_name=src.name,
+            overwrite=overwrite,
+        )
+
+    if src.is_file() and src.suffix.lower() == ".py":
+        pid = _safe_plugin_id(src.stem) or "my_plugin"
+        dst = PLUGINS_DIR / pid
+        if dst.exists() and not overwrite:
+            return False, pid, [], f"插件 {pid} 已存在"
+        if dst.exists():
+            shutil.rmtree(dst, ignore_errors=True)
+        dst.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst / "main.py")
+        meta, filled = _validate_and_fill_plugin_meta(
+            {},
+            fallback_id=pid,
+            fallback_name=src.stem,
+        )
+        with open(dst / "plugin.json", "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2, ensure_ascii=False)
+        filled.append("plugin.json(生成)")
+        return True, pid, filled, ""
+
+    return False, "", [], f"不支持的类型: {src.suffix or '未知'}"
+
+
+def load_plugin_enabled() -> dict:
+    if PLUGINS_ENABLED_FILE.exists():
+        try:
+            with open(PLUGINS_ENABLED_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def save_plugin_enabled(data: dict):
+    try:
+        with open(PLUGINS_ENABLED_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.exception(f"保存插件启用状态失败: {e}")
+
+
+class PluginAPI:
+    def __init__(self, main_window):
+        self._mw = main_window
+        self._hooks: dict = {}
+        self._pages: list = []
+        self._actions: list = []
+
+    def get_games(self):
+        return load_games()
+
+    def get_game(self, path: str):
+        for g in load_games():
+            if g.path == path:
+                return g
+        return None
+
+    def get_engines(self):
+        return load_installed()
+
+    def get_platforms(self):
+        return load_engines_json()
+
+    def get_paths(self) -> dict:
+        return {
+            "data": DATA_DIR,
+            "covers": COVER_DIR,
+            "roms": ROM_DIR,
+            "bios": BIOS_DIR,
+            "saves": SAVE_DIR,
+            "logs": LOG_DIR,
+            "plugins": PLUGINS_DIR,
+            "config": CONFIG_DIR,
+        }
+
+    def get_settings(self) -> dict:
+        return dict(SETTINGS)
+
+    def set_setting(self, key: str, value):
+        SETTINGS[key] = value
+        save_settings()
+
+    def update_game(self, path: str, **fields):
+        games = load_games()
+        for g in games:
+            if g.path == path:
+                for k, v in fields.items():
+                    if hasattr(g, k):
+                        setattr(g, k, v)
+                break
+        save_games(games)
+        self.emit("games_changed")
+
+    def set_cover(self, game_path: str, image: Path):
+        g = self.get_game(game_path)
+        if not g:
+            return
+        dst = COVER_DIR / f"{g.name}{image.suffix}"
+        shutil.copy2(image, dst)
+        self.emit("covers_changed")
+
+    def launch_game(self, game):
+        self._mw._launch_game(game)
+
+    def open_url(self, url: str):
+        webbrowser.open(url)
+
+    def open_folder(self, path):
+        try:
+            os.startfile(str(path))
+        except Exception:
+            pass
+
+    def notify(self, title: str, message: str):
+        if self._mw._tray:
+            self._mw._tray.showMessage(
+                title, message, QSystemTrayIcon.Information, 4000)
+
+    def add_page(self, title: str, widget, icon: str = "🔌"):
+        self._pages.append((title, widget, icon))
+
+    def add_menu_action(self, menu_name: str, label: str, callback):
+        self._actions.append((menu_name, label, callback))
+
+    def add_tray_action(self, label: str, callback):
+        if self._mw._tray:
+            menu = self._mw._tray.contextMenu()
+            if menu:
+                menu.addAction(label, callback)
+
+    def show_dialog(self, widget: QWidget):
+        widget.exec()
+
+    def on(self, event: str, callback):
+        self._hooks.setdefault(event, []).append(callback)
+
+    def emit(self, event: str, **kwargs):
+        for cb in self._hooks.get(event, []):
+            try:
+                cb(**kwargs)
+            except Exception as e:
+                logger.exception(f"[plugin] 钩子 {event} 失败: {e}")
+
+    def http(self):
+        return HttpSession.get()
+
+    def storage_get(self, key: str, default=None):
+        store_file = PLUGIN_STORAGE_DIR / "shared.json"
+        try:
+            if store_file.exists():
+                data = json.loads(store_file.read_text("utf-8"))
+                return data.get(key, default)
+        except Exception:
+            pass
+        return default
+
+    def storage_set(self, key: str, value):
+        store_file = PLUGIN_STORAGE_DIR / "shared.json"
+        try:
+            data = {}
+            if store_file.exists():
+                data = json.loads(store_file.read_text("utf-8"))
+            data[key] = value
+            store_file.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+        except Exception as e:
+            logger.exception(f"插件存储失败: {e}")
+
+    def log(self, msg: str, level: str = "INFO"):
+        logger.log(level, f"[plugin] {msg}")
+
+
+class PluginManager:
+    def __init__(self, main_window):
+        self._mw = main_window
+        self.api = PluginAPI(main_window)
+        self.plugins: dict = {}
+        self.enabled_state = load_plugin_enabled()
+
+    def scan_all(self) -> list:
+        result = []
+        if not PLUGINS_DIR.exists():
+            return result
+        for d in sorted(PLUGINS_DIR.iterdir()):
+            if not d.is_dir():
+                continue
+            meta_file = d / "plugin.json"
+            if not meta_file.exists():
+                continue
+            info = {"id": d.name, "path": str(d), "enabled": False, "error": ""}
+            try:
+                with open(meta_file, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                info["meta"] = meta
+                info["id"] = meta.get("id", d.name)
+                info["enabled"] = bool(
+                    self.enabled_state.get(info["id"], True))
+            except Exception as e:
+                info["error"] = f"元数据解析失败: {e}"
+            result.append(info)
+        return result
+
+    def load_all(self):
+        self.plugins.clear()
+        for info in self.scan_all():
+            if info.get("error"):
+                logger.warning(f"跳过插件 {info['id']}: {info['error']}")
+                continue
+            if not info["enabled"]:
+                logger.info(f"插件 {info['id']} 已禁用")
+                continue
+            self._load_one(info)
+
+    def _load_one(self, info):
+        pid = info["id"]
+        meta = info["meta"]
+        path = Path(info["path"])
+        entry = path / meta.get("entry", "main.py")
+        if not entry.exists():
+            logger.warning(f"插件 {pid} 缺少入口 {entry}")
+            return
+
+        api_ver = meta.get("api_version", "1.0")
+        if api_ver != PLUGIN_API_VERSION:
+            logger.warning(f"插件 {pid} API 版本不匹配: {api_ver}")
+            return
+
+        mod_name = f"mikan_plugin_{pid}"
+        try:
+            spec = importlib.util.spec_from_file_location(mod_name, entry)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = module
+            spec.loader.exec_module(module)
+        except Exception as e:
+            logger.exception(f"插件 {pid} 加载失败: {e}")
+            return
+
+        if not hasattr(module, "register"):
+            logger.warning(f"插件 {pid} 缺少 register(api)")
+            return
+
+        try:
+            module.register(self.api)
+        except Exception as e:
+            logger.exception(f"插件 {pid} register 失败: {e}")
+            return
+
+        self.plugins[pid] = {
+            "meta": meta,
+            "module": module,
+            "path": path,
+            "enabled": True,
+        }
+        logger.info(f"插件已加载: {meta.get('name', pid)} v{meta.get('version', '?')}")
+
+    def get_pages(self) -> list:
+        return list(self.api._pages)
+
+    def clear_pages(self):
+        self.api._pages.clear()
+
+    def emit(self, event: str, **kwargs):
+        self.api.emit(event, **kwargs)
+
+    def set_enabled(self, pid: str, enabled: bool):
+        self.enabled_state[pid] = enabled
+        save_plugin_enabled(self.enabled_state)
+
+
+# ============================================================
 # 28. 主窗口
 # ============================================================
 class MainWindow(QMainWindow):
@@ -14223,6 +15387,8 @@ class MainWindow(QMainWindow):
         self._force_quit = False
         self._current_theme_dark = False
         self._theme_watcher = None
+        self._plugin_manager = PluginManager(self)
+        self._plugin_page_widgets: list = []
 
         self._settle_stale_launches()
 
@@ -14304,6 +15470,7 @@ class MainWindow(QMainWindow):
         self.page_settings.lan_changed.connect(self._on_lan_changed)
         self.page_settings.theme_changed.connect(self._on_theme_changed)
         self.page_settings.saves_changed.connect(self._reload_games)
+        self.page_settings.plugins_changed.connect(self._load_plugins)
         self.stack.addWidget(self.page_settings)
 
         splitter.addWidget(self.stack)
@@ -14315,6 +15482,8 @@ class MainWindow(QMainWindow):
         self._apply_theme()
         self._setup_tray()
         self._reload_games()
+
+        self._load_plugins()
 
         if SETTINGS.get("check_update_on_start", True):
             QTimer.singleShot(3000, self._auto_check_updates)
@@ -14335,6 +15504,16 @@ class MainWindow(QMainWindow):
         title = QLabel("mikan_emu")
         title.setObjectName("AppTitle")
         lay.addWidget(title)
+
+        self.btn_recent = QToolButton()
+        self.btn_recent.setText("▶")
+        self.btn_recent.setToolTip(tr("tray_recent"))
+        self.btn_recent.setPopupMode(QToolButton.InstantPopup)
+        self.btn_recent.setFixedWidth(40)
+        self.btn_recent.setStyleSheet(
+            "QToolButton{font-size:14px;font-weight:bold;color:#0067c0;}")
+        lay.addWidget(self.btn_recent)
+
         lay.addStretch(1)
 
         self.lbl_admin_top = QLabel()
@@ -14437,12 +15616,67 @@ class MainWindow(QMainWindow):
             self.page_lan.shutdown()
         except Exception:
             pass
+        try:
+            self._plugin_manager.emit("app_quit")
+        except Exception:
+            pass
         for w in list(self._perf_windows):
             try:
                 w.close()
             except Exception:
                 pass
         event.accept()
+
+    # ---------- 插件 ----------
+    def _load_plugins(self):
+        self._unload_plugin_pages()
+
+        if not SETTINGS.get("plugins_auto_load", True):
+            return
+
+        try:
+            self._plugin_manager.load_all()
+        except Exception as e:
+            logger.exception(f"插件加载失败: {e}")
+            return
+
+        pages = self._plugin_manager.get_pages()
+        if not pages:
+            return
+
+        insert_at = self.NAV_SETTINGS
+        for i, (title, widget, icon) in enumerate(pages):
+            try:
+                w = widget() if callable(widget) else widget
+                if not isinstance(w, QWidget):
+                    logger.warning(f"插件页面 {title} 不是 QWidget")
+                    continue
+                label = f"{icon} {title}" if icon else title
+                item = QListWidgetItem(label)
+                self.nav.insertItem(insert_at + i, item)
+                self.stack.insertWidget(insert_at + i, w)
+                self._plugin_page_widgets.append((insert_at + i, w))
+                logger.info(f"插件页面已插入: {label} @ {insert_at + i}")
+            except Exception as e:
+                logger.exception(f"插件页面 {title} 加载失败: {e}")
+
+        self.NAV_SETTINGS = insert_at + len(self._plugin_page_widgets)
+
+    def _unload_plugin_pages(self):
+        for _idx, w in reversed(self._plugin_page_widgets):
+            try:
+                self.stack.removeWidget(w)
+                w.deleteLater()
+            except Exception:
+                pass
+        self._plugin_page_widgets.clear()
+
+        builtin_count = 8
+        while self.nav.count() > builtin_count:
+            item = self.nav.takeItem(self.nav.count() - 1)
+            del item
+
+        self.NAV_SETTINGS = 7
 
     # ---------- 主题 ----------
     def _apply_theme(self):
@@ -14535,6 +15769,48 @@ class MainWindow(QMainWindow):
 
     def _reload_games(self):
         self.page_library.set_games(load_games())
+        self._rebuild_recent_menu()
+
+    def _rebuild_recent_menu(self):
+        menu = QMenu(self)
+        games = [g for g in load_games() if g.last_played]
+        games.sort(key=lambda x: x.last_played or "", reverse=True)
+
+        if not games:
+            act = menu.addAction("（还没有玩过的游戏）")
+            act.setEnabled(False)
+        else:
+            for g in games[:10]:
+                cover = find_cover(g.name)
+                icon = QIcon(str(cover)) if cover else QIcon()
+                label = g.name
+                if g.play_seconds > 0:
+                    label += f"   ({human_duration(g.play_seconds)})"
+                act = menu.addAction(icon, label)
+                act.setToolTip(g.path)
+                act.triggered.connect(
+                    lambda _=False, gg=g: self._launch_game(gg))
+
+        menu.addSeparator()
+
+        by_count = sorted(load_games(),
+                          key=lambda x: x.launch_count or 0,
+                          reverse=True)[:5]
+        by_count = [g for g in by_count if (g.launch_count or 0) > 0]
+        if by_count:
+            sub = menu.addMenu("🔥 最常玩")
+            for g in by_count:
+                cover = find_cover(g.name)
+                icon = QIcon(str(cover)) if cover else QIcon()
+                act = sub.addAction(icon, f"{g.name}  ×{g.launch_count}")
+                act.triggered.connect(
+                    lambda _=False, gg=g: self._launch_game(gg))
+            menu.addSeparator()
+
+        a_more = menu.addAction("查看全部 →")
+        a_more.triggered.connect(
+            lambda: self.nav.setCurrentRow(self.NAV_LIBRARY))
+        self.btn_recent.setMenu(menu)
 
     def _refresh_all(self):
         self._engines_json = load_engines_json()
@@ -14694,11 +15970,30 @@ class MainWindow(QMainWindow):
                 tr("launch_no_engine", platform=game.platform))
             return
 
+        try:
+            ok, missing = check_bios_ready(engine)
+            if not ok:
+                reply = QMessageBox.question(
+                    self, tr("msg_confirm"),
+                    f"「{engine.engine}」缺少以下 BIOS：\n\n"
+                    + "\n".join(f"  · {m}" for m in missing)
+                    + f"\n\nBIOS 目录: {BIOS_DIR}\n\n仍然启动？",
+                    QMessageBox.Yes | QMessageBox.No)
+                if reply != QMessageBox.Yes:
+                    return
+        except Exception as e:
+            logger.debug(f"BIOS 体检失败: {e}")
+
         if SETTINGS.get("auto_detect_engine_version", True):
             try:
                 detect_engine_version(engine)
             except Exception as e:
                 logger.debug(f"版本探测失败: {e}")
+
+        try:
+            self._plugin_manager.emit("before_launch", game=game, engine=engine)
+        except Exception:
+            pass
 
         try:
             proc, switched, bios_msg = launch_game(engine, game)
@@ -14719,6 +16014,12 @@ class MainWindow(QMainWindow):
                     break
             save_games(games)
             self._reload_games()
+
+            try:
+                self._plugin_manager.emit("after_launch",
+                                          game=game, engine=engine, proc=proc)
+            except Exception:
+                pass
 
             if proc and SETTINGS.get("perf_monitor_on_launch", True):
                 try:
@@ -14757,6 +16058,7 @@ class MainWindow(QMainWindow):
         try:
             games = load_games()
             now = time.time()
+            secs = 0
             for g in games:
                 if g.path == game_path:
                     if g.launch_start_ts and g.launch_start_ts > 0:
@@ -14772,6 +16074,12 @@ class MainWindow(QMainWindow):
             save_games(games)
             self._reload_games()
             logger.info(f"游戏关闭: {game_path}")
+
+            try:
+                self._plugin_manager.emit("after_close",
+                                          game=game, seconds=secs)
+            except Exception:
+                pass
         except Exception as e:
             logger.exception(f"结算时长失败: {e}")
 
@@ -14897,9 +16205,15 @@ def main():
 
     win = MainWindow()
     win.show()
+
+    try:
+        win._plugin_manager.emit("app_start")
+    except Exception:
+        pass
+
     sys.exit(app.exec())
 
 
 if __name__ == "__main__":
     main()
-# ===== 全部完成 v1.3.0 =====
+# ===== 全部完成 v1.4.0 =====
