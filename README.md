@@ -1,8 +1,8 @@
-# MikanEmu v1.4.0
+# MikanEmu v1.5.1 / v1.5.1-win7
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
-[![PySide6](https://img.shields.io/badge/Qt-PySide6-orange)](https://www.qt.io/qt-for-python)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
+[![PySide6](https://img.shields.io/badge/Qt-PySide6%2FPyQt5-orange)](https://www.qt.io/qt-for-python)
 
 > 模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器
 > + 性能监控 + 局域网聊天/文件/共享 + 局域网传输（内嵌 LocalSend Web）
@@ -10,10 +10,28 @@
 > + 版本适配（version_overrides）+ 打开模拟器设置
 > + 引擎共享定义（_shared）+ BIOS 自动归类 + 统一代理 + 插件系统
 
-Python 3.11+ / PySide6 / requests / loguru / py7zr / rarfile / psutil / packaging
-可选：PySide6-WebEngine（内嵌浏览器）、PySocks（SOCKS5 代理）
-
 **【法律】** 不提供 BIOS、不提供 ROM、不二次分发模拟器
+
+---
+
+## 版本说明
+
+本项目提供两个版本，功能基本一致，区别在于 GUI 框架和运行环境要求：
+
+| 对比项 | MikanEmu v1.5.1（最新版） | MikanEmu v1.5.1-win7（老版本） |
+|--------|---------------------------|--------------------------------|
+| GUI 框架 | PySide6（Qt6） | PyQt5 5.15.9（Qt 5.15 LTS） |
+| Python 要求 | 3.11+ | 3.8（最后支持 Win7 的官方 Python） |
+| 操作系统 | Windows 10 1809+ | Windows 7 SP1+（含 Win7/Win8/Win8.1/Win10/Win11） |
+| 平台数 | 45 个 | 44 个 |
+| 引擎数 | 76 个 | 66 个 |
+| 新增功能（v1.5.1） | 日志环形缓冲、崩溃诊断包、日志查看器、Windows 版本检测、硬件探测、机器档次自适应、低配模式、资源策略、引擎推荐表 | 无（保留 v1.4.0 全部功能） |
+| 依赖版本 | 使用最新版依赖 |  pinned 版本（psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1） |
+| Web 引擎 | PySide6-WebEngine（可选） | PyQtWebEngine==5.15.6（可选） |
+| 打包工具 | PyInstaller | PyInstaller 4.10 |
+| QtWebEngine 渲染 | 默认（硬件加速） | 强制软件渲染（Win7 兼容） |
+
+> **推荐**：现代系统（Win10/Win11）请使用最新版（PySide6）；Windows 7 用户请使用 win7 移植版。
 
 ---
 
@@ -22,7 +40,7 @@ Python 3.11+ / PySide6 / requests / loguru / py7zr / rarfile / psutil / packagin
 | 模块 | 功能说明 |
 |------|---------|
 | 游戏库管理 | 多文件夹/工作区扫描、自动识别平台、去重合并、批量导入/导出、游戏统计 |
-| 模拟器引擎管理 | 内置 76 个引擎（45 平台）、自动下载/安装/更新、多镜像源、版本识别与匹配 |
+| 模拟器引擎管理 | 内置引擎（45/44 平台）、自动下载/安装/更新、多镜像源、版本识别与匹配 |
 | BIOS 管理 | BIOS 扫描/自动归类、BIOS 需求检测、BIOS 文件复制、bios_db.json 数据库 |
 | 存档管理 | 存档自动路径检测、存档备份/还原、存档路径自定义 |
 | 金手指管理 | 金手指代码管理、金手指路径配置 |
@@ -44,25 +62,43 @@ Python 3.11+ / PySide6 / requests / loguru / py7zr / rarfile / psutil / packagin
 | 引擎共享定义 | _shared 共享引擎定义（mednafen/mame/retroarch）跨平台复用 |
 | 系统优先级 | 启动时自动设置进程优先级和 IO 优先级 |
 
+### v1.5.1 新增功能（仅最新版）
+
+| 功能 | 说明 |
+|------|------|
+| F1：日志环形缓冲 | 内存中保留最近 2000 条日志，支持日志查看器、崩溃诊断包自动生成 |
+| F2：Windows 版本检测 | 检测系统版本（Win10 1809+ 最低要求），win7 版检测 Win7 SP1 |
+| F3：硬件探测 | 探测硬件配置（CPU/GPU/内存/磁盘），机器档次自适应（low/mid/high），低配模式自动降级 |
+| F4：资源策略 | CPU 亲和性建议、内存使用建议、引擎推荐表（根据硬件推荐合适引擎） |
+
+### Win7 移植版特有功能
+
+| 功能 | 说明 |
+|------|------|
+| Win7 SP1 检测 | 启动时检查 Windows 7 SP1 最低要求，不满足则提示安装 |
+| QtWebEngine 软件渲染 | 强制禁用 GPU 加速，确保 Win7 下浏览器页面正常显示 |
+| 兼容依赖版本 | 锁定 psutil<5.9.6、packaging<24 等依赖版本，确保 Win7 下可安装 |
+| PyInstaller 4.10 打包 | 使用旧版 PyInstaller 打包，兼容 Win7 运行时 |
+
 ---
 
 ## 技术栈
 
-| 技术 | 说明 |
-|------|------|
-| Python 3.11+ | 基础运行环境 |
-| PySide6 | Qt6 Python 绑定，UI 框架 |
-| PySide6-WebEngine | 内嵌 Chromium 浏览器（局域网传输页可选） |
-| requests | HTTP 请求（下载/刮削/API） |
-| loguru | 日志记录 |
-| py7zr | 7z 压缩格式支持 |
-| rarfile | RAR 压缩格式支持 |
-| psutil | 系统监控（CPU/内存/进程/网络） |
-| packaging | 版本号解析与比较 |
-| certifi | SSL 证书包 |
-| PySocks | SOCKS5 代理支持（可选） |
-| urllib3 | HTTP 底层库 |
-| ctypes | 系统 API 调用 |
+| 技术 | 最新版说明 | Win7版说明 |
+|------|-----------|-----------|
+| Python | 3.11+ | 3.8（最后支持 Win7 的官方版本） |
+| PySide6 / PyQt5 | PySide6（Qt6，GPL v3 / Commercial） | PyQt5 5.15.9（Qt 5.15 LTS，GPL v3 / Commercial） |
+| PySide6-WebEngine / PyQtWebEngine | 内嵌 Chromium 浏览器（可选） | PyQtWebEngine==5.15.6（可选，~200MB） |
+| requests | HTTP 请求（下载/刮削/API） | <2.32（Win7 兼容） |
+| loguru | 日志记录 | <0.8（Win7 兼容） |
+| py7zr | 7z 压缩格式支持 | <0.21（Win7 兼容） |
+| rarfile | RAR 压缩格式支持 | <4.1（Win7 兼容） |
+| psutil | 系统监控（CPU/内存/进程/网络） | <5.9.6（Win7 兼容） |
+| packaging | 版本号解析与比较 | <24（Win7 兼容） |
+| certifi | SSL 证书包 | 同最新版 |
+| PySocks | SOCKS5 代理支持（可选） | 同最新版 |
+| urllib3 | HTTP 底层库 | 同最新版 |
+| ctypes | 系统 API 调用 | 同最新版 |
 
 ---
 
@@ -72,7 +108,12 @@ Python 3.11+ / PySide6 / requests / loguru / py7zr / rarfile / psutil / packagin
 
 直接运行发布的 `.exe` 文件即可，无需安装 Python 环境。
 
+- **最新版 exe**：适用于 Windows 10 1809+ / 11
+- **Win7 版 exe**：适用于 Windows 7 SP1 / 8 / 8.1 / 10 / 11
+
 ### 方式二：源代码运行
+
+#### 最新版（PySide6）
 
 1. 安装 Python 3.11+
 2. 安装依赖：
@@ -89,10 +130,31 @@ pip install PySide6 requests loguru py7zr rarfile psutil packaging certifi
 python mikan_emu_5.py
 ```
 
+#### Win7 移植版（PyQt5）
+
+1. 安装 Python 3.8（注意：必须 3.8，3.9+ 不支持 Win7）
+2. 安装依赖：
+
+```bash
+pip install PyQt5==5.15.9 "requests<2.32" "loguru<0.8" "py7zr<0.21" "rarfile<4.1" "psutil<5.9.6" "packaging<24"
+# 可选：pip install PyQtWebEngine==5.15.6  （内嵌浏览器）
+# 可选：pip install PySocks                  （SOCKS5 代理）
+```
+
+3. 运行：
+
+```bash
+python mikan_emu_pyqt5.py
+```
+
 ### PyInstaller 打包
 
 ```bash
+# 最新版
 pyinstaller --name mikan_emu --onedir --add-data "config;config" --add-data "lang;lang" mikan_emu_5.py
+
+# Win7 版（使用 PyInstaller 4.10）
+pyinstaller==4.10 --name mikan_emu --onedir --add-data "config;config" --add-data "lang;lang" mikan_emu_pyqt5.py
 ```
 
 ---
@@ -152,7 +214,7 @@ mikan_emu/                    # 程序根目录（data 目录）
 
 ## 支持的平台与引擎
 
-**45 个平台 / 76 个引擎**（含 3 个共享引擎），完整对照表：
+### 最新版：45 个平台 / 76 个引擎
 
 | 平台 | 引擎 | 来源 |
 |------|------|------|
@@ -203,13 +265,24 @@ mikan_emu/                    # 程序根目录（data 目录）
 | 未知渠道 | google_drive_unknown | direct |
 | _shared 共享 | mednafen, mame, retroarch | direct |
 
+### Win7 移植版：44 个平台 / 66 个引擎
+
+Win7 版相比最新版缺少以下平台和引擎（因依赖版本限制无法兼容 Win7）：
+
+| 缺失项 | 说明 |
+|--------|------|
+| BBC Micro 平台 | 缺少 b2 引擎 |
+| 缺少引擎 | 1984、ares、b2、cen64、cpc_syntax_error、gopher64、neon64、nintendulator、noods、zakuro（共 10 个） |
+
 > 引擎来源说明：direct = 直接下载链接；manual = 需手动下载；libretro = Libretro 核心
 
 ---
 
 ## 模块说明
 
-### 核心类（53 个）
+### 核心类（54 个）
+
+两个版本类定义完全一致：
 
 | 类名 | 功能 |
 |------|------|
@@ -263,17 +336,20 @@ mikan_emu/                    # 程序根目录（data 目录）
 | PluginAPI | 插件 API（提供给插件的接口） |
 | PluginManager | 插件管理器（扫描/加载/卸载） |
 | MainWindow | 主窗口 |
+| LogViewerDialog | 日志查看器（v1.5.1 新增） |
 
-### 核心函数（119 个顶层函数）
+### 核心函数
 
 涵盖依赖自检、多语言翻译、配置读写、引擎管理、游戏导入、存档管理、BIOS 管理、游戏启动、局域网通信、封面刮削、配置包导出导入、插件加载、版本检测等全部功能。
+
+- **最新版**：135 个顶层函数
+- **Win7 版**：137 个顶层函数（多出 `check_win7_sp1_minimum`、`get_windows_name` 两个 Win7 专用函数）
 
 ---
 
 ## 插件系统
 
 > 示例插件 `random_launch`（随机启动）展示了完整的插件编写格式与 API 用法。
-> 该插件已打包为独立 exe 可执行文件，可直接运行体验。
 
 ### 插件目录结构
 
@@ -397,6 +473,7 @@ plugins/
 ```python
 # -*- coding: utf-8 -*-
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
+# 或 Win7版：from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel
 
 class MyPage(QWidget):
     def __init__(self, api):
@@ -492,15 +569,33 @@ def register(api):
 
 ## 注意事项
 
+### 通用注意事项
+
 1. **管理员权限**：部分功能（如进程优先级设置）可能需要管理员权限，可右键选择"以管理员身份运行"
 2. **杀毒软件**：打包后的 exe 可能被杀毒软件误报，请将程序目录加入杀毒软件白名单
 3. **依赖安装**：首次运行会自动检测并安装缺失依赖，需保持网络连接
-4. **QtWebEngine**：内嵌浏览器功能需要安装 PySide6-WebEngine，未安装时局域网传输页将降级为外部浏览器打开
+4. **QtWebEngine**：内嵌浏览器功能需要安装 WebEngine 包（PySide6-WebEngine / PyQtWebEngine），未安装时局域网传输页将降级为外部浏览器打开
 5. **psutil**：性能监控功能需要 psutil，未安装时性能监控模块不可用
 6. **BIOS/ROM 法律**：本项目不提供任何 BIOS/ROM 文件，请自行准备合法获取的文件
 7. **MEDNAFEN 多实例**：程序已设置 MEDNAFEN_ALLOWMULTI=1 以支持多实例运行
 8. **局域网协议**：局域网功能使用自定义协议，不同版本间可能不互通，建议统一版本
 9. **PyInstaller 打包**：打包时需注意 --add-data 参数包含 config/lang 等静态资源目录
+
+### 最新版注意事项
+
+- 需要 Windows 10 1809 或更高版本
+- 需要 Python 3.11+ 运行源代码
+- 依赖包使用最新版，可能存在与旧系统不兼容的情况
+
+### Win7 移植版注意事项
+
+- **最低系统要求**：Windows 7 SP1（构建号 7601），不支持 RTM 版本
+- **Python 版本**：必须使用 Python 3.8，3.9+ 不支持 Win7
+- **依赖版本锁定**：psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1 以确保 Win7 兼容性
+- **QtWebEngine 软件渲染**：强制禁用 GPU 加速以确保 Win7 下正常显示，性能可能低于现代系统
+- **PyInstaller 4.10**：打包时使用旧版 PyInstaller 以确保 Win7 兼容性
+- **功能缺失**：缺少 10 个引擎和 1 个平台（因依赖版本限制），以及 v1.5.1 新增的 F1-F4 功能
+- **PyQtWebEngine**：需手动安装 `pip install PyQtWebEngine==5.15.6`（约 200MB）
 
 ---
 
@@ -539,6 +634,15 @@ def register(api):
 4. 参考内置示例插件 random_launch 了解 API 用法
 5. 重启程序后插件自动扫描加载
 
+### 移植到新框架（PySide6 <-> PyQt5）
+
+两个版本的代码结构完全一致，主要差异在于：
+
+1. **导入替换**：`PySide6` <-> `PyQt5`，`Qt.Signal` <-> `Qt.pyqtSignal`
+2. **WebEngine 配置**：PySide6 使用 `QWebEngineProfile(name, parent)` 设置缓存目录；PyQt5 使用 `QWebEngineProfile.defaultProfile()`
+3. **版本检测**：最新版使用 `packaging` 比较版本；Win7 版锁定旧版 packaging
+4. **打包工具**：最新版可用最新版 PyInstaller；Win7 版需使用 PyInstaller 4.10
+
 ---
 
 ## 许可证
@@ -557,6 +661,7 @@ GNU General Public License v3.0
 本项目的开发离不开以下开源项目和工具的支持：
 
 - [PySide6](https://www.qt.io/qt-for-python) - Qt6 Python 绑定
+- [PyQt5](https://www.riverbankcomputing.com/software/pyqt/) - Qt5 Python 绑定
 - [snes9x](https://github.com/snes9xgit/snes9x) - SFC 模拟器
 - [duckstation](https://github.com/stenzek/duckstation) - PS1 模拟器
 - [pcsx2](https://github.com/PCSX2/pcsx2) - PS2 模拟器

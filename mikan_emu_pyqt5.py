@@ -1,63 +1,58 @@
 # -*- coding: utf-8 -*-
 """
-mikan_emu v1.5.1
-模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器
-+ 性能监控 + 局域网聊天/文件/共享 + 局域网传输（内嵌 LocalSend Web）
-+ 封面刮削（Libretro / SteamGridDB）+ 性能档位 + 系统优先级
-+ 版本适配（version_overrides）+ 打开模拟器设置
-+ 引擎共享定义（_shared）+ BIOS 自动归类 + 统一代理 + 插件系统
-+ 日志环形缓冲 + 崩溃诊断包 + Windows 版本检测 + 硬件探测 + 资源策略
+mikan_emu_pyqt5 v1.5.1-win7
+PyQt5 + Python 3.8 + Windows 7 移植版
 
-Python 3.11+ / PySide6 / requests / loguru / py7zr / rarfile / psutil / packaging
-可选：PySide6-WebEngine（内嵌浏览器）、PySocks（SOCKS5 代理）
-
-【法律】不提供 BIOS、不提供 ROM、不二次分发模拟器
-
-v1.5.1 变更：
-- ★ 新增 F1：日志环形缓冲（最近 2000 条）+ 崩溃诊断包 + 日志查看器
-- ★ 新增 F2：Windows 版本检测（Win10 1809+ 最低要求）
-- ★ 新增 F3：硬件探测 + 机器档次自适应（low/mid/high）+ 低配模式
-- ★ 新增 F4：资源策略（CPU 亲和性 + 内存建议）+ 引擎推荐表
-- ★ 保留 v1.4.0 全部功能
+Windows 7 兼容性：
+  - PyQt5 5.15.9 (Qt 5.15 LTS，最后支持 Win7 的 Qt 版本)
+  - Python 3.8 (最后支持 Win7 的官方 Python)
+  - 强制 QtWebEngine 软件渲染
+  - psutil < 5.9.6
+  - pyinstaller 4.10 打包
 """
 
-import os
+from __future__ import annotations
 
-os.environ.setdefault(
-    "QTWEBENGINE_CHROMIUM_FLAGS",
-    "--disable-gpu --disable-software-rasterizer"
-)
+import os
+import sys
+
+# ── Win7：QtWebEngine 强制软件渲染 ──
+if sys.platform == "win32":
+    os.environ.setdefault(
+        "QTWEBENGINE_CHROMIUM_FLAGS",
+        "--disable-gpu --disable-software-rasterizer --no-sandbox "
+        "--single-process --disable-features=NetworkService"
+    )
+else:
+    os.environ.setdefault(
+        "QTWEBENGINE_CHROMIUM_FLAGS",
+        "--disable-gpu --disable-software-rasterizer"
+    )
 os.environ["MEDNAFEN_ALLOWMULTI"] = "1"
 
 # ============================================================
 # 1. 依赖自检
 # ============================================================
-import sys
 import subprocess
 import importlib
 
 REQUIRED = {
-    "PySide6": "PySide6",
-    "requests": "requests",
-    "loguru": "loguru",
-    "py7zr": "py7zr",
-    "rarfile": "rarfile",
+    "PyQt5": "PyQt5==5.15.9",
+    "requests": "requests<2.32",
+    "loguru": "loguru<0.8",
+    "py7zr": "py7zr<0.21",
+    "rarfile": "rarfile<4.1",
     "certifi": "certifi",
-    "psutil": "psutil",
-    "packaging": "packaging",
+    "psutil": "psutil<5.9.6",
+    "packaging": "packaging<24",
     "socks": "PySocks",
 }
-
-OPTIONAL = {
-    "PySide6.QtWebEngineWidgets": "PySide6-WebEngine",
-}
-
+OPTIONAL = {"PyQt5.QtWebEngineWidgets": "PyQtWebEngine==5.15.6"}
 MIRRORS_PIP = [
     "https://pypi.tuna.tsinghua.edu.cn/simple",
     "https://mirrors.aliyun.com/pypi/simple",
     "https://pypi.org/simple",
 ]
-
 OPTIONAL_MISSING: dict = {}
 
 
@@ -148,7 +143,7 @@ import zlib
 from collections import defaultdict, deque
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, List, Dict, Tuple
 
 import requests
 import urllib3
@@ -164,15 +159,15 @@ except ImportError:
     HAS_PSUTIL = False
 
 try:
-    from PySide6.QtCore import (
-        Qt, QThread, Signal, QModelIndex, QAbstractTableModel,
+    from PyQt5.QtCore import (
+        Qt, QThread, pyqtSignal as Signal, QModelIndex, QAbstractTableModel,
         QSortFilterProxyModel, QTimer, QSize, QObject, QPoint, QUrl,
     )
-    from PySide6.QtGui import (
-        QColor, QFont, QAction, QPixmap, QIcon, QPainter, QPen,
+    from PyQt5.QtGui import (
+        QColor, QFont, QPixmap, QIcon, QPainter, QPen,
         QBrush, QLinearGradient, QPolygon
     )
-    from PySide6.QtWidgets import (
+    from PyQt5.QtWidgets import (
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
         QSplitter, QListWidget, QListWidgetItem, QStackedWidget, QLabel,
         QLineEdit, QPushButton, QTableView, QHeaderView, QComboBox,
@@ -181,17 +176,19 @@ try:
         QDialog, QDialogButtonBox, QMenu, QToolButton, QTabWidget,
         QScrollArea, QInputDialog, QAbstractItemView, QSpinBox,
         QListView, QRadioButton, QButtonGroup, QSystemTrayIcon,
-        QTableWidget, QTableWidgetItem, QSizePolicy, QColorDialog
+        QTableWidget, QTableWidgetItem, QSizePolicy, QColorDialog,
+        QAction,
     )
     HAS_QT = True
-except ImportError:
+except ImportError as _e:
     HAS_QT = False
-    print("[启动] PySide6 导入失败，请检查安装。")
+    print(f"[启动] PyQt5 导入失败: {_e}")
+    print("[启动] 请执行: pip install PyQt5==5.15.9")
     sys.exit(1)
 
 try:
-    from PySide6.QtWebEngineWidgets import QWebEngineView
-    from PySide6.QtWebEngineCore import QWebEngineSettings, QWebEngineProfile
+    from PyQt5.QtWebEngineWidgets import QWebEngineView
+    from PyQt5.QtWebEngineCore import QWebEngineSettings, QWebEngineProfile
     HAS_WEBENGINE = True
 except ImportError:
     HAS_WEBENGINE = False
@@ -263,7 +260,7 @@ BIOS_DB_FILE = CONFIG_DIR / "bios_db.json"
 PLUGINS_ENABLED_FILE = CONFIG_DIR / "plugins_enabled.json"
 
 # ============================================================
-# 3.1 日志初始化（环形缓冲 + 文件 + stderr）
+# 3.1 日志初始化
 # ============================================================
 LOG_RING: deque = deque(maxlen=2000)
 LOG_RING_LOCK = threading.Lock()
@@ -271,12 +268,6 @@ _LOG_SETUP_LOCK = threading.Lock()
 
 
 def _ring_sink(message):
-    """loguru sink：把日志追加到内存环形缓冲。
-
-    注意：loguru 内部已保证 sink 调用串行，这里不再加锁，避免和
-    LOG_RING_LOCK 形成潜在死锁。读取端（LogViewerDialog / 崩溃报告）
-    会自行加锁。
-    """
     try:
         r = message.record
         LOG_RING.append({
@@ -292,11 +283,6 @@ def _ring_sink(message):
 
 
 def setup_logging():
-    """初始化日志。
-
-    可在模块顶层和 load_settings() 之后各调用一次；重复调用安全
-    （先 logger.remove() 清空旧 handler）。
-    """
     with _LOG_SETUP_LOCK:
         level = "INFO"
         keep = 14
@@ -306,12 +292,10 @@ def setup_logging():
                 keep = int(SETTINGS.get("log_keep_days", 14))
         except Exception:
             pass
-
         try:
             logger.remove()
         except Exception:
             pass
-
         try:
             logger.add(
                 LOG_DIR / "mikan_emu_{time:YYYY-MM-DD}.log",
@@ -319,16 +303,14 @@ def setup_logging():
                 retention=f"{keep} days",
                 encoding="utf-8",
                 level="DEBUG",
-                enqueue=True,
+                enqueue=False,
             )
         except Exception as e:
             print(f"[启动] 日志文件初始化失败: {e}")
-
         try:
             logger.add(_ring_sink, level=level)
         except Exception:
             pass
-
         if sys.stderr is not None:
             try:
                 logger.add(sys.stderr, level=level)
@@ -344,8 +326,6 @@ if not HAS_WEBENGINE:
 # ============================================================
 # 3.5 内置默认 JSON 数据
 # ============================================================
-# 由于 DEFAULT_ENGINES_JSON_STR 极大，本段只保留其开头和结尾标记，
-# 你按原文件内容填入即可，v1.5.1 未对它做任何修改。
 DEFAULT_ENGINES_JSON_STR = r"""
 {
   "_shared": {
@@ -369,12 +349,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       "match": {"exe": ["mame.exe", "mame64.exe"], "folder": ["mame", "MAME"], "keywords": ["mame"]},
       "launch_template": "{exe} \"{rom}\"",
       "settings_args": "",
-      "perf_profiles": {
-        "省电": "-nothrottle -frameskip 2",
-        "平衡": "",
-        "高性能": "-nothrottle",
-        "画质优先": "-nothrottle"
-      },
+      "perf_profiles": {"省电": "-nothrottle -frameskip 2", "平衡": "", "高性能": "-nothrottle", "画质优先": "-nothrottle"},
       "official": true
     },
     "retroarch": {
@@ -385,12 +360,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
       "match": {"exe": ["retroarch.exe"], "folder": ["RetroArch", "retroarch"], "keywords": ["retroarch"]},
       "launch_template": "{exe} -L \"{core}\" \"{rom}\"",
       "settings_args": "",
-      "perf_profiles": {
-        "省电": "--menu",
-        "平衡": "",
-        "高性能": "--fullscreen",
-        "画质优先": "--fullscreen --set-shader"
-      },
+      "perf_profiles": {"省电": "--menu", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen --set-shader"},
       "official": true,
       "note": "libretro 前端，配合核心使用"
     }
@@ -408,12 +378,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["snes9x-x64.exe", "snes9x.exe"], "folder": ["snes9x"], "keywords": ["snes9x", "snes"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "--frameskip 2",
-          "平衡": "",
-          "高性能": "--fullscreen",
-          "画质优先": "--fullscreen"
-        },
+        "perf_profiles": {"省电": "--frameskip 2", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true
       },
       "bsnes": {
@@ -425,12 +390,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["bsnes.exe"], "folder": ["bsnes"], "keywords": ["bsnes"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "--fullscreen",
-          "画质优先": "--fullscreen"
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true,
         "note": "精度优先，对 CPU 要求高"
       }
@@ -450,19 +410,8 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["duckstation-qt-x64-ReleaseLTCG.exe", "duckstation-qt-x64-Release.exe", "duckstation-qt-x64-Debug.exe", "duckstation.exe"], "folder": ["duckstation"], "keywords": ["duckstation"]},
         "launch_template": "{exe} -batch \"{rom}\"",
         "settings_args": "-settings",
-        "perf_profiles": {
-          "省电": "-batch --renderer software",
-          "平衡": "-batch",
-          "高性能": "-batch --fullscreen",
-          "画质优先": "-batch --fullscreen --renderer vulkan"
-        },
-        "version_overrides": [
-          {
-            "range": "<0.1.0",
-            "launch_template": "{exe} -batch \"{rom}\"",
-            "settings_args": "-settings"
-          }
-        ],
+        "perf_profiles": {"省电": "-batch --renderer software", "平衡": "-batch", "高性能": "-batch --fullscreen", "画质优先": "-batch --fullscreen --renderer vulkan"},
+        "version_overrides": [{"range": "<0.1.0", "launch_template": "{exe} -batch \"{rom}\"", "settings_args": "-settings"}],
         "bios_dir": "bios",
         "official": true
       },
@@ -499,12 +448,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
     "platform_name": "SS / 世嘉土星",
     "rom_extensions": [".bin", ".cue", ".iso", ".chd", ".mds", ".mdf"],
     "engines": {
-      "mednafen": {
-        "use_shared": "mednafen",
-        "bios_required": true,
-        "bios_files": ["mpr-17933.bin", "sega_101.bin"],
-        "bios_dir": "firmware"
-      },
+      "mednafen": {"use_shared": "mednafen", "bios_required": true, "bios_files": ["mpr-17933.bin", "sega_101.bin"], "bios_dir": "firmware"},
       "ssf": {
         "version": "PreviewVer R38",
         "url": "manual",
@@ -646,12 +590,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["mGBA.exe", "mgba.exe", "mgba-qt.exe"], "folder": ["mgba", "mGBA"], "keywords": ["mgba"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "--fullscreen",
-          "画质优先": "--fullscreen"
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true
       },
       "vba-m": {
@@ -682,19 +621,8 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["pcsx2-qt.exe", "pcsx2.exe"], "folder": ["pcsx2"], "keywords": ["pcsx2"]},
         "launch_template": "{exe} -batch \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "-batch --renderer software",
-          "平衡": "-batch",
-          "高性能": "-batch --fullscreen",
-          "画质优先": "-batch --fullscreen --renderer vulkan"
-        },
-        "version_overrides": [
-          {
-            "range": "<2.0.0",
-            "launch_template": "{exe} --batch \"{rom}\"",
-            "settings_args": ""
-          }
-        ],
+        "perf_profiles": {"省电": "-batch --renderer software", "平衡": "-batch", "高性能": "-batch --fullscreen", "画质优先": "-batch --fullscreen --renderer vulkan"},
+        "version_overrides": [{"range": "<2.0.0", "launch_template": "{exe} --batch \"{rom}\"", "settings_args": ""}],
         "bios_required": true,
         "bios_dir": "bios",
         "official": true
@@ -714,12 +642,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["fceux.exe", "fceux64.exe"], "folder": ["fceux"], "keywords": ["fceux"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {
-          "省电": "",
-          "平衡": "",
-          "高性能": "--fullscreen",
-          "画质优先": "--fullscreen"
-        },
+        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true
       },
       "mesence": {
@@ -746,19 +669,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "perf_profiles": {},
         "official": true,
         "note": "SourceForge 无稳定直链，需手动下载"
-      },
-      "nintendulator": {
-        "version": "unknown",
-        "url": "manual",
-        "url_type": "manual",
-        "official_site": "http://www.qmtpro.com/~nes/nintendulator/",
-        "archive": "zip",
-        "match": {"exe": ["Nintendulator.exe", "nintendulator.exe"], "folder": ["Nintendulator"], "keywords": ["nintendulator"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "精度优先，需手动下载"
       }
     }
   },
@@ -778,32 +688,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true
-      },
-      "gopher64": {
-        "version": "1.1.36",
-        "url": "https://github.com/gopher64/gopher64/releases/download/v1.1.36/gopher64-windows-x86_64.exe",
-        "url_type": "direct",
-        "github_repo": "gopher64/gopher64",
-        "archive": "bare_exe",
-        "match": {"exe": ["gopher64-windows-x86_64.exe", "gopher64.exe"], "keywords": ["gopher64"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "裸 exe，下载后直接使用"
-      },
-      "ares": {
-        "version": "148",
-        "url": "https://github.com/ares-emulator/ares/releases/download/v148/ares-windows-x64.zip",
-        "url_type": "direct",
-        "github_repo": "ares-emulator/ares",
-        "archive": "zip",
-        "match": {"exe": ["ares.exe"], "folder": ["ares"], "keywords": ["ares"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "多平台模拟器"
       },
       "simple64": {
         "version": "2024.12.1",
@@ -829,19 +713,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "perf_profiles": {},
         "official": true
       },
-      "neon64": {
-        "version": "2.0-beta.4",
-        "url": "https://github.com/hcs64/neon64v2/releases/download/v2.0-beta.4/neon64v2b4.zip",
-        "url_type": "direct",
-        "github_repo": "hcs64/neon64v2",
-        "archive": "zip",
-        "match": {"exe": ["neon64.exe"], "folder": ["neon64", "neon64v2"], "keywords": ["neon64"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "轻量 N64 模拟器"
-      },
       "project64": {
         "version": "unknown",
         "url": "manual",
@@ -854,19 +725,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "perf_profiles": {},
         "official": false,
         "note": "需手动下载"
-      },
-      "cen64": {
-        "version": "unknown",
-        "url": "manual",
-        "url_type": "manual",
-        "official_site": "https://github.com/cen64/cen64",
-        "archive": "zip",
-        "match": {"exe": ["cen64.exe"], "keywords": ["cen64"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "精度优先，无 Windows 预编译包"
       }
     }
   },
@@ -897,19 +755,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true
-      },
-      "noods": {
-        "version": "latest",
-        "url": "https://github.com/Hydr8gon/NooDS/releases/download/release/noods-windows.zip",
-        "url_type": "direct",
-        "github_repo": "Hydr8gon/NooDS",
-        "archive": "zip",
-        "match": {"exe": ["noods.exe", "NooDS.exe"], "folder": ["noods", "NooDS"], "keywords": ["noods"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "轻量 NDS/GBA 模拟器"
       }
     }
   },
@@ -930,19 +775,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true,
         "note": "Citra 后继项目"
-      },
-      "zakuro": {
-        "version": "0.2.9",
-        "url": "https://github.com/fearkov/zakuro/releases/download/v0.2.9/zakuro-windows-x86_64.zip",
-        "url_type": "direct",
-        "github_repo": "fearkov/zakuro",
-        "archive": "zip",
-        "match": {"exe": ["zakuro.exe"], "folder": ["zakuro"], "keywords": ["zakuro"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "⚠ 实验性：Rust 重写的 3DS 模拟器"
       }
     }
   },
@@ -1118,17 +950,13 @@ DEFAULT_ENGINES_JSON_STR = r"""
   "neogeo": {
     "platform_name": "Neo Geo",
     "rom_extensions": [".zip", ".neo"],
-    "engines": {
-      "mame": {"use_shared": "mame"}
-    }
+    "engines": {"mame": {"use_shared": "mame"}}
   },
 
   "arcade": {
     "platform_name": "Arcade",
     "rom_extensions": [".zip", ".7z"],
-    "engines": {
-      "mame": {"use_shared": "mame"}
-    }
+    "engines": {"mame": {"use_shared": "mame"}}
   },
 
   "x68000": {
@@ -1411,9 +1239,7 @@ DEFAULT_ENGINES_JSON_STR = r"""
   "multi": {
     "platform_name": "万能 / 前端",
     "rom_extensions": [],
-    "engines": {
-      "retroarch": {"use_shared": "retroarch"}
-    }
+    "engines": {"retroarch": {"use_shared": "retroarch"}}
   },
 
   "wii": {
@@ -1527,19 +1353,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true
-      },
-      "cpc_syntax_error": {
-        "version": "0.3.0",
-        "url": "https://github.com/WacKEDmaN/CPCSyntaxError/releases/download/v0.3.0/CPCSyntaxError-win64-v0.3.0.zip",
-        "url_type": "direct",
-        "github_repo": "WacKEDmaN/CPCSyntaxError",
-        "archive": "zip",
-        "match": {"exe": ["CPCSyntaxError.exe", "cpcsyntaxerror.exe"], "folder": ["CPCSyntaxError"], "keywords": ["cpcsyntax"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "⚠ 实验性：CPC 新模拟器"
       }
     }
   },
@@ -1619,19 +1432,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true
-      },
-      "1984": {
-        "version": "0.4.20",
-        "url": "https://github.com/salvogendut/1984/releases/download/v0.4.20/1984-v0.4.20-windows-x86_64.zip",
-        "url_type": "direct",
-        "github_repo": "salvogendut/1984",
-        "archive": "zip",
-        "match": {"exe": ["1984.exe", "emulator.exe"], "folder": ["1984"], "keywords": ["1984"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "⚠ 实验性：ZX Spectrum 新模拟器"
       }
     }
   },
@@ -1678,26 +1478,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
     }
   },
 
-  "bbcmicro": {
-    "platform_name": "BBC Micro",
-    "rom_extensions": [".ssd", ".dsd", ".adf", ".uef", ".tap", ".zip"],
-    "engines": {
-      "b2": {
-        "version": "20260322",
-        "url": "https://github.com/tom-seddon/b2/releases/download/b2-20260322-193052-51e70d7/symbols.b2-windows-20260322-193052-51e70d7.7z",
-        "url_type": "direct",
-        "github_repo": "tom-seddon/b2",
-        "archive": "7z",
-        "match": {"exe": ["b2.exe", "B2.exe"], "folder": ["b2", "B2"], "keywords": ["b2"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "⚠ 你提供的是符号包，若识别不到主程序请手动导入"
-      }
-    }
-  },
-
   "unknown": {
     "platform_name": "未知渠道",
     "rom_extensions": [],
@@ -1719,7 +1499,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
   }
 }
 """
-
 
 DEFAULT_FOLDERS_JSON = {
     "folders": [{"name": "默认工作区", "path": str(DATA_DIR)}],
@@ -1772,11 +1551,9 @@ DEFAULT_SETTINGS_JSON = {
     "proxy_pwd": "",
     "proxy_bypass": "",
     "plugins_auto_load": True,
-    # ★ v1.5.1：日志与诊断
     "log_level": "INFO",
     "log_keep_days": 14,
     "crash_report_enabled": True,
-    # ★ v1.5.1：硬件 / 资源策略
     "machine_tier_auto": True,
     "machine_tier": "mid",
     "low_spec_mode": False,
@@ -1785,7 +1562,7 @@ DEFAULT_SETTINGS_JSON = {
     "resource_cpu_affinity": "",
     "resource_mem_mb": 0,
     "resource_force_unlock": False,
-    "resource_safety_ratio": 85,
+    "resource_safety_ratio": 70,
 }
 
 DEFAULT_MIRRORS_JSON = {
@@ -1845,7 +1622,6 @@ DEFAULT_RESOURCES_JSON = {
     ]
 }
 
-
 DEFAULT_BIOS_DB = {
     "version": "1.0",
     "platforms": {
@@ -1859,12 +1635,7 @@ DEFAULT_BIOS_DB = {
                 "scph10000.bin": {"md5": "8dd7d5296a650fac7319bcecf08d9a3c", "region": "JP", "ver": "1.0"},
                 "scph7502.bin": {"md5": "b9d9a0286c33dc6b7237bb13cd46fdee", "region": "EU", "ver": "2.2"}
             },
-            "aliases": {
-                "SCPH1001.BIN": "scph1001.bin",
-                "bios.bin": "scph1001.bin",
-                "ps1bios.bin": "scph1001.bin",
-                "psx.bin": "scph1001.bin"
-            }
+            "aliases": {"SCPH1001.BIN": "scph1001.bin", "bios.bin": "scph1001.bin", "ps1bios.bin": "scph1001.bin", "psx.bin": "scph1001.bin"}
         },
         "ss": {
             "display": "Sega Saturn",
@@ -1887,13 +1658,8 @@ DEFAULT_BIOS_DB = {
         "gba": {
             "display": "Game Boy Advance",
             "required_any": ["gba_bios.bin"],
-            "files": {
-                "gba_bios.bin": {"md5": "a860e8c0b6d573d19181b6bc8e02dd4d"}
-            },
-            "aliases": {
-                "gba_bios.rom": "gba_bios.bin",
-                "gba.rom": "gba_bios.bin"
-            }
+            "files": {"gba_bios.bin": {"md5": "a860e8c0b6d573d19181b6bc8e02dd4d"}},
+            "aliases": {"gba_bios.rom": "gba_bios.bin", "gba.rom": "gba_bios.bin"}
         },
         "nds": {
             "display": "Nintendo DS",
@@ -1903,18 +1669,12 @@ DEFAULT_BIOS_DB = {
                 "bios9.bin": {"md5": "a392174eb3e572fed6447e956bde4b25"},
                 "firmware.bin": {"md5": "8ad9c21c2b3280e45e8bfd1749f0b0e8"}
             },
-            "aliases": {
-                "nds_bios_arm7.bin": "bios7.bin",
-                "nds_bios_arm9.bin": "bios9.bin"
-            }
+            "aliases": {"nds_bios_arm7.bin": "bios7.bin", "nds_bios_arm9.bin": "bios9.bin"}
         },
         "switch": {
             "display": "Nintendo Switch",
             "required_any": ["prod.keys"],
-            "files": {
-                "prod.keys": {"md5": ""},
-                "title.keys": {"md5": ""}
-            },
+            "files": {"prod.keys": {"md5": ""}, "title.keys": {"md5": ""}},
             "aliases": {}
         },
         "ps2": {
@@ -1938,10 +1698,7 @@ DEFAULT_BIOS_DB = {
         "intellivision": {
             "display": "Intellivision",
             "required_any": ["exec.bin", "grom.bin"],
-            "files": {
-                "exec.bin": {"md5": ""},
-                "grom.bin": {"md5": ""}
-            },
+            "files": {"exec.bin": {"md5": ""}, "grom.bin": {"md5": ""}},
             "aliases": {}
         },
         "pcfx": {
@@ -1962,10 +1719,7 @@ DEFAULT_BIOS_DB = {
         "pc98": {
             "display": "NEC PC-98",
             "required_any": ["bios.rom", "font.rom"],
-            "files": {
-                "bios.rom": {"md5": ""},
-                "font.rom": {"md5": ""}
-            },
+            "files": {"bios.rom": {"md5": ""}, "font.rom": {"md5": ""}},
             "aliases": {}
         }
     }
@@ -2495,16 +2249,15 @@ DEFAULT_LANG_PACKS = {
         "webtransfer_fallback": (
             "未检测到 QtWebEngine，无法内嵌网页。\n\n"
             "建议：\n"
-            "1. 安装 PySide6-WebEngine 后重启程序；\n"
+            "1. 安装 PyQtWebEngine 后重启程序；\n"
             "2. 或点下方按钮用外部浏览器打开 LocalSend Web。"),
         "webtransfer_url": "https://web.localsend.org/",
-        "webtransfer_install_btn": "自动安装 PySide6-WebEngine",
-        "webtransfer_install_confirm": "将执行：pip install PySide6-WebEngine\n\n包体积约 200MB，需要联网下载。是否继续？",
+        "webtransfer_install_btn": "自动安装 PyQtWebEngine",
+        "webtransfer_install_confirm": "将执行：pip install PyQtWebEngine==5.15.6\n\n包体积约 200MB，需要联网下载。是否继续？",
         "webtransfer_install_started": "已在新窗口开始安装。\n安装完成后请关闭并重新启动 mikan_emu。",
         "webtransfer_install_failed": "启动安装进程失败。",
         "msg_ok": "确定", "msg_cancel": "取消", "msg_warning": "警告",
         "msg_error": "错误", "msg_info": "提示", "msg_confirm": "确认",
-        # ★ 插件相关
         "plugins_title": "插件",
         "plugins_hint": "插件放在 data/mikan_emu/plugins/<id>/ 下，每个插件包含 plugin.json 和 main.py。\n启用/禁用或导入新插件后，需要点「重启程序」才能生效。",
         "plugins_col_enabled": "启用",
@@ -2525,7 +2278,6 @@ DEFAULT_LANG_PACKS = {
         "plugins_state_disabled": "禁用",
         "plugins_restart_confirm": "将关闭当前窗口并重新启动程序。\n继续？",
         "plugins_load_failed": "插件 {pid} 加载失败: {err}",
-        # ★ v1.5.1 日志 / 诊断
         "log_viewer_title": "日志与诊断",
         "log_level_all": "全部",
         "log_auto_scroll": "自动滚动",
@@ -2545,11 +2297,9 @@ DEFAULT_LANG_PACKS = {
         "settings_log_level": "日志级别",
         "settings_log_keep_days": "日志保留天数",
         "settings_crash_report_enabled": "未捕获异常时自动生成诊断包",
-        # ★ v1.5.1 Windows 版本
         "win_version_too_old_title": "系统版本过低",
-        "win_version_too_old": "当前 Windows 构建号 {build}，低于 Qt6 要求的 17763（Win10 1809）。\n请升级系统，或使用旧版 mikan_emu。",
+        "win_version_too_old": "当前 Windows 构建号 {build}，低于本程序要求（Win7 SP1 = 7601）。\n请安装 SP1 补丁包，或升级系统。",
         "win_version_label": "系统: {name} (build {build}) · 机器档次: {tier}",
-        # ★ v1.5.1 机器档次 / 资源策略
         "machine_tier_title": "资源策略",
         "machine_tier_label": "机器档次",
         "machine_tier_low": "低配 (老电脑)",
@@ -3058,11 +2808,11 @@ DEFAULT_LANG_PACKS = {
         "webtransfer_native": "LocalSend website",
         "webtransfer_fallback": (
             "QtWebEngine not found.\n\n"
-            "1. Install PySide6-WebEngine and restart;\n"
+            "1. Install PyQtWebEngine and restart;\n"
             "2. Or open LocalSend Web in your browser."),
         "webtransfer_url": "https://web.localsend.org/",
-        "webtransfer_install_btn": "Install PySide6-WebEngine",
-        "webtransfer_install_confirm": "Will run: pip install PySide6-WebEngine\n\n~200MB download. Continue?",
+        "webtransfer_install_btn": "Install PyQtWebEngine",
+        "webtransfer_install_confirm": "Will run: pip install PyQtWebEngine==5.15.6\n\n~200MB download. Continue?",
         "webtransfer_install_started": "Installing in a new window.\nRestart mikan_emu after install finishes.",
         "webtransfer_install_failed": "Failed to start installer.",
         "msg_ok": "OK", "msg_cancel": "Cancel", "msg_warning": "Warning",
@@ -3087,7 +2837,6 @@ DEFAULT_LANG_PACKS = {
         "plugins_state_disabled": "disabled",
         "plugins_restart_confirm": "The app will close and restart.\nContinue?",
         "plugins_load_failed": "Plugin {pid} failed to load: {err}",
-        # ★ v1.5.1 log / crash
         "log_viewer_title": "Logs & Diagnostics",
         "log_level_all": "All",
         "log_auto_scroll": "Auto scroll",
@@ -3107,11 +2856,9 @@ DEFAULT_LANG_PACKS = {
         "settings_log_level": "Log level",
         "settings_log_keep_days": "Keep log for (days)",
         "settings_crash_report_enabled": "Auto-generate diagnostics on uncaught exception",
-        # ★ v1.5.1 Windows version
         "win_version_too_old_title": "OS Version Too Old",
-        "win_version_too_old": "Current Windows build {build} is below Qt6 minimum 17763 (Win10 1809).\nPlease upgrade or use older mikan_emu.",
+        "win_version_too_old": "Current Windows build {build} is below Win7 SP1 (7601).\nPlease install SP1 or upgrade.",
         "win_version_label": "OS: {name} (build {build}) · Machine tier: {tier}",
-        # ★ v1.5.1 machine tier / resource policy
         "machine_tier_title": "Resource Policy",
         "machine_tier_label": "Machine tier",
         "machine_tier_low": "Low (old PC)",
@@ -3295,66 +3042,7 @@ def load_lang():
 # 5. 配置
 # ============================================================
 FOLDERS_CONFIG = {"folders": [], "active_index": 0}
-SETTINGS = {
-    "download_threads": 8,
-    "tray_minimize_on_close": False,
-    "tray_minimize_after_launch": False,
-    "hotkey_enabled": True,
-    "hotkey": "Ctrl+Alt+M",
-    "retroarch_core_dir": "",
-    "export_format": "md",
-    "export_include_cover": True,
-    "check_update_on_start": True,
-    "perf_monitor_on_launch": True,
-    "theme": "auto",
-    "accent_color": "",
-    "patch_dir": "",
-    "launch_profiles": {
-        "默认": "",
-        "全屏": "--fullscreen",
-        "窗口化": "--windowed",
-        "静音": "--mute",
-    },
-    "default_profile": "默认",
-    "lan_enabled": False,
-    "lan_nickname": "",
-    "lan_port": 54322,
-    "lan_keep_history": True,
-    "lan_receive_files": True,
-    "lan_password": "",
-    "lan_verify_hash": True,
-    "lan_max_file_mb": 512,
-    "lan_share_enabled": True,
-    "lan_notify_on_receive": True,
-    "steamgriddb_api_key": "",
-    "scrape_image_type": "boxart",
-    "scrape_overwrite": False,
-    "scrape_auto_on_import": False,
-    "process_priority": "normal",
-    "process_priority_children": True,
-    "process_priority_auto": True,
-    "auto_detect_engine_version": True,
-    "proxy_mode": "none",
-    "proxy_host": "",
-    "proxy_port": 0,
-    "proxy_user": "",
-    "proxy_pwd": "",
-    "proxy_bypass": "",
-    "plugins_auto_load": True,
-    # ★ v1.5.1
-    "log_level": "INFO",
-    "log_keep_days": 14,
-    "crash_report_enabled": True,
-    "machine_tier_auto": True,
-    "machine_tier": "mid",
-    "low_spec_mode": False,
-    "resource_policy_enabled": True,
-    "resource_cpu_cores": 0,
-    "resource_cpu_affinity": "",
-    "resource_mem_mb": 0,
-    "resource_force_unlock": False,
-    "resource_safety_ratio": 85,
-}
+SETTINGS = dict(DEFAULT_SETTINGS_JSON)
 SAVE_PATHS: dict = {}
 CHEAT_PATHS: dict = {}
 MIRRORS_CONFIG = json.loads(json.dumps(DEFAULT_MIRRORS_JSON))
@@ -3556,21 +3244,15 @@ load_resources()
 load_stats()
 load_update_ignore()
 
-# SETTINGS 现在已就绪，重新应用日志级别
 setup_logging()
 
-
 # ============================================================
-# 5.1 v1.5.1：F2 Windows 版本检测 + F3 硬件探测
+# 5.1 Windows 版本检测（Win7 SP1 最低要求）+ 硬件探测
 # ============================================================
 _HW_CACHE: dict = {}
 
 
 def get_windows_build() -> int:
-    """获取 Windows 构建号。非 Windows 返回 0。
-
-    Win11 起 CurrentBuildNumber 可能仍是旧值，优先尝试 CurrentBuild。
-    """
     if sys.platform != "win32":
         return 0
     try:
@@ -3595,18 +3277,39 @@ def get_windows_build() -> int:
     return 0
 
 
-def check_win10_1809_minimum() -> tuple:
-    """返回 (ok, message)。"""
+def get_windows_name(build: int) -> str:
+    if build == 0:
+        return "非 Windows"
+    if build >= 22000:
+        return "Win11"
+    if build >= 10240:
+        return "Win10"
+    if build >= 7601:
+        return "Win7 SP1"
+    if build >= 7600:
+        return "Win7"
+    if build >= 6000:
+        return "Vista"
+    return "未知"
+
+
+def check_win7_sp1_minimum() -> tuple:
     build = get_windows_build()
     if build == 0:
         return True, ""
-    if build < 17763:
-        return False, tr("win_version_too_old", build=build)
+    if build < 7601:
+        return False, (
+            f"当前 Windows 构建号 {build}，低于本程序最低要求 7601（Win7 SP1）。\n"
+            f"请安装 Windows 7 Service Pack 1，或升级系统。"
+        )
     return True, ""
 
 
+def check_win10_1809_minimum() -> tuple:
+    return check_win7_sp1_minimum()
+
+
 def probe_hardware(force: bool = False) -> dict:
-    """探测硬件信息，结果缓存到 _HW_CACHE。"""
     global _HW_CACHE
     if _HW_CACHE and not force:
         return _HW_CACHE
@@ -3629,9 +3332,9 @@ def probe_hardware(force: bool = False) -> dict:
             logger.warning(f"硬件探测失败: {e}")
 
     try:
-        ratio = int(SETTINGS.get("resource_safety_ratio", 85)) / 100.0
+        ratio = int(SETTINGS.get("resource_safety_ratio", 70)) / 100.0
     except Exception:
-        ratio = 0.85
+        ratio = 0.70
     info["cpu_limit"] = max(1, int(info["cpu_logical"] * ratio))
     info["mem_limit_mb"] = int(info["mem_total_mb"] * ratio)
 
@@ -3640,19 +3343,26 @@ def probe_hardware(force: bool = False) -> dict:
 
 
 def detect_machine_tier() -> str:
-    """根据硬件推断档次：low / mid / high。"""
     hw = probe_hardware()
     cpu = hw["cpu_physical"]
     mem_gb = hw["mem_total_mb"] / 1024.0
-    if cpu <= 2 or mem_gb < 4:
-        return "low"
-    if cpu <= 4 and mem_gb < 8:
-        return "mid"
-    return "high"
+    build = get_windows_build()
+    is_win7 = (0 < build < 10240)
+    if is_win7:
+        if cpu <= 2 or mem_gb < 3:
+            return "low"
+        if cpu <= 4 or mem_gb < 6:
+            return "mid"
+        return "high"
+    else:
+        if cpu <= 2 or mem_gb < 4:
+            return "low"
+        if cpu <= 4 and mem_gb < 8:
+            return "mid"
+        return "high"
 
 
 def refresh_machine_tier():
-    """刷新机器档次（自动模式下）。"""
     if not SETTINGS.get("machine_tier_auto", True):
         return
     tier = detect_machine_tier()
@@ -3663,7 +3373,7 @@ def refresh_machine_tier():
 
 
 # ============================================================
-# 5.2 v1.5.1：F4 引擎资源推荐表
+# 5.2 引擎资源推荐表
 # ============================================================
 ENGINE_RECOMMENDATIONS = {
     "pcsx2":       {"low": {"cores": 2, "mem_mb": 2048}, "mid": {"cores": 4, "mem_mb": 4096}, "high": {"cores": 6, "mem_mb": 8192}},
@@ -3685,7 +3395,6 @@ ENGINE_RECOMMENDATIONS = {
 
 
 def get_recommended_policy(engine_name: str) -> dict:
-    """根据引擎名和当前机器档次，返回 {cores, mem_mb, tier}。"""
     tier = SETTINGS.get("machine_tier", "mid")
     rec = ENGINE_RECOMMENDATIONS.get(engine_name, {})
     entry = rec.get(tier) or rec.get("mid") or {"cores": 2, "mem_mb": 2048}
@@ -3696,7 +3405,6 @@ def get_recommended_policy(engine_name: str) -> dict:
 
 
 def validate_resource_policy(cores: int, mem_mb: int) -> tuple:
-    """校验资源策略是否超过安全上限。返回 (ok, msg)。"""
     if SETTINGS.get("resource_force_unlock", False):
         return True, ""
     hw = probe_hardware()
@@ -3708,12 +3416,6 @@ def validate_resource_policy(cores: int, mem_mb: int) -> tuple:
 
 
 def apply_resource_policy(pid: int, cores: int, mem_mb: int) -> tuple:
-    """给指定 PID 应用资源策略。
-
-    注意：
-      - CPU 亲和性：Windows 上不需要管理员权限；延迟一点再设置更稳。
-      - 内存限额：Windows 无原生 per-process 限制，仅记录到日志。
-    """
     if not HAS_PSUTIL:
         return False, "psutil 未安装"
     try:
@@ -3722,7 +3424,6 @@ def apply_resource_policy(pid: int, cores: int, mem_mb: int) -> tuple:
         return False, str(e)
 
     applied = []
-
     if cores > 0:
         try:
             hw = probe_hardware()
@@ -3736,9 +3437,7 @@ def apply_resource_policy(pid: int, cores: int, mem_mb: int) -> tuple:
             logger.warning(f"CPU 亲和性设置失败: {e}")
 
     if mem_mb > 0:
-        logger.info(
-            f"内存建议: 目标 {mem_mb}MB"
-            f"（Windows 无原生 per-process 限额，仅记录）")
+        logger.info(f"内存建议: 目标 {mem_mb}MB（Windows 无原生 per-process 限额，仅记录）")
 
     if applied:
         logger.info(f"资源策略已应用: {'; '.join(applied)}")
@@ -3747,13 +3446,12 @@ def apply_resource_policy(pid: int, cores: int, mem_mb: int) -> tuple:
 
 
 # ============================================================
-# 5.3 v1.5.1：F1 崩溃诊断包生成
+# 5.3 崩溃诊断包生成
 # ============================================================
 def _collect_system_info() -> str:
-    """收集系统信息，用于诊断。所有字段都有兜底，不会二次崩。"""
     lines = []
     try:
-        lines.append(f"mikan_emu {APP_VERSION}")
+        lines.append(f"mikan_emu {APP_VERSION} (Win7 移植版)")
     except Exception:
         lines.append("mikan_emu ?")
     try:
@@ -3773,7 +3471,8 @@ def _collect_system_info() -> str:
     except Exception:
         pass
     try:
-        lines.append(f"Windows Build: {get_windows_build()}")
+        build = get_windows_build()
+        lines.append(f"Windows Build: {build} ({get_windows_name(build)})")
     except Exception:
         pass
     try:
@@ -3788,11 +3487,9 @@ def _collect_system_info() -> str:
 
     if HAS_PSUTIL:
         try:
-            lines.append(f"CPU: {psutil.cpu_count(logical=False)}C/"
-                         f"{psutil.cpu_count()}T")
+            lines.append(f"CPU: {psutil.cpu_count(logical=False)}C/{psutil.cpu_count()}T")
             vm = psutil.virtual_memory()
-            lines.append(f"RAM: {vm.total / (1 << 30):.1f} GB "
-                         f"(可用 {vm.available / (1 << 30):.1f} GB)")
+            lines.append(f"RAM: {vm.total / (1 << 30):.1f} GB (可用 {vm.available / (1 << 30):.1f} GB)")
         except Exception as e:
             lines.append(f"psutil 信息读取失败: {e}")
 
@@ -3809,7 +3506,6 @@ def _collect_system_info() -> str:
 
 
 def _sanitize_settings_for_report() -> dict:
-    """深拷贝 SETTINGS，脱敏敏感字段。"""
     import copy
     try:
         s = copy.deepcopy(dict(SETTINGS))
@@ -3825,17 +3521,6 @@ def _sanitize_settings_for_report() -> dict:
 
 
 def build_crash_report(exc_text: str = "") -> Path:
-    """生成 .zip 诊断包。返回生成的 zip 路径。
-
-    包含：
-      - system_info.txt
-      - exception.txt（如果有）
-      - recent_log.txt（环形缓冲最后 500 条）
-      - today_log_tail.txt（今天日志最后 2000 行）
-      - settings_sanitized.json（脱敏后的设置）
-      - state/installed.json, roms.json, engines.json
-      - state/plugins.json（插件清单）
-    """
     CRASH_REPORT_DIR.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y%m%d_%H%M%S")
     out = CRASH_REPORT_DIR / f"mikan_crash_{ts}.zip"
@@ -3857,37 +3542,30 @@ def build_crash_report(exc_text: str = "") -> Path:
             zf.writestr("system_info.txt", _collect_system_info())
         except Exception:
             pass
-
         if exc_text:
             try:
                 zf.writestr("exception.txt", exc_text)
             except Exception:
                 pass
-
         try:
-            zf.writestr(
-                "recent_log.txt",
-                "\n".join(
-                    f"[{r['full_ts']}] {r['level']:8} "
-                    f"{r['name']}:{r['line']}  {r['msg']}"
-                    for r in ring_snapshot))
+            zf.writestr("recent_log.txt",
+                        "\n".join(
+                            f"[{r['full_ts']}] {r['level']:8} "
+                            f"{r['name']}:{r['line']}  {r['msg']}"
+                            for r in ring_snapshot))
         except Exception:
             pass
-
         if tail_text:
             try:
                 zf.writestr("today_log_tail.txt", tail_text)
             except Exception:
                 pass
-
         try:
-            zf.writestr(
-                "settings_sanitized.json",
-                json.dumps(_sanitize_settings_for_report(),
-                           ensure_ascii=False, indent=2))
+            zf.writestr("settings_sanitized.json",
+                        json.dumps(_sanitize_settings_for_report(),
+                                   ensure_ascii=False, indent=2))
         except Exception:
             pass
-
         for name, path in [
             ("installed.json", INSTALLED_FILE),
             ("roms.json", ROMS_FILE),
@@ -3898,7 +3576,6 @@ def build_crash_report(exc_text: str = "") -> Path:
                     zf.write(path, f"state/{name}")
                 except Exception:
                     pass
-
         try:
             plugins_info = []
             enabled = load_plugin_enabled()
@@ -3923,7 +3600,7 @@ def build_crash_report(exc_text: str = "") -> Path:
 
 
 # ============================================================
-# 5.4 工具函数：存档 / 金手指 / 统计路径（保持 v1.4.0 原样）
+# 5.4 工具函数：存档 / 金手指 / 统计路径
 # ============================================================
 def get_save_path(engine_name: str) -> Optional[Path]:
     p = SAVE_PATHS.get(engine_name, "").strip()
@@ -4027,7 +3704,7 @@ def autodetect_retroarch_core_dir() -> str:
 
 
 # ============================================================
-# 5.5 操作说明数据库（保持 v1.4.0 原样）
+# 5.5 操作说明数据库
 # ============================================================
 CONTROLS_DB = {
     "snes9x": {"source": "https://www.snes9x.com/", "keys": {
@@ -4104,31 +3781,19 @@ CONTROLS_DB = {
         "方向": "方向键", "A/B": "Z / X",
         "Start/Select": "Enter / RShift",
         "存档/读档": "F5 / F7", "快进": "Tab", "全屏": "Alt+Enter"}},
-    "nintendulator": {"source": "http://www.qmtpro.com/~nes/nintendulator/", "keys": {
-        "方向": "方向键", "A/B": "Z / X",
-        "Start/Select": "Enter / Shift", "全屏": "Alt+Enter"}},
     "mupen64plus": {"source": "https://mupen64plus.org/", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter",
         "存档/读档": "F5 / F7", "全屏": "Alt+Enter"}},
-    "gopher64": {"source": "https://github.com/gopher64/gopher64", "keys": {
-        "说明": "键位参考 README 或源码默认值"}},
-    "ares": {"source": "https://ares-emu.net/", "keys": {
-        "说明": "多平台模拟器，键位在设置里逐平台配置",
-        "菜单": "F1 或手柄 Start"}},
     "simple64": {"source": "https://simple64.github.io/", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter", "存档/读档": "F5 / F7"}},
     "rmg": {"source": "https://github.com/Rosalie241/RMG", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter", "存档/读档": "F5 / F7"}},
-    "neon64": {"source": "https://github.com/hcs64/neon64v2", "keys": {
-        "说明": "轻量 N64 模拟器，键位参考 README"}},
     "project64": {"source": "https://www.pj64-emu.com/", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter", "存档/读档": "F5 / F7"}},
-    "cen64": {"source": "https://github.com/cen64/cen64", "keys": {
-        "说明": "命令行精度模拟器，无 GUI 键位设置"}},
     "desmume": {"source": "https://desmume.org/", "keys": {
         "方向": "方向键", "A/B/X/Y": "X / Z / S / A", "L/R": "Q / W",
         "Start/Select": "Enter / Backspace", "触摸屏": "鼠标",
@@ -4144,8 +3809,6 @@ CONTROLS_DB = {
         "方向": "WASD / 摇杆", "A/B/X/Y": "手柄默认",
         "L/R/ZL/ZR": "手柄默认", "Start/Select": "Enter / Backspace",
         "触摸屏": "鼠标", "全屏": "Alt+Enter"}},
-    "zakuro": {"source": "https://github.com/fearkov/zakuro", "keys": {
-        "说明": "Rust 实验性 3DS 模拟器，键位参考 README"}},
     "blastem": {"source": "https://www.retrodev.com/blastem/", "keys": {
         "方向": "方向键", "A/B/C": "A / S / D", "X/Y/Z": "Z / X / C",
         "Start/Mode": "Enter / Shift", "全屏": "Alt+Enter"}},
@@ -4174,9 +3837,6 @@ CONTROLS_DB = {
         "方向": "WASD / 方向键", "A/B/X/Y": "手柄默认",
         "L/R/ZL/ZR": "手柄默认", "全屏": "F11"}},
     "yuzu": {"source": "https://yuzu-mirror.github.io/", "keys": {
-        "方向": "WASD", "A/B/X/Y": "手柄默认",
-        "L/R/ZL/ZR": "手柄默认", "全屏": "F11"}},
-    "suyu": {"source": "https://github.com/suyu-emu/suyu-main", "keys": {
         "方向": "WASD", "A/B/X/Y": "手柄默认",
         "L/R/ZL/ZR": "手柄默认", "全屏": "F11"}},
     "mame": {"source": "https://docs.mamedev.org/usingmame/defaultkeys.html", "keys": {
@@ -4255,8 +3915,6 @@ CONTROLS_DB = {
     "caprice32": {"source": "https://github.com/ColinPitrat/caprice32", "keys": {
         "方向": "方向键", "A/B": "Z / X",
         "空格": "Space", "Enter": "Return", "全屏": "F11"}},
-    "cpc_syntax_error": {"source": "https://github.com/WacKEDmaN/CPCSyntaxError", "keys": {
-        "说明": "⚠ 实验性：CPC 新模拟器，键位参考 README"}},
     "vice": {"source": "https://vice-emu.sourceforge.io/", "keys": {
         "说明": "VICE，键位在菜单 Settings → Keyboard 里配置",
         "菜单": "F12 打开菜单"}},
@@ -4269,15 +3927,11 @@ CONTROLS_DB = {
     "zesarux": {"source": "https://github.com/chernandezba/zesarux", "keys": {
         "方向": "方向键", "按键": "Z / X / C / V",
         "菜单": "F5 打开菜单", "全屏": "F11"}},
-    "1984": {"source": "https://github.com/salvogendut/1984", "keys": {
-        "说明": "⚠ 实验性：ZX Spectrum 新模拟器，键位参考 README"}},
     "gearcoleco": {"source": "https://github.com/drhelius/Gearcoleco", "keys": {
         "方向": "方向键", "按钮 1/2": "Z / X",
         "小键盘": "1 / 2 / 3（按需）", "全屏": "Alt+Enter"}},
     "jzintv": {"source": "https://github.com/jenergy/jzIntvImGui", "keys": {
         "说明": "jzIntv ImGui 前端，键位参考 README"}},
-    "b2": {"source": "https://github.com/tom-seddon/b2", "keys": {
-        "说明": "⚠ BBC Micro 模拟器，键位参考 README"}},
 }
 
 
@@ -5392,7 +5046,6 @@ def check_bios_ready(engine: "EmulatorConfig") -> tuple:
 
 load_bios_db()
 
-
 # ============================================================
 # 10. Worker: 导入模拟器
 # ============================================================
@@ -5842,6 +5495,7 @@ class UpdateCheckWorker(QThread):
                 logger.debug(f"检查 {e.engine} 更新失败: {ex}")
         self.done.emit()
 
+
 # ============================================================
 # 14. 启动 / 存档 / BIOS
 # ============================================================
@@ -6157,10 +5811,8 @@ def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
 
     logger.info(f"已启动: {' '.join(args)}" + (" (auto .cue)" if switched else ""))
 
-    # ★ v1.5.1 F4：应用资源策略
     if SETTINGS.get("resource_policy_enabled", True):
         def _delayed_resource_policy():
-            # 延迟一点让进程真正起来，亲和性设置更稳
             time.sleep(0.3)
             try:
                 cores = int(SETTINGS.get("resource_cpu_cores", 0)) or 0
@@ -6881,7 +6533,6 @@ class LanChatServer(QThread):
             mtype = obj.get("type", "")
 
             if peer_id == self._identity.id:
-                logger.debug("忽略自环消息")
                 try:
                     conn.sendall(b'{"ok":true,"self":true}\n')
                 except Exception:
@@ -7333,7 +6984,7 @@ def _dir_size(p: Path) -> int:
     return total
 
 # ============================================================
-# 17. QSS
+# 17. QSS（Win11 风格样式表，PyQt5 完全兼容）
 # ============================================================
 WIN11_QSS = """
 * {
@@ -7574,7 +7225,6 @@ QToolButton {
 QToolButton:hover { background-color: #f5f5f5; }
 """
 
-
 DARK_QSS_OVERLAY = """
 * { color: #e8e8e8; }
 QMainWindow, QWidget { background-color: #1f1f1f; }
@@ -7585,14 +7235,10 @@ QLabel#SectionTitle { color: #e8e8e8; }
 QLabel#Hint { color: #a0a0a0; }
 QLabel#AdminOk { color: #6dbf6d; background-color: #1e3a1e; }
 QLabel#AdminNo { color: #ff6b5e; background-color: #3a1e1e; }
-
 QListWidget#NavList { background-color: #1f1f1f; }
 QListWidget#NavList::item { color: #e8e8e8; }
 QListWidget#NavList::item:hover { background-color: #333333; }
-QListWidget#NavList::item:selected {
-    background-color: #3a3a3a; color: #4cc2ff;
-}
-
+QListWidget#NavList::item:selected { background-color: #3a3a3a; color: #4cc2ff; }
 QLineEdit, QComboBox, QSpinBox {
     background-color: #2a2a2a; color: #e8e8e8;
     border: 1px solid #454545; border-bottom: 2px solid #454545;
@@ -7607,7 +7253,6 @@ QComboBox QAbstractItemView {
     selection-background-color: #3a3a3a; selection-color: #4cc2ff;
 }
 QComboBox QAbstractItemView::item:hover { background-color: #333333; }
-
 QPushButton {
     background-color: #2b2b2b; color: #e8e8e8;
     border: 1px solid #454545; border-bottom: 2px solid #454545;
@@ -7615,112 +7260,67 @@ QPushButton {
 QPushButton:hover { background-color: #333333; }
 QPushButton:pressed { background-color: #3a3a3a; }
 QPushButton:disabled { background-color: #252525; color: #666666; border-color: #333333; }
-QPushButton#PrimaryBtn {
-    background-color: #0067c0; border-color: #0067c0; color: #ffffff;
-}
+QPushButton#PrimaryBtn { background-color: #0067c0; border-color: #0067c0; color: #ffffff; }
 QPushButton#PrimaryBtn:hover { background-color: #1975c5; }
 QPushButton#PrimaryBtn:pressed { background-color: #005ba8; }
-QPushButton#DangerBtn {
-    background-color: #c42b1c; border-color: #c42b1c; color: #ffffff;
-}
+QPushButton#DangerBtn { background-color: #c42b1c; border-color: #c42b1c; color: #ffffff; }
 QPushButton#DangerBtn:hover { background-color: #d13a2b; }
-
 QTableView, QTableWidget {
     background-color: #2b2b2b; alternate-background-color: #262626;
-    gridline-color: #3a3a3a; border: 1px solid #3a3a3a;
-    color: #e8e8e8;
+    gridline-color: #3a3a3a; border: 1px solid #3a3a3a; color: #e8e8e8;
     selection-background-color: #1e3a52; selection-color: #4cc2ff;
 }
 QHeaderView::section {
     background-color: #252525; color: #a0a0a0;
     border-bottom: 1px solid #3a3a3a; border-right: 1px solid #3a3a3a;
 }
-
 QListWidget#GameGrid { background-color: #1f1f1f; }
 QListWidget#GameGrid::item {
     background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8;
 }
-QListWidget#GameGrid::item:hover {
-    background-color: #333333; border: 1px solid #4cc2ff;
-}
-QListWidget#GameGrid::item:selected {
-    background-color: #1e3a52; border: 1px solid #4cc2ff;
-}
-
+QListWidget#GameGrid::item:hover { background-color: #333333; border: 1px solid #4cc2ff; }
+QListWidget#GameGrid::item:selected { background-color: #1e3a52; border: 1px solid #4cc2ff; }
 QListWidget#TimelineList { background-color: #1f1f1f; }
 QListWidget#TimelineList::item {
     background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8;
 }
 QListWidget#TimelineList::item:hover { border: 1px solid #4cc2ff; }
-QListWidget#TimelineList::item:selected {
-    background-color: #1e3a52; border: 1px solid #4cc2ff;
-}
-QListWidget#TimelineList::item:disabled {
-    background-color: #252525; color: #808080; border: none;
-}
-
-QListWidget#PeerList {
-    background-color: #262626; border: 1px solid #3a3a3a;
-}
+QListWidget#TimelineList::item:selected { background-color: #1e3a52; border: 1px solid #4cc2ff; }
+QListWidget#TimelineList::item:disabled { background-color: #252525; color: #808080; border: none; }
+QListWidget#PeerList { background-color: #262626; border: 1px solid #3a3a3a; }
 QListWidget#PeerList::item { color: #e8e8e8; }
 QListWidget#PeerList::item:hover { background-color: #333333; }
 QListWidget#PeerList::item:selected { background-color: #1e3a52; color: #4cc2ff; }
-
-QTextEdit#ChatView {
-    background-color: #232323; border: 1px solid #3a3a3a; color: #e8e8e8;
-}
-QTextEdit {
-    background-color: #232323; color: #e8e8e8;
-    border: 1px solid #454545;
-}
-
-QStatusBar {
-    background-color: #252525; color: #a0a0a0; border-top: 1px solid #3a3a3a;
-}
+QTextEdit#ChatView { background-color: #232323; border: 1px solid #3a3a3a; color: #e8e8e8; }
+QTextEdit { background-color: #232323; color: #e8e8e8; border: 1px solid #454545; }
+QStatusBar { background-color: #252525; color: #a0a0a0; border-top: 1px solid #3a3a3a; }
 QSplitter::handle { background-color: #3a3a3a; }
 QSplitter::handle:hover { background-color: #4cc2ff; }
-
 QProgressBar { background-color: #3a3a3a; color: transparent; }
 QProgressBar::chunk { background-color: #4cc2ff; }
-
-QGroupBox {
-    background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8;
-}
+QGroupBox { background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8; }
 QGroupBox::title { color: #e8e8e8; background-color: #2b2b2b; }
-
 QScrollBar:vertical { background: transparent; }
 QScrollBar::handle:vertical { background: #4a4a4a; }
 QScrollBar::handle:vertical:hover { background: #5a5a5a; }
 QScrollBar:horizontal { background: transparent; }
 QScrollBar::handle:horizontal { background: #4a4a4a; }
 QScrollBar::handle:horizontal:hover { background: #5a5a5a; }
-
 QCheckBox, QRadioButton { color: #e8e8e8; }
-QCheckBox::indicator, QRadioButton::indicator {
-    border: 1px solid #808080; background-color: #2a2a2a;
-}
-QCheckBox::indicator:checked, QRadioButton::indicator:checked {
-    background-color: #4cc2ff; border: 1px solid #4cc2ff;
-}
-
+QCheckBox::indicator, QRadioButton::indicator { border: 1px solid #808080; background-color: #2a2a2a; }
+QCheckBox::indicator:checked, QRadioButton::indicator:checked { background-color: #4cc2ff; border: 1px solid #4cc2ff; }
 QMenu { background-color: #2b2b2b; border: 1px solid #454545; color: #e8e8e8; }
 QMenu::item { color: #e8e8e8; }
 QMenu::item:selected { background-color: #3a3a3a; color: #4cc2ff; }
 QMenu::separator { background: #3a3a3a; }
-
 QTabWidget::pane { background-color: #2b2b2b; border: 1px solid #3a3a3a; }
 QTabBar::tab { color: #a0a0a0; }
 QTabBar::tab:selected { color: #4cc2ff; border-bottom: 2px solid #4cc2ff; }
 QTabBar::tab:hover:!selected { background-color: #333333; }
-
 QDialog { background-color: #1f1f1f; }
-QFrame#ResourceCard {
-    background-color: #2b2b2b; border: 1px solid #3a3a3a;
-}
+QFrame#ResourceCard { background-color: #2b2b2b; border: 1px solid #3a3a3a; }
 QFrame#ResourceCard:hover { border: 1px solid #4cc2ff; }
-QToolButton {
-    background-color: #2b2b2b; border: 1px solid #454545; color: #e8e8e8;
-}
+QToolButton { background-color: #2b2b2b; border: 1px solid #454545; color: #e8e8e8; }
 QToolButton:hover { background-color: #333333; }
 """
 
@@ -8026,6 +7626,7 @@ def export_config_pack(
         "app": APP_NAME,
         "version": APP_VERSION,
         "format": 1,
+        "platform": "win7-pyqt5",
         "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "include": {
             "covers": include_covers,
@@ -8049,7 +7650,6 @@ def export_config_pack(
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("manifest.json",
                     json.dumps(manifest, ensure_ascii=False, indent=2))
-
         for name, path in [
             ("folders.json", FOLDERS_FILE),
             ("settings.json", SETTINGS_FILE),
@@ -8061,14 +7661,11 @@ def export_config_pack(
             ("update_ignore.json", UPDATE_IGNORE_FILE),
         ]:
             _add_file(zf, path, f"config/{name}")
-
         if include_stats:
             _add_file(zf, STATS_FILE, "config/stats.json")
-
         _add_file(zf, ENGINES_JSON, "engines/engines.json")
         _add_file(zf, INSTALLED_FILE, "engines/installed.json")
         _add_file(zf, ROMS_FILE, "roms/roms.json")
-
         if include_covers:
             _add_dir(zf, COVER_DIR, "covers")
         if include_saves:
@@ -8103,7 +7700,6 @@ def import_config_pack(pack_path: Path,
 
     with zipfile.ZipFile(pack_path, "r") as zf:
         names = zf.namelist()
-
         if "manifest.json" in names:
             try:
                 mf = json.loads(zf.read("manifest.json"))
@@ -8543,6 +8139,7 @@ class SteamGridDBScraperWorker(QThread):
 
         self.done.emit(ok_count, fail_count, failed)
 
+
 # ============================================================
 # 21. 基础对话框
 # ============================================================
@@ -8799,7 +8396,7 @@ class CreditsDialog(QDialog):
         g1 = QGroupBox(tr("credits_deps"))
         f1 = QVBoxLayout(g1)
         deps_text = (
-            "<b>PySide6</b> — Qt for Python, LGPL v3<br>"
+            "<b>PyQt5</b> — Qt for Python, GPL v3 / Commercial<br>"
             "<b>requests</b> — Apache 2.0<br>"
             "<b>loguru</b> — MIT<br>"
             "<b>py7zr</b> — LGPL v2.1+<br>"
@@ -8808,7 +8405,7 @@ class CreditsDialog(QDialog):
             "<b>psutil</b> — BSD-3-Clause<br>"
             "<b>packaging</b> — Apache 2.0 / BSD<br>"
             "<b>PySocks</b> — BSD<br>"
-            "<b>PySide6-WebEngine</b>（可选）— LGPL v3<br>"
+            "<b>PyQtWebEngine</b>（可选）— GPL v3<br>"
             "<b>LocalSend</b>（Web 版）— MIT"
         )
         lbl1 = QLabel(deps_text)
@@ -8877,19 +8474,7 @@ class CreditsDialog(QDialog):
         layout.addLayout(btn_row)
 
 
-# ============================================================
-# 21.5 v1.5.1 F1：日志查看器
-# ============================================================
 class LogViewerDialog(QDialog):
-    """实时日志查看器。
-
-    - 顶部：级别下拉、关键词过滤、自动滚动、清空缓冲、打开日志目录、导出诊断包
-    - 中部：只读 QTextEdit，等宽、不换行
-    - 底部：计数标签 + 关闭
-
-    QTimer 每 1000ms 读一次 LOG_RING（加锁），渲染成 HTML。
-    """
-
     LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
     def __init__(self, parent=None):
@@ -8898,7 +8483,6 @@ class LogViewerDialog(QDialog):
         self.setMinimumSize(820, 560)
 
         self._keyword = ""
-        self._level_floor_idx = 2   # 默认 WARNING
         self._auto_scroll = True
         self._last_rendered_count = 0
 
@@ -8916,13 +8500,12 @@ class LogViewerDialog(QDialog):
         v.setSpacing(8)
 
         top = QHBoxLayout()
-
         top.addWidget(QLabel("级别:"))
         self.combo_level = QComboBox()
         self.combo_level.addItem(tr("log_level_all"), "ALL")
         for lv in self.LEVELS:
             self.combo_level.addItem(lv, lv)
-        self.combo_level.setCurrentIndex(3)  # WARNING
+        self.combo_level.setCurrentIndex(3)
         self.combo_level.currentIndexChanged.connect(self._on_level_changed)
         top.addWidget(self.combo_level)
 
@@ -8966,8 +8549,7 @@ class LogViewerDialog(QDialog):
         self.view.setReadOnly(True)
         self.view.setLineWrapMode(QTextEdit.NoWrap)
         self.view.setStyleSheet(
-            "font-family: 'Cascadia Mono', 'Consolas', monospace; "
-            "font-size: 12px;")
+            "font-family: 'Cascadia Mono', 'Consolas', monospace; font-size: 12px;")
         v.addWidget(self.view, 1)
 
         bottom = QHBoxLayout()
@@ -9069,7 +8651,6 @@ class LogViewerDialog(QDialog):
             )
             lines_html.append(html)
 
-        # 只在有新内容时重建（避免闪烁）
         if shown != self._last_rendered_count or len(lines_html) > 0:
             new_html = "<br>".join(lines_html[-1500:])
             self.view.setHtml(new_html)
@@ -9819,7 +9400,6 @@ class CoverScrapeDialog(QDialog):
                 pass
         super().closeEvent(event)
 
-
 # ============================================================
 # 22. 页面：游戏库
 # ============================================================
@@ -9840,11 +9420,7 @@ class LibraryPage(QWidget):
         self._proxy = GameFilterProxy()
         self._proxy.setSourceModel(self._model)
         self._games: list = []
-        # ★ v1.5.1：低配模式默认列表视图
-        if SETTINGS.get("low_spec_mode", False):
-            self._view_mode = "list"
-        else:
-            self._view_mode = "list"
+        self._view_mode = "list"
         self._build_ui()
 
     def _build_ui(self):
@@ -9984,7 +9560,6 @@ class LibraryPage(QWidget):
         self._reload_platform_combo()
 
     def _toggle_view(self):
-        # 低配模式下不显示网格视图
         if SETTINGS.get("low_spec_mode", False):
             modes = ["list", "timeline"]
         else:
@@ -10250,7 +9825,7 @@ class LibraryPage(QWidget):
         menu.addSeparator()
         a_remove = menu.addAction(tr("ctx_remove"))
 
-        act = menu.exec(global_pos)
+        act = menu.exec_(global_pos)
 
         if act == a_launch:
             self.launch_requested.emit(g)
@@ -10302,6 +9877,7 @@ class LibraryPage(QWidget):
             self._rebuild_grid()
         elif self._view_mode == "timeline":
             self._rebuild_timeline()
+
 
 # ============================================================
 # 22.5 统一配置中心对话框
@@ -10579,7 +10155,6 @@ class GameConfigCenterDialog(QDialog):
         if engine:
             self.engine_settings_requested.emit(engine)
 
-    # ---------- 补丁 Tab ----------
     def _build_patch_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -10787,7 +10362,7 @@ class GameConfigCenterDialog(QDialog):
         btns.rejected.connect(dlg.reject)
         dv.addWidget(btns)
 
-        if dlg.exec() != QDialog.Accepted:
+        if dlg.exec_() != QDialog.Accepted:
             return
 
         overwrite = rb_overwrite.isChecked()
@@ -10861,7 +10436,6 @@ class GameConfigCenterDialog(QDialog):
         self._refresh_patch_state()
         self._scan_patches()
 
-    # ---------- 封面 Tab ----------
     def _build_cover_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -10951,7 +10525,7 @@ class GameConfigCenterDialog(QDialog):
 
     def _scrape_this_cover(self):
         dlg = CoverScrapeDialog([self._game], self)
-        dlg.exec()
+        dlg.exec_()
         self._refresh_cover_preview()
         self._update_tab_badges()
 
@@ -10961,7 +10535,6 @@ class GameConfigCenterDialog(QDialog):
         url = f"https://www.google.com/search?tbm=isch&q={q}"
         webbrowser.open(url)
 
-    # ---------- BIOS Tab ----------
     def _build_bios_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -11038,7 +10611,6 @@ class GameConfigCenterDialog(QDialog):
                                 tr("game_config_tab_bios"))
             self.tabs.setCurrentIndex(idx)
 
-    # ---------- 金手指 Tab ----------
     def _build_cheat_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -11182,7 +10754,6 @@ class GameConfigCenterDialog(QDialog):
                                     f"已导入 {count} 个金手指文件")
             self._scan_cheats()
 
-    # ---------- 存档 Tab ----------
     def _build_save_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -11270,7 +10841,6 @@ class GameConfigCenterDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"), str(e))
 
-    # ---------- 信息 Tab ----------
     def _build_info_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -11450,7 +11020,7 @@ class EnginePage(QWidget):
             return
 
         dlg = BatchUpdateDialog(pending, self)
-        dlg.exec()
+        dlg.exec_()
         self.refresh()
 
     def _on_context_menu(self, pos):
@@ -11473,7 +11043,7 @@ class EnginePage(QWidget):
         menu.addSeparator()
         a_open = menu.addAction(tr("engines_open_dir"))
         a_del = menu.addAction(tr("engines_delete_btn"))
-        act = menu.exec(self.table.viewport().mapToGlobal(pos))
+        act = menu.exec_(self.table.viewport().mapToGlobal(pos))
         if act == a_update and url:
             self.update_requested.emit(e.platform, e.engine, url)
         elif act == a_ignore and latest:
@@ -11514,7 +11084,7 @@ class EnginePage(QWidget):
         box.button(QMessageBox.Yes).setText("删除")
         box.button(QMessageBox.Yes).setObjectName("DangerBtn")
         box.button(QMessageBox.No).setText(tr("msg_cancel"))
-        if box.exec() != QMessageBox.Yes:
+        if box.exec_() != QMessageBox.Yes:
             return
 
         engines = load_installed()
@@ -12710,7 +12280,7 @@ class LanPage(QWidget):
             QPoint(0, -panel.sizeHint().height() - 4))
         panel.move(pos)
         panel.emoji_picked.connect(self._insert_emoji)
-        panel.exec()
+        panel.exec_()
 
     def _insert_emoji(self, ch: str):
         self.edit_msg.insert(ch)
@@ -12888,7 +12458,7 @@ class LanPage(QWidget):
         menu.addSeparator()
         a_clear = menu.addAction(tr("lan_ctx_clear"))
 
-        act = menu.exec(self.list_peers.viewport().mapToGlobal(pos))
+        act = menu.exec_(self.list_peers.viewport().mapToGlobal(pos))
 
         if act == a_open:
             self.list_peers.setCurrentItem(it)
@@ -13209,7 +12779,8 @@ class WebTransferPage(QWidget):
 
     def _setup_webengine(self):
         try:
-            profile = QWebEngineProfile("mikan_emu_webtransfer", self)
+            # ★ PyQt5：没有 QWebEngineProfile(name, parent)，用 defaultProfile
+            profile = QWebEngineProfile.defaultProfile()
             try:
                 profile.setHttpCacheType(QWebEngineProfile.DiskHttpCache)
                 profile.setPersistentCookiesPolicy(
@@ -13235,7 +12806,6 @@ class WebTransferPage(QWidget):
             try:
                 page = self._view.page()
                 if page:
-                    page.setProfile(profile)
                     try:
                         page.downloadRequested.connect(self._on_download_requested)
                     except Exception:
@@ -13272,7 +12842,7 @@ class WebTransferPage(QWidget):
 
         row = QHBoxLayout()
 
-        if "PySide6.QtWebEngineWidgets" in OPTIONAL_MISSING:
+        if "PyQt5.QtWebEngineWidgets" in OPTIONAL_MISSING:
             btn_install = QPushButton(tr("webtransfer_install_btn"))
             btn_install.setObjectName("PrimaryBtn")
             btn_install.clicked.connect(self._install_webengine)
@@ -13312,7 +12882,7 @@ class WebTransferPage(QWidget):
             QMessageBox.Yes | QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
-        ok = install_optional_package("PySide6-WebEngine", self)
+        ok = install_optional_package("PyQtWebEngine==5.15.6", self)
         if ok:
             QMessageBox.information(self, tr("msg_info"),
                                     tr("webtransfer_install_started"))
@@ -13323,7 +12893,7 @@ class WebTransferPage(QWidget):
     def _on_download_requested(self, download):
         target_dir = None
         try:
-            from PySide6.QtCore import QStandardPaths
+            from PyQt5.QtCore import QStandardPaths
             target_dir = QStandardPaths.writableLocation(
                 QStandardPaths.DownloadLocation)
         except Exception:
@@ -13412,6 +12982,7 @@ class WebTransferPage(QWidget):
             except Exception:
                 pass
 
+
 # ============================================================
 # 24. 设置页
 # ============================================================
@@ -13450,10 +13021,9 @@ class SettingsPage(QWidget):
         title.setObjectName("SectionTitle")
         v.addWidget(title)
 
-        # --- 外观 ---
+        # 外观
         box_theme = QGroupBox(tr("settings_theme"))
         ft = QVBoxLayout(box_theme)
-
         row_t = QHBoxLayout()
         row_t.addWidget(QLabel(tr("settings_theme")))
         self.combo_theme = QComboBox()
@@ -13488,7 +13058,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_theme)
 
-        # --- 网络代理 ---
+        # 网络代理
         box_proxy = QGroupBox("网络代理")
         fp = QVBoxLayout(box_proxy)
 
@@ -13554,7 +13124,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_proxy)
 
-        # --- 语言 ---
+        # 语言
         box1 = QGroupBox(tr("settings_lang"))
         f1 = QVBoxLayout(box1)
         row1 = QHBoxLayout()
@@ -13571,7 +13141,7 @@ class SettingsPage(QWidget):
         f1.addWidget(h1)
         v.addWidget(box1)
 
-        # --- 系统优先级 ---
+        # 系统优先级
         box_prio = QGroupBox(tr("settings_priority"))
         fprio = QVBoxLayout(box_prio)
         h_prio = QLabel(tr("settings_priority_hint"))
@@ -13619,18 +13189,16 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_prio)
 
-        # --- v1.5.1 F3/F4：资源策略 ---
+        # 资源策略
         box_res = QGroupBox(tr("machine_tier_title"))
         fres = QVBoxLayout(box_res)
 
-        # 探测结果
         self.lbl_hw_info = QLabel()
         self.lbl_hw_info.setObjectName("Hint")
         self.lbl_hw_info.setWordWrap(True)
         fres.addWidget(self.lbl_hw_info)
         self._refresh_hw_info()
 
-        # 机器档次
         row_mt = QHBoxLayout()
         row_mt.addWidget(QLabel(tr("machine_tier_label")))
         self.combo_tier = QComboBox()
@@ -13651,14 +13219,12 @@ class SettingsPage(QWidget):
         row_mt.addStretch(1)
         fres.addLayout(row_mt)
 
-        # 低配模式
         self.check_low_spec = QCheckBox(tr("machine_tier_low_spec"))
         self.check_low_spec.setChecked(bool(SETTINGS.get("low_spec_mode", False)))
         self.check_low_spec.toggled.connect(
             lambda val: self._set_setting("low_spec_mode", val))
         fres.addWidget(self.check_low_spec)
 
-        # 资源策略开关
         self.check_res_enabled = QCheckBox(tr("resource_policy_enable"))
         self.check_res_enabled.setChecked(
             bool(SETTINGS.get("resource_policy_enabled", True)))
@@ -13666,7 +13232,6 @@ class SettingsPage(QWidget):
             lambda val: self._set_setting("resource_policy_enabled", val))
         fres.addWidget(self.check_res_enabled)
 
-        # CPU 核心数
         row_rc = QHBoxLayout()
         row_rc.addWidget(QLabel(tr("resource_cpu_cores")))
         self.spin_res_cores = QSpinBox()
@@ -13678,7 +13243,6 @@ class SettingsPage(QWidget):
         row_rc.addStretch(1)
         fres.addLayout(row_rc)
 
-        # 内存
         row_rm = QHBoxLayout()
         row_rm.addWidget(QLabel(tr("resource_mem_mb")))
         self.spin_res_mem = QSpinBox()
@@ -13691,22 +13255,20 @@ class SettingsPage(QWidget):
         row_rm.addStretch(1)
         fres.addLayout(row_rm)
 
-        # 安全上限
         row_rs = QHBoxLayout()
         row_rs.addWidget(QLabel(tr("resource_safety_ratio")))
         self.spin_safety = QSpinBox()
         self.spin_safety.setRange(50, 100)
         self.spin_safety.setSuffix(" %")
-        self.spin_safety.setValue(int(SETTINGS.get("resource_safety_ratio", 85)))
+        self.spin_safety.setValue(int(SETTINGS.get("resource_safety_ratio", 70)))
         self.spin_safety.valueChanged.connect(self._on_safety_changed)
         row_rs.addWidget(self.spin_safety)
         row_rs.addStretch(1)
         fres.addLayout(row_rs)
 
-        # 强制解锁
         self.check_force = QCheckBox(
             tr("resource_force_unlock",
-               ratio=int(SETTINGS.get("resource_safety_ratio", 85))))
+               ratio=int(SETTINGS.get("resource_safety_ratio", 70))))
         self.check_force.setChecked(
             bool(SETTINGS.get("resource_force_unlock", False)))
         self.check_force.toggled.connect(self._on_force_toggled)
@@ -13714,7 +13276,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_res)
 
-        # --- 局域网 ---
+        # 局域网
         box_lan = QGroupBox(tr("settings_lan"))
         fl = QVBoxLayout(box_lan)
         h_lan = QLabel(tr("settings_lan_hint"))
@@ -13814,7 +13376,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_lan)
 
-        # --- 刮削 ---
+        # 刮削
         box_scrape = QGroupBox(tr("scrape_title"))
         fs = QVBoxLayout(box_scrape)
         row_s1 = QHBoxLayout()
@@ -13856,7 +13418,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_scrape)
 
-        # --- 版本探测 ---
+        # 版本探测
         box_ver = QGroupBox(tr("settings_version"))
         fver = QVBoxLayout(box_ver)
         h_ver = QLabel(tr("settings_version_hint"))
@@ -13871,7 +13433,7 @@ class SettingsPage(QWidget):
         fver.addWidget(self.check_ver_auto)
         v.addWidget(box_ver)
 
-        # --- v1.5.1 F1：日志与诊断 ---
+        # 日志与诊断
         box_log = QGroupBox(tr("log_viewer_title"))
         flog = QVBoxLayout(box_log)
 
@@ -13919,7 +13481,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_log)
 
-        # --- 插件 ---
+        # 插件
         box_plug = QGroupBox(tr("plugins_title"))
         fplug = QVBoxLayout(box_plug)
 
@@ -13952,13 +13514,6 @@ class SettingsPage(QWidget):
         b_open_plug.clicked.connect(lambda: os.startfile(str(PLUGINS_DIR)))
         row_plug.addWidget(b_open_plug)
         b_import_plug = QPushButton("📥 导入插件（zip / 7z / json / 文件夹）")
-        b_import_plug.setToolTip(
-            "支持一次性多选：\n"
-            "  • .zip / .7z / .rar  插件压缩包\n"
-            "  • plugin.json       单个元数据（自动生成骨架代码）\n"
-            "  • main.py           单个脚本（自动生成 plugin.json）\n"
-            "  • 文件夹            直接拖进窗口也行\n\n"
-            "缺什么会自动补什么，导入后点「♻ 重启程序」生效。")
         b_import_plug.setObjectName("PrimaryBtn")
         b_import_plug.clicked.connect(self._import_plugin_zip)
         row_plug.addWidget(b_import_plug)
@@ -13974,7 +13529,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_plug)
 
-        # --- 可选依赖 ---
+        # 可选依赖
         box_opt = QGroupBox("可选依赖")
         fopt = QVBoxLayout(box_opt)
         self.lbl_opt = QLabel()
@@ -13994,7 +13549,7 @@ class SettingsPage(QWidget):
         fopt.addLayout(row_opt)
         v.addWidget(box_opt)
 
-        # --- 配置包 ---
+        # 配置包
         box_pack = QGroupBox(tr("pack_title"))
         fpack = QVBoxLayout(box_pack)
         h_pack = QLabel(tr("pack_hint"))
@@ -14014,7 +13569,7 @@ class SettingsPage(QWidget):
         fpack.addLayout(row_pack)
         v.addWidget(box_pack)
 
-        # --- 平台管理 ---
+        # 平台管理
         box_plat = QGroupBox(tr("settings_platform_mgr"))
         fpl = QVBoxLayout(box_plat)
         hint_pl = QLabel(tr("settings_platform_mgr_hint"))
@@ -14051,7 +13606,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_plat)
 
-        # --- 下载 + 镜像 ---
+        # 下载 + 镜像
         box_dl = QGroupBox(tr("settings_download"))
         fdl = QVBoxLayout(box_dl)
 
@@ -14137,7 +13692,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_dl)
 
-        # --- RetroArch ---
+        # RetroArch
         box_ra = QGroupBox(tr("settings_retroarch"))
         fra = QVBoxLayout(box_ra)
         h_ra = QLabel(tr("settings_retroarch_hint"))
@@ -14156,7 +13711,7 @@ class SettingsPage(QWidget):
         fra.addLayout(row_ra)
         v.addWidget(box_ra)
 
-        # --- 启动模板 ---
+        # 启动模板
         box_prof = QGroupBox(tr("config_profile_group"))
         fprof = QVBoxLayout(box_prof)
         hint_prof = QLabel(tr("config_profile_hint"))
@@ -14185,7 +13740,6 @@ class SettingsPage(QWidget):
         fprof.addLayout(row_pf)
         v.addWidget(box_prof)
 
-        # 收集所有引擎名
         engines_json = load_engines_json()
         all_engines = set()
         for pcfg in engines_json.values():
@@ -14194,7 +13748,7 @@ class SettingsPage(QWidget):
             for eng in pcfg.get("engines", {}):
                 all_engines.add(eng)
 
-        # --- 金手指 ---
+        # 金手指
         box_ch = QGroupBox(tr("settings_cheats"))
         fch = QVBoxLayout(box_ch)
         h_ch = QLabel(tr("settings_cheats_hint"))
@@ -14226,7 +13780,7 @@ class SettingsPage(QWidget):
         fch.addWidget(b_save_ch)
         v.addWidget(box_ch)
 
-        # --- 托盘 + 性能 ---
+        # 托盘 + 性能
         box_tray = QGroupBox(tr("settings_tray"))
         ftr = QVBoxLayout(box_tray)
         self.check_tray_min = QCheckBox(tr("settings_tray_minimize"))
@@ -14247,7 +13801,7 @@ class SettingsPage(QWidget):
         ftr.addWidget(self.check_perf)
         v.addWidget(box_tray)
 
-        # --- 工作区 ---
+        # 工作区
         box2 = QGroupBox(tr("settings_workspace"))
         f2 = QVBoxLayout(box2)
         desc = QLabel(tr("settings_workspace_desc"))
@@ -14263,7 +13817,7 @@ class SettingsPage(QWidget):
         f2.addWidget(QLabel(f"数据目录: {DATA_DIR}"))
         v.addWidget(box2)
 
-        # --- 存档 ---
+        # 存档
         box_sv = QGroupBox(tr("settings_saves"))
         fsv = QVBoxLayout(box_sv)
         hint_sv = QLabel(tr("settings_saves_hint"))
@@ -14311,7 +13865,7 @@ class SettingsPage(QWidget):
         fsv.addLayout(row_sv2)
         v.addWidget(box_sv)
 
-        # --- 管理员 + 系统版本 + 鸣谢 ---
+        # 管理员 + 系统版本 + 鸣谢
         box3 = QGroupBox(tr("settings_admin"))
         f3v = QVBoxLayout(box3)
 
@@ -14319,7 +13873,6 @@ class SettingsPage(QWidget):
         self.lbl_admin = QLabel()
         row_admin.addWidget(self.lbl_admin)
 
-        # v1.5.1：Win 版本 + 机器档次显示
         self.lbl_winver = QLabel()
         self.lbl_winver.setObjectName("Hint")
         self._refresh_winver_label()
@@ -14336,7 +13889,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box3)
 
-        # --- 目录 ---
+        # 目录
         box4 = QGroupBox("目录")
         f4 = QHBoxLayout(box4)
         b1 = QPushButton(tr("settings_open_data"))
@@ -14354,7 +13907,7 @@ class SettingsPage(QWidget):
 
         QTimer.singleShot(0, self._reload_plugin_table)
 
-    # ---- 主题 ----
+    # ---------- 主题 ----------
     def _on_theme_changed(self, _i):
         mode = self.combo_theme.currentData()
         SETTINGS["theme"] = mode
@@ -14382,7 +13935,7 @@ class SettingsPage(QWidget):
         self.btn_accent.setText("选择…")
         self.theme_changed.emit(SETTINGS.get("theme", "auto"), "")
 
-    # ---- 代理 ----
+    # ---------- 代理 ----------
     def _on_proxy_changed(self, *_):
         SETTINGS["proxy_mode"] = self.combo_proxy_mode.currentData()
         SETTINGS["proxy_host"] = self.edit_proxy_host.text().strip()
@@ -14407,7 +13960,7 @@ class SettingsPage(QWidget):
             self.lbl_proxy_test.setText(f"❌ {msg}")
             self.lbl_proxy_test.setStyleSheet("color:#c42b1c;")
 
-    # ---- 优先级 ----
+    # ---------- 优先级 ----------
     def _on_priority_toggled(self, btn, checked):
         if not checked:
             return
@@ -14426,7 +13979,7 @@ class SettingsPage(QWidget):
                 return
         self._set_setting("process_priority", level)
 
-    # ---- v1.5.1 F3/F4：机器档次 / 资源策略 ----
+    # ---------- 机器档次 / 资源策略 ----------
     def _refresh_hw_info(self):
         try:
             hw = probe_hardware(force=True)
@@ -14465,17 +14018,15 @@ class SettingsPage(QWidget):
     def _on_safety_changed(self, val):
         SETTINGS["resource_safety_ratio"] = int(val)
         save_settings()
-        # 重置硬件缓存，重新计算上限
         global _HW_CACHE
         _HW_CACHE = {}
         self._refresh_hw_info()
-        # 更新 force 复选框的文案
         self.check_force.setText(
             tr("resource_force_unlock", ratio=int(val)))
 
     def _on_force_toggled(self, checked):
         if checked:
-            ratio = int(SETTINGS.get("resource_safety_ratio", 85))
+            ratio = int(SETTINGS.get("resource_safety_ratio", 70))
             reply = QMessageBox.question(
                 self, tr("msg_confirm"),
                 tr("resource_force_unlock_warn", ratio=ratio),
@@ -14488,7 +14039,7 @@ class SettingsPage(QWidget):
         SETTINGS["resource_force_unlock"] = bool(checked)
         save_settings()
 
-    # ---- v1.5.1 F1：日志 ----
+    # ---------- 日志 ----------
     def _on_log_level_changed(self, _idx):
         level = self.combo_log_level.currentData() or "INFO"
         SETTINGS["log_level"] = level
@@ -14500,7 +14051,7 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, tr("msg_warning"), str(e))
 
     def _open_log_viewer(self):
-        LogViewerDialog(self).exec()
+        LogViewerDialog(self).exec_()
 
     def _refresh_winver_label(self):
         try:
@@ -14508,19 +14059,14 @@ class SettingsPage(QWidget):
             if build == 0:
                 self.lbl_winver.setText("系统: 非 Windows")
                 return
-            if build >= 22000:
-                name = "Win11"
-            elif build >= 17763:
-                name = "Win10 1809+"
-            else:
-                name = "⚠ 版本过低"
+            name = get_windows_name(build)
             tier = SETTINGS.get("machine_tier", "?")
             self.lbl_winver.setText(
                 tr("win_version_label", name=name, build=build, tier=tier))
         except Exception:
             self.lbl_winver.setText("")
 
-    # ---- 可选依赖 ----
+    # ---------- 可选依赖 ----------
     def _refresh_optional_label(self):
         lines = []
         for mod, pkg in OPTIONAL.items():
@@ -14555,18 +14101,17 @@ class SettingsPage(QWidget):
             "已在新窗口开始安装。\n"
             "安装完成后请关闭并重新启动 mikan_emu。")
 
-    # ---- 配置包 ----
     def _export_pack(self):
         dlg = ConfigPackDialog("export", self)
-        dlg.exec()
+        dlg.exec_()
 
     def _import_pack(self):
         dlg = ConfigPackDialog("import", self)
-        if dlg.exec() == QDialog.Accepted:
+        if dlg.exec_() == QDialog.Accepted:
             self.platforms_changed.emit()
             self.saves_changed.emit()
 
-    # ---- 启动模板 ----
+    # ---------- 启动模板 ----------
     def _reload_profiles_table(self):
         self.table_prof.setRowCount(0)
         profiles = SETTINGS.get("launch_profiles", {}) or {}
@@ -14594,7 +14139,7 @@ class SettingsPage(QWidget):
         save_settings()
         QMessageBox.information(self, tr("msg_info"), "启动模板已保存")
 
-    # ---- 局域网 ----
+    # ---------- 局域网 ----------
     def _on_lan_enabled(self, checked: bool):
         self._set_setting("lan_enabled", checked)
         self.lan_changed.emit()
@@ -14611,9 +14156,9 @@ class SettingsPage(QWidget):
         self._set_setting("lan_password", self.edit_lan_pwd.text())
 
     def _show_credits(self):
-        CreditsDialog(self).exec()
+        CreditsDialog(self).exec_()
 
-    # ---- 平台 ----
+    # ---------- 平台 ----------
     def _reload_platform_table(self):
         self.table_plat.setRowCount(0)
         engines_json = load_engines_json()
@@ -14683,7 +14228,7 @@ class SettingsPage(QWidget):
         self._reload_platform_table()
         self.platforms_changed.emit()
 
-    # ---- 镜像 ----
+    # ---------- 镜像 ----------
     def _refresh_mirror_list(self):
         self.list_mirrors.blockSignals(True)
         self.list_mirrors.clear()
@@ -14843,7 +14388,6 @@ class SettingsPage(QWidget):
         self.edit_lan_nick.setText(SETTINGS.get("lan_nickname", "") or
                                     LanIdentity().name)
         self.edit_lan_pwd.setText(SETTINGS.get("lan_password", ""))
-        # v1.5.1：机器档次自动勾选状态
         if SETTINGS.get("machine_tier_auto", True):
             self.combo_tier.setEnabled(False)
         else:
@@ -14946,7 +14490,6 @@ class SettingsPage(QWidget):
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"), str(e))
 
-    # ---- 插件 ----
     def _reload_plugin_table(self):
         pm = getattr(self.window(), "_plugin_manager", None)
         if pm is None:
@@ -15091,6 +14634,7 @@ class SettingsPage(QWidget):
         else:
             QMessageBox.critical(self, tr("msg_error"), "提权失败")
 
+
 # ============================================================
 # 25. 导入对话框
 # ============================================================
@@ -15204,7 +14748,7 @@ class ImportDialog(QDialog):
         if unmatched and all_exes:
             self.log_view.append(f"⚠️ {tr('import_not_found')}")
             dlg = ManualEngineDialog(all_exes, self._engines_json, self)
-            if dlg.exec() == QDialog.Accepted:
+            if dlg.exec_() == QDialog.Accepted:
                 r = dlg.result_data()
                 if r:
                     try:
@@ -15257,7 +14801,7 @@ class ImportDialog(QDialog):
 
         if dup:
             dlg = DupResolveDialog(dup, self)
-            if dlg.exec() == QDialog.Accepted:
+            if dlg.exec_() == QDialog.Accepted:
                 keep, skip, overwrite = dlg.result_action()
                 if overwrite:
                     for new_g, old_g in dup:
@@ -15269,7 +14813,7 @@ class ImportDialog(QDialog):
 
         if fresh:
             dlg = PlatformConfirmDialog(fresh, self._engines_json, self)
-            if dlg.exec() == QDialog.Accepted:
+            if dlg.exec_() == QDialog.Accepted:
                 fresh = dlg.result_games()
             paths = {g.path for g in existing}
             for g in fresh:
@@ -15819,7 +15363,7 @@ PLUGIN_TEMPLATE_MAIN = '''# -*- coding: utf-8 -*-
 {name}
 自动生成的插件骨架
 """
-from PySide6.QtWidgets import (
+from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton
 )
 
@@ -15855,7 +15399,7 @@ class MainPage(QWidget):
 
     def _on_click(self):
         games = self._api.get_games()
-        self.lbl.setText(f"游戏库里有 {len(games)} 个游戏")
+        self.lbl.setText(f"游戏库里有 {{len(games)}} 个游戏")
 
 
 def register(api):
@@ -16263,7 +15807,7 @@ class PluginAPI:
                 menu.addAction(label, callback)
 
     def show_dialog(self, widget: QWidget):
-        widget.exec()
+        widget.exec_()
 
     def on(self, event: str, callback):
         self._hooks.setdefault(event, []).append(callback)
@@ -16401,6 +15945,7 @@ class PluginManager:
         self.enabled_state[pid] = enabled
         save_plugin_enabled(self.enabled_state)
 
+
 # ============================================================
 # 28. 主窗口
 # ============================================================
@@ -16416,7 +15961,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
+        self.setWindowTitle(f"{APP_NAME} v{APP_VERSION} (Win7 兼容版)")
         self.resize(1280, 800)
         self.setMinimumSize(960, 580)
 
@@ -16535,19 +16080,17 @@ class MainWindow(QMainWindow):
 
         self._watch_system_theme()
 
-        # ★ v1.5.1 F2：启动后检查 Windows 版本
         QTimer.singleShot(300, self._check_win_version_startup)
 
     def _check_win_version_startup(self):
         try:
-            ok, msg = check_win10_1809_minimum()
+            ok, msg = check_win7_sp1_minimum()
             if not ok:
                 QMessageBox.warning(self, tr("win_version_too_old_title"), msg)
         except Exception as e:
             logger.debug(f"Windows 版本检查失败: {e}")
 
     def _on_machine_tier_changed(self):
-        """用户在设置页改了机器档次时触发。"""
         refresh_machine_tier()
         self.status.showMessage(
             f"机器档次已更新为: {SETTINGS.get('machine_tier', '?')}")
@@ -16578,37 +16121,19 @@ class MainWindow(QMainWindow):
         self.lbl_admin_top = QLabel()
         lay.addWidget(self.lbl_admin_top)
 
-        btn_import_engine = QPushButton(tr("toolbar_import_engine"))
-        btn_import_engine.clicked.connect(self._import_engine)
-        lay.addWidget(btn_import_engine)
-
-        btn_download_engine = QPushButton(tr("toolbar_download_engine"))
-        btn_download_engine.clicked.connect(self._download_engine)
-        lay.addWidget(btn_download_engine)
-
-        btn_import_game = QPushButton(tr("toolbar_import_game"))
-        btn_import_game.clicked.connect(self._import_game)
-        lay.addWidget(btn_import_game)
-
-        btn_patch = QPushButton(tr("toolbar_patch_tool"))
-        btn_patch.clicked.connect(self._open_patch_tool)
-        lay.addWidget(btn_patch)
-
-        btn_scrape = QPushButton(tr("toolbar_scrape"))
-        btn_scrape.clicked.connect(self._scrape_all_covers)
-        lay.addWidget(btn_scrape)
-
-        btn_export = QPushButton(tr("toolbar_export"))
-        btn_export.clicked.connect(self._export_library)
-        lay.addWidget(btn_export)
-
-        btn_open_roms = QPushButton(tr("toolbar_open_roms"))
-        btn_open_roms.clicked.connect(lambda: os.startfile(str(ROM_DIR)))
-        lay.addWidget(btn_open_roms)
-
-        btn_refresh = QPushButton(tr("toolbar_refresh"))
-        btn_refresh.clicked.connect(self._refresh_all)
-        lay.addWidget(btn_refresh)
+        for key, handler in (
+            ("toolbar_import_engine", self._import_engine),
+            ("toolbar_download_engine", self._download_engine),
+            ("toolbar_import_game", self._import_game),
+            ("toolbar_patch_tool", self._open_patch_tool),
+            ("toolbar_scrape", self._scrape_all_covers),
+            ("toolbar_export", self._export_library),
+            ("toolbar_open_roms", lambda: os.startfile(str(ROM_DIR))),
+            ("toolbar_refresh", self._refresh_all),
+        ):
+            btn = QPushButton(tr(key))
+            btn.clicked.connect(handler)
+            lay.addWidget(btn)
 
         return bar
 
@@ -16624,7 +16149,7 @@ class MainWindow(QMainWindow):
             p.drawText(pix.rect(), Qt.AlignCenter, "M")
             p.end()
             self._tray.setIcon(QIcon(pix))
-            self._tray.setToolTip(f"{APP_NAME} v{APP_VERSION}")
+            self._tray.setToolTip(f"{APP_NAME} v{APP_VERSION} (Win7)")
 
             menu = QMenu()
             a_show = menu.addAction(tr("tray_show"))
@@ -16686,39 +16211,31 @@ class MainWindow(QMainWindow):
                 pass
         event.accept()
 
-    # ---------- 插件 ----------
     def _load_plugins(self):
         self._unload_plugin_pages()
-
         if not SETTINGS.get("plugins_auto_load", True):
             return
-
         try:
             self._plugin_manager.load_all()
         except Exception as e:
             logger.exception(f"插件加载失败: {e}")
             return
-
         pages = self._plugin_manager.get_pages()
         if not pages:
             return
-
         insert_at = self.NAV_SETTINGS
         for i, (title, widget, icon) in enumerate(pages):
             try:
                 w = widget() if callable(widget) else widget
                 if not isinstance(w, QWidget):
-                    logger.warning(f"插件页面 {title} 不是 QWidget")
                     continue
                 label = f"{icon} {title}" if icon else title
                 item = QListWidgetItem(label)
                 self.nav.insertItem(insert_at + i, item)
                 self.stack.insertWidget(insert_at + i, w)
                 self._plugin_page_widgets.append((insert_at + i, w))
-                logger.info(f"插件页面已插入: {label} @ {insert_at + i}")
             except Exception as e:
                 logger.exception(f"插件页面 {title} 加载失败: {e}")
-
         self.NAV_SETTINGS = insert_at + len(self._plugin_page_widgets)
 
     def _unload_plugin_pages(self):
@@ -16729,15 +16246,12 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._plugin_page_widgets.clear()
-
         builtin_count = 8
         while self.nav.count() > builtin_count:
             item = self.nav.takeItem(self.nav.count() - 1)
             del item
-
         self.NAV_SETTINGS = 7
 
-    # ---------- 主题 ----------
     def _apply_theme(self):
         mode = SETTINGS.get("theme", "auto")
         if mode == "auto":
@@ -16773,6 +16287,9 @@ class MainWindow(QMainWindow):
     def _is_system_dark(self) -> bool:
         if sys.platform != "win32":
             return False
+        build = get_windows_build()
+        if 0 < build < 10240:
+            return False
         try:
             import winreg
             key = winreg.OpenKey(
@@ -16798,7 +16315,6 @@ class MainWindow(QMainWindow):
             return
         cur = self._is_system_dark()
         if cur != self._current_theme_dark:
-            logger.info(f"系统主题变化: dark={cur}，重新应用")
             self._apply_theme()
 
     def _refresh_admin_label(self):
@@ -16893,26 +16409,26 @@ class MainWindow(QMainWindow):
 
     def _import_engine(self):
         dlg = ImportDialog("engine", self._engines_json, self)
-        dlg.exec()
+        dlg.exec_()
         self.page_engines.refresh()
 
     def _download_engine(self):
         dlg = DownloadDialog(self._engines_json, self)
-        dlg.exec()
+        dlg.exec_()
         self.page_engines.refresh()
 
     def _import_game(self):
         dlg = ImportDialog("game", self._engines_json, self)
-        dlg.exec()
+        dlg.exec_()
         self._reload_games()
 
     def _open_patch_tool(self):
         dlg = PatchToolDialog(parent=self)
-        dlg.exec()
+        dlg.exec_()
 
     def _scrape_covers(self, games):
         dlg = CoverScrapeDialog(games, self)
-        dlg.exec()
+        dlg.exec_()
         self._reload_games()
 
     def _scrape_all_covers(self):
@@ -16921,7 +16437,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, tr("msg_info"), "游戏库为空")
             return
         dlg = CoverScrapeDialog(games, self)
-        dlg.exec()
+        dlg.exec_()
         self._reload_games()
 
     def _export_library(self):
@@ -16930,7 +16446,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, tr("msg_info"), "游戏库为空")
             return
         dlg = ExportDialog(games, self)
-        if dlg.exec() != QDialog.Accepted:
+        if dlg.exec_() != QDialog.Accepted:
             return
         r = dlg.result_data()
         if not r:
@@ -16950,7 +16466,7 @@ class MainWindow(QMainWindow):
         dlg.launch_requested.connect(self._launch_game)
         dlg.open_folder_requested.connect(self._open_game_folder)
         dlg.engine_settings_requested.connect(self._open_engine_settings)
-        dlg.exec()
+        dlg.exec_()
         self._reload_games()
 
     def _show_controls(self, game):
@@ -16963,7 +16479,7 @@ class MainWindow(QMainWindow):
                     engine_name = e.engine
                     break
         dlg = ControlsDialog(engine_name or "unknown", self)
-        dlg.exec()
+        dlg.exec_()
 
     def _open_engine_settings_for_game(self, game):
         engine = self._resolve_engine(game, silent=True)
@@ -16985,7 +16501,7 @@ class MainWindow(QMainWindow):
             box.setWindowTitle(tr("engine_settings_title"))
             box.setText(tr("engine_settings_failed", err=engine.engine))
             box.setDetailedText(str(e))
-            box.exec()
+            box.exec_()
         except Exception as e:
             QMessageBox.critical(
                 self, tr("msg_error"),
@@ -17080,7 +16596,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-            # ★ v1.5.1 F3：低配模式下强制关闭性能小窗
             show_perf = SETTINGS.get("perf_monitor_on_launch", True)
             if SETTINGS.get("low_spec_mode", False):
                 show_perf = False
@@ -17112,7 +16627,7 @@ class MainWindow(QMainWindow):
             box.setWindowTitle(tr("launch_diag_title"))
             box.setText(tr("launch_diag_header", name=game.name))
             box.setDetailedText(str(e))
-            box.exec()
+            box.exec_()
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"),
                                  tr("launch_failed", err=str(e)))
@@ -17138,12 +16653,6 @@ class MainWindow(QMainWindow):
             save_games(games)
             self._reload_games()
             logger.info(f"游戏关闭: {game_path}")
-
-            try:
-                self._plugin_manager.emit("after_close",
-                                          game=game, seconds=secs)
-            except Exception:
-                pass
         except Exception as e:
             logger.exception(f"结算时长失败: {e}")
 
@@ -17260,13 +16769,12 @@ class MainWindow(QMainWindow):
 
 
 # ============================================================
-# 29. v1.5.1 F1：全局异常钩子
+# 29. 全局异常钩子
 # ============================================================
 _CRASH_DIALOG_SHOWN = False
 
 
 def _show_crash_dialog(tb_text: str, zip_path):
-    """崩溃时弹窗。已做兜底，不会二次崩。"""
     try:
         box = QMessageBox()
         box.setIcon(QMessageBox.Critical)
@@ -17280,7 +16788,7 @@ def _show_crash_dialog(tb_text: str, zip_path):
         btn_save = box.addButton(tr("crash_save_pack"), QMessageBox.ActionRole)
         btn_open = box.addButton(tr("crash_open_log"), QMessageBox.ActionRole)
         btn_close = box.addButton(tr("crash_close"), QMessageBox.AcceptRole)
-        box.exec()
+        box.exec_()
 
         clicked = box.clickedButton()
         if clicked == btn_save and zip_path:
@@ -17339,7 +16847,6 @@ def _excepthook(exc_type, exc_value, exc_tb):
         app = QApplication.instance()
         if app is None:
             return
-        # 直接用模态框，避免 QTimer 依赖事件循环
         _show_crash_dialog(tb_text, path)
     except Exception:
         pass
@@ -17349,7 +16856,6 @@ def _threading_excepthook(args):
     _excepthook(args.exc_type, args.exc_value, args.exc_traceback)
 
 
-# 模块顶层安装钩子，从启动第一秒就生效
 sys.excepthook = _excepthook
 threading.excepthook = _threading_excepthook
 
@@ -17358,17 +16864,28 @@ threading.excepthook = _threading_excepthook
 # 30. 入口
 # ============================================================
 def main():
+    try:
+        ok, msg = check_win7_sp1_minimum()
+        if not ok:
+            print(f"[启动] {msg}")
+            try:
+                app = QApplication(sys.argv)
+                QMessageBox.critical(None, "系统版本过低", msg)
+            except Exception:
+                pass
+            sys.exit(1)
+    except Exception as e:
+        logger.debug(f"Win7 检查失败: {e}")
+
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
 
-    # ★ v1.5.1 F3：启动时刷新机器档次
     try:
         refresh_machine_tier()
     except Exception as e:
         logger.debug(f"刷新机器档次失败: {e}")
 
-    # ★ v1.5.1 F1：再次初始化日志（SETTINGS 已就绪）
     try:
         setup_logging()
     except Exception:
@@ -17377,23 +16894,14 @@ def main():
     win = MainWindow()
     win.show()
 
-    # ★ v1.5.1 F2：启动后异步检查 Windows 版本
-    try:
-        ok, msg = check_win10_1809_minimum()
-        if not ok:
-            QTimer.singleShot(500, lambda: QMessageBox.warning(
-                win, tr("win_version_too_old_title"), msg))
-    except Exception as e:
-        logger.debug(f"Win 版本检查失败: {e}")
-
     try:
         win._plugin_manager.emit("app_start")
     except Exception:
         pass
 
-    sys.exit(app.exec())
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
     main()
-# ===== 全部完成 v1.5.1 =====
+# ===== 全部完成 mikan_emu v1.5.1 Win7 移植版 =====
