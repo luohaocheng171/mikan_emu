@@ -1,4 +1,4 @@
-# MikanEmu v1.5.1 / v1.5.1-win7
+# MikanEmu v1.6.3 / v1.6.3-win7
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
@@ -9,6 +9,7 @@
 > + 封面刮削（Libretro / SteamGridDB）+ 性能档位 + 系统优先级
 > + 版本适配（version_overrides）+ 打开模拟器设置
 > + 引擎共享定义（_shared）+ BIOS 自动归类 + 统一代理 + 插件系统
+> + 日志环形缓冲 + 崩溃诊断包 + Windows 版本检测 + 硬件探测 + 资源策略
 
 **【法律】** 不提供 BIOS、不提供 ROM、不二次分发模拟器
 
@@ -18,18 +19,21 @@
 
 本项目提供两个版本，功能基本一致，区别在于 GUI 框架和运行环境要求：
 
-| 对比项 | MikanEmu v1.5.1（最新版） | MikanEmu v1.5.1-win7（老版本） |
+| 对比项 | MikanEmu v1.6.3（最新版） | MikanEmu v1.6.3-win7（老版本） |
 |--------|---------------------------|--------------------------------|
 | GUI 框架 | PySide6（Qt6） | PyQt5 5.15.9（Qt 5.15 LTS） |
 | Python 要求 | 3.11+ | 3.8（最后支持 Win7 的官方 Python） |
 | 操作系统 | Windows 10 1809+ | Windows 7 SP1+（含 Win7/Win8/Win8.1/Win10/Win11） |
-| 平台数 | 45 个 | 44 个 |
-| 引擎数 | 76 个 | 66 个 |
-| 新增功能（v1.5.1） | 日志环形缓冲、崩溃诊断包、日志查看器、Windows 版本检测、硬件探测、机器档次自适应、低配模式、资源策略、引擎推荐表 | 无（保留 v1.4.0 全部功能） |
-| 依赖版本 | 使用最新版依赖 |  pinned 版本（psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1） |
+| 平台数 | 45 个 | 45 个 |
+| 引擎数 | 78 个 | 78 个 |
+| 类数量 | 55 个 | 55 个 |
+| 顶层函数 | 137 个 | 140 个（多出 `_ensure_json_file`、`_ensure_all_json_files`、`get_windows_name` 三个 Win7 专用函数） |
+| 新增功能（v1.6.3） | 拖拽自动识别、多文件夹管理、全局背景自定义、老游戏资料站侧边栏、设置页项目地址入口 | 同最新版（v1.6.3 功能已同步） |
+| 依赖版本 | 使用最新版依赖 | pinned 版本（psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1、requests<2.32） |
 | Web 引擎 | PySide6-WebEngine（可选） | PyQtWebEngine==5.15.6（可选） |
 | 打包工具 | PyInstaller | PyInstaller 4.10 |
 | QtWebEngine 渲染 | 默认（硬件加速） | 强制软件渲染（Win7 兼容） |
+| 日志队列 | 启用 enqueue（子进程模式） | 禁用 enqueue（Win7 兼容） |
 
 > **推荐**：现代系统（Win10/Win11）请使用最新版（PySide6）；Windows 7 用户请使用 win7 移植版。
 
@@ -40,7 +44,7 @@
 | 模块 | 功能说明 |
 |------|---------|
 | 游戏库管理 | 多文件夹/工作区扫描、自动识别平台、去重合并、批量导入/导出、游戏统计 |
-| 模拟器引擎管理 | 内置引擎（45/44 平台）、自动下载/安装/更新、多镜像源、版本识别与匹配 |
+| 模拟器引擎管理 | 内置引擎（45 平台/78 引擎）、自动下载/安装/更新、多镜像源、版本识别与匹配 |
 | BIOS 管理 | BIOS 扫描/自动归类、BIOS 需求检测、BIOS 文件复制、bios_db.json 数据库 |
 | 存档管理 | 存档自动路径检测、存档备份/还原、存档路径自定义 |
 | 金手指管理 | 金手指代码管理、金手指路径配置 |
@@ -61,15 +65,21 @@
 | 模拟器设置 | 直接打开模拟器原生设置界面 |
 | 引擎共享定义 | _shared 共享引擎定义（mednafen/mame/retroarch）跨平台复用 |
 | 系统优先级 | 启动时自动设置进程优先级和 IO 优先级 |
+| 拖拽自动识别 | 拖拽 .py 文件自动识别为插件、.bin/.rom 识别为 BIOS、ROM 后缀自动识别游戏 |
+| 多文件夹管理 | 工作区增删改 + 路径重定向，支持多游戏库并行管理 |
+| 全局背景自定义 | 设置页选择图片作为全局背景 |
+| 老游戏资料站 | QtWebEngine 内嵌老游戏资料站侧边栏 |
+| 项目地址入口 | 设置页底部新增项目地址入口（默认浏览器打开） |
 
-### v1.5.1 新增功能（仅最新版）
+### v1.6.3 新增功能（两个版本均包含）
 
 | 功能 | 说明 |
 |------|------|
-| F1：日志环形缓冲 | 内存中保留最近 2000 条日志，支持日志查看器、崩溃诊断包自动生成 |
-| F2：Windows 版本检测 | 检测系统版本（Win10 1809+ 最低要求），win7 版检测 Win7 SP1 |
-| F3：硬件探测 | 探测硬件配置（CPU/GPU/内存/磁盘），机器档次自适应（low/mid/high），低配模式自动降级 |
-| F4：资源策略 | CPU 亲和性建议、内存使用建议、引擎推荐表（根据硬件推荐合适引擎） |
+| 拖拽自动识别 | 拖拽 .py 文件自动识别为插件、.bin/.rom 识别为 BIOS、ROM 后缀自动匹配游戏平台 |
+| 多文件夹管理 | 工作区增删改 + 路径重定向，支持多游戏库并行管理 |
+| 全局背景自定义 | 设置页选择图片作为全局背景，个性化界面 |
+| 老游戏资料站侧边栏 | QtWebEngine 内嵌老游戏资料站（nostalibrary），无需切换浏览器 |
+| 设置页项目地址入口 | 设置页底部新增 GitHub 项目地址入口，默认浏览器直接打开 |
 
 ### Win7 移植版特有功能
 
@@ -77,8 +87,9 @@
 |------|------|
 | Win7 SP1 检测 | 启动时检查 Windows 7 SP1 最低要求，不满足则提示安装 |
 | QtWebEngine 软件渲染 | 强制禁用 GPU 加速，确保 Win7 下浏览器页面正常显示 |
-| 兼容依赖版本 | 锁定 psutil<5.9.6、packaging<24 等依赖版本，确保 Win7 下可安装 |
+| 兼容依赖版本 | 锁定 psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1、requests<2.32 等依赖版本，确保 Win7 下可安装 |
 | PyInstaller 4.10 打包 | 使用旧版 PyInstaller 打包，兼容 Win7 运行时 |
+| 日志兼容模式 | 禁用 loguru enqueue（子进程队列），避免 Win7 下日志写入异常 |
 
 ---
 
@@ -127,7 +138,7 @@ pip install PySide6 requests loguru py7zr rarfile psutil packaging certifi
 3. 运行：
 
 ```bash
-python mikan_emu_5.py
+python mikan_emu_6.py
 ```
 
 #### Win7 移植版（PyQt5）
@@ -144,17 +155,17 @@ pip install PyQt5==5.15.9 "requests<2.32" "loguru<0.8" "py7zr<0.21" "rarfile<4.1
 3. 运行：
 
 ```bash
-python mikan_emu_pyqt5.py
+python mikan_emu_pyqt5_2.py
 ```
 
 ### PyInstaller 打包
 
 ```bash
 # 最新版
-pyinstaller --name mikan_emu --onedir --add-data "config;config" --add-data "lang;lang" mikan_emu_5.py
+pyinstaller --name mikan_emu --onedir --add-data "config;config" --add-data "lang;lang" mikan_emu_6.py
 
 # Win7 版（使用 PyInstaller 4.10）
-pyinstaller==4.10 --name mikan_emu --onedir --add-data "config;config" --add-data "lang;lang" mikan_emu_pyqt5.py
+pyinstaller==4.10 --name mikan_emu --onedir --add-data "config;config" --add-data "lang;lang" mikan_emu_pyqt5_2.py
 ```
 
 ---
@@ -205,6 +216,8 @@ mikan_emu/                    # 程序根目录（data 目录）
 │       ├── plugin.json       # 插件元数据
 │       └── main.py           # 插件入口
 ├── plugin_storage/           # 插件共享存储
+├── backgrounds/              # 全局背景图片
+├── crash_reports/            # 崩溃诊断报告
 └── random_launch/            # 示例插件（随机启动）
     ├── plugin.json
     └── main.py
@@ -214,7 +227,7 @@ mikan_emu/                    # 程序根目录（data 目录）
 
 ## 支持的平台与引擎
 
-### 最新版：45 个平台 / 76 个引擎
+### 全部版本：45 个平台 / 78 个引擎
 
 | 平台 | 引擎 | 来源 |
 |------|------|------|
@@ -265,22 +278,13 @@ mikan_emu/                    # 程序根目录（data 目录）
 | 未知渠道 | google_drive_unknown | direct |
 | _shared 共享 | mednafen, mame, retroarch | direct |
 
-### Win7 移植版：44 个平台 / 66 个引擎
-
-Win7 版相比最新版缺少以下平台和引擎（因依赖版本限制无法兼容 Win7）：
-
-| 缺失项 | 说明 |
-|--------|------|
-| BBC Micro 平台 | 缺少 b2 引擎 |
-| 缺少引擎 | 1984、ares、b2、cen64、cpc_syntax_error、gopher64、neon64、nintendulator、noods、zakuro（共 10 个） |
-
 > 引擎来源说明：direct = 直接下载链接；manual = 需手动下载；libretro = Libretro 核心
 
 ---
 
 ## 模块说明
 
-### 核心类（54 个）
+### 核心类（55 个）
 
 两个版本类定义完全一致：
 
@@ -288,12 +292,15 @@ Win7 版相比最新版缺少以下平台和引擎（因依赖版本限制无法
 |------|------|
 | EmulatorConfig | 模拟器配置数据类 |
 | GameEntry | 游戏条目数据类 |
+| PatchError | 补丁异常类 |
 | HttpSession | HTTP 会话管理（连接池/代理/超时） |
 | EngineImportWorker | 引擎导入工作线程 |
 | GameImportWorker | 游戏导入工作线程 |
 | DownloadWorker | 文件下载工作线程 |
 | MirrorTestWorker | 镜像源测速工作线程 |
 | UpdateCheckWorker | 更新检查工作线程 |
+| LaunchError | 启动异常类 |
+| BiosFile | BIOS 文件数据类 |
 | ProcessMonitorWorker | 进程监控工作线程 |
 | PerfMonitorWindow | 性能监控窗口 |
 | LanIdentity | 局域网身份标识 |
@@ -311,6 +318,7 @@ Win7 版相比最新版缺少以下平台和引擎（因依赖版本限制无法
 | BiosSelectDialog | BIOS 选择对话框 |
 | ControlsDialog | 键位设置对话框 |
 | CreditsDialog | 鸣谢对话框 |
+| LogViewerDialog | 日志查看器（环形缓冲） |
 | ManualEngineDialog | 手动引擎安装对话框 |
 | ExportDialog | 导出对话框 |
 | PlatformConfirmDialog | 平台确认对话框 |
@@ -325,6 +333,7 @@ Win7 版相比最新版缺少以下平台和引擎（因依赖版本限制无法
 | ChartWidget | 性能图表控件 |
 | StatsPage | 统计页面 |
 | ResourcesPage | 资源导航页面 |
+| RetroDocsPage | 老游戏资料站页面（v1.6.3 新增） |
 | EmojiPanel | 表情面板 |
 | LanPage | 局域网页面（聊天+文件+共享） |
 | WebTransferPage | Web 传输页面（LocalSend Web） |
@@ -336,14 +345,13 @@ Win7 版相比最新版缺少以下平台和引擎（因依赖版本限制无法
 | PluginAPI | 插件 API（提供给插件的接口） |
 | PluginManager | 插件管理器（扫描/加载/卸载） |
 | MainWindow | 主窗口 |
-| LogViewerDialog | 日志查看器（v1.5.1 新增） |
 
 ### 核心函数
 
 涵盖依赖自检、多语言翻译、配置读写、引擎管理、游戏导入、存档管理、BIOS 管理、游戏启动、局域网通信、封面刮削、配置包导出导入、插件加载、版本检测等全部功能。
 
-- **最新版**：135 个顶层函数
-- **Win7 版**：137 个顶层函数（多出 `check_win7_sp1_minimum`、`get_windows_name` 两个 Win7 专用函数）
+- **最新版**：137 个顶层函数
+- **Win7 版**：140 个顶层函数（多出 `_ensure_json_file`、`_ensure_all_json_files`、`get_windows_name` 三个 Win7 兼容函数）
 
 ---
 
@@ -591,10 +599,9 @@ def register(api):
 
 - **最低系统要求**：Windows 7 SP1（构建号 7601），不支持 RTM 版本
 - **Python 版本**：必须使用 Python 3.8，3.9+ 不支持 Win7
-- **依赖版本锁定**：psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1 以确保 Win7 兼容性
+- **依赖版本锁定**：psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1、requests<2.32 以确保 Win7 兼容性
 - **QtWebEngine 软件渲染**：强制禁用 GPU 加速以确保 Win7 下正常显示，性能可能低于现代系统
 - **PyInstaller 4.10**：打包时使用旧版 PyInstaller 以确保 Win7 兼容性
-- **功能缺失**：缺少 10 个引擎和 1 个平台（因依赖版本限制），以及 v1.5.1 新增的 F1-F4 功能
 - **PyQtWebEngine**：需手动安装 `pip install PyQtWebEngine==5.15.6`（约 200MB）
 
 ---
@@ -642,6 +649,7 @@ def register(api):
 2. **WebEngine 配置**：PySide6 使用 `QWebEngineProfile(name, parent)` 设置缓存目录；PyQt5 使用 `QWebEngineProfile.defaultProfile()`
 3. **版本检测**：最新版使用 `packaging` 比较版本；Win7 版锁定旧版 packaging
 4. **打包工具**：最新版可用最新版 PyInstaller；Win7 版需使用 PyInstaller 4.10
+5. **日志队列**：最新版启用 loguru enqueue（子进程模式）；Win7 版禁用 enqueue 以确保兼容
 
 ---
 

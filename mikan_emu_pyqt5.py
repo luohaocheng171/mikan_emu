@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-mikan_emu_pyqt5 v1.5.1-win7
+mikan_emu_pyqt5 v1.6.3-win7
 PyQt5 + Python 3.8 + Windows 7 移植版
 
 Windows 7 兼容性：
@@ -143,7 +143,7 @@ import zlib
 from collections import defaultdict, deque
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Optional, Any, List, Dict, Tuple
+from typing import Optional, Any
 
 import requests
 import urllib3
@@ -165,7 +165,7 @@ try:
     )
     from PyQt5.QtGui import (
         QColor, QFont, QPixmap, QIcon, QPainter, QPen,
-        QBrush, QLinearGradient, QPolygon
+        QBrush, QLinearGradient, QPolygon, QPalette
     )
     from PyQt5.QtWidgets import (
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -202,7 +202,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # 3. 路径 & 常量
 # ============================================================
 APP_NAME = "mikan_emu"
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.6.3"
+APP_REPO = "https://github.com/luohaocheng171/mikan_emu"
+RETRO_DOCS_URL = "https://nostalibrary.tzengyuxio.me/"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).resolve().parent
@@ -234,13 +236,15 @@ SCRAPE_CACHE_DIR = DATA_DIR / "scrape_cache"
 PLUGINS_DIR = DATA_DIR / "plugins"
 PLUGIN_STORAGE_DIR = DATA_DIR / "plugin_storage"
 CRASH_REPORT_DIR = DATA_DIR / "crash_reports"
+BACKGROUND_DIR = DATA_DIR / "backgrounds"
 
 for d in (DATA_DIR, CONFIG_DIR, LANG_DIR, ENGINE_DIR, ENGINE_DOWNLOAD_DIR,
           BIOS_DIR, ROM_DIR, SAVE_DIR, SAVE_BACKUP_DIR, COVER_DIR,
           CHEAT_DIR, BACKUP_DIR, LOG_DIR, TEMP_DIR, EXPORT_DIR,
           LAN_DIR, LAN_HISTORY_DIR, LAN_FILES_DIR, LAN_SHARED_DIR,
           LAN_SHARED_DOWNLOAD_DIR, WEBENGINE_DIR, SCRAPE_CACHE_DIR,
-          PLUGINS_DIR, PLUGIN_STORAGE_DIR, CRASH_REPORT_DIR):
+          PLUGINS_DIR, PLUGIN_STORAGE_DIR, CRASH_REPORT_DIR,
+          BACKGROUND_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 FOLDERS_FILE = CONFIG_DIR / "folders.json"
@@ -260,7 +264,7 @@ BIOS_DB_FILE = CONFIG_DIR / "bios_db.json"
 PLUGINS_ENABLED_FILE = CONFIG_DIR / "plugins_enabled.json"
 
 # ============================================================
-# 3.1 日志初始化
+# 3.1 日志初始化（环形缓冲 + 文件 + stderr）
 # ============================================================
 LOG_RING: deque = deque(maxlen=2000)
 LOG_RING_LOCK = threading.Lock()
@@ -292,10 +296,12 @@ def setup_logging():
                 keep = int(SETTINGS.get("log_keep_days", 14))
         except Exception:
             pass
+
         try:
             logger.remove()
         except Exception:
             pass
+
         try:
             logger.add(
                 LOG_DIR / "mikan_emu_{time:YYYY-MM-DD}.log",
@@ -303,14 +309,16 @@ def setup_logging():
                 retention=f"{keep} days",
                 encoding="utf-8",
                 level="DEBUG",
-                enqueue=False,
+                enqueue=False,          # ★ Win7 兼容：禁用子进程队列
             )
         except Exception as e:
             print(f"[启动] 日志文件初始化失败: {e}")
+
         try:
             logger.add(_ring_sink, level=level)
         except Exception:
             pass
+
         if sys.stderr is not None:
             try:
                 logger.add(sys.stderr, level=level)
@@ -321,11 +329,8 @@ def setup_logging():
 setup_logging()
 
 if not HAS_WEBENGINE:
-    logger.warning("QtWebEngine 未安装，「局域网传输」页将降级为外部浏览器模式")
+    logger.warning("QtWebEngine 未安装，「局域网传输」和「老游戏资料」页将降级为外部浏览器模式")
 
-# ============================================================
-# 3.5 内置默认 JSON 数据
-# ============================================================
 DEFAULT_ENGINES_JSON_STR = r"""
 {
   "_shared": {
@@ -411,7 +416,9 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "launch_template": "{exe} -batch \"{rom}\"",
         "settings_args": "-settings",
         "perf_profiles": {"省电": "-batch --renderer software", "平衡": "-batch", "高性能": "-batch --fullscreen", "画质优先": "-batch --fullscreen --renderer vulkan"},
-        "version_overrides": [{"range": "<0.1.0", "launch_template": "{exe} -batch \"{rom}\"", "settings_args": "-settings"}],
+        "version_overrides": [
+          {"range": "<0.1.0", "launch_template": "{exe} -batch \"{rom}\"", "settings_args": "-settings"}
+        ],
         "bios_dir": "bios",
         "official": true
       },
@@ -448,7 +455,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
     "platform_name": "SS / 世嘉土星",
     "rom_extensions": [".bin", ".cue", ".iso", ".chd", ".mds", ".mdf"],
     "engines": {
-      "mednafen": {"use_shared": "mednafen", "bios_required": true, "bios_files": ["mpr-17933.bin", "sega_101.bin"], "bios_dir": "firmware"},
+      "mednafen": {
+        "use_shared": "mednafen",
+        "bios_required": true,
+        "bios_files": ["mpr-17933.bin", "sega_101.bin"],
+        "bios_dir": "firmware"
+      },
       "ssf": {
         "version": "PreviewVer R38",
         "url": "manual",
@@ -622,7 +634,9 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "launch_template": "{exe} -batch \"{rom}\"",
         "settings_args": "",
         "perf_profiles": {"省电": "-batch --renderer software", "平衡": "-batch", "高性能": "-batch --fullscreen", "画质优先": "-batch --fullscreen --renderer vulkan"},
-        "version_overrides": [{"range": "<2.0.0", "launch_template": "{exe} --batch \"{rom}\"", "settings_args": ""}],
+        "version_overrides": [
+          {"range": "<2.0.0", "launch_template": "{exe} --batch \"{rom}\"", "settings_args": ""}
+        ],
         "bios_required": true,
         "bios_dir": "bios",
         "official": true
@@ -669,6 +683,19 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "perf_profiles": {},
         "official": true,
         "note": "SourceForge 无稳定直链，需手动下载"
+      },
+      "nintendulator": {
+        "version": "unknown",
+        "url": "manual",
+        "url_type": "manual",
+        "official_site": "http://www.qmtpro.com/~nes/nintendulator/",
+        "archive": "zip",
+        "match": {"exe": ["Nintendulator.exe", "nintendulator.exe"], "folder": ["Nintendulator"], "keywords": ["nintendulator"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "精度优先，需手动下载"
       }
     }
   },
@@ -688,6 +715,32 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true
+      },
+      "gopher64": {
+        "version": "1.1.36",
+        "url": "https://github.com/gopher64/gopher64/releases/download/v1.1.36/gopher64-windows-x86_64.exe",
+        "url_type": "direct",
+        "github_repo": "gopher64/gopher64",
+        "archive": "bare_exe",
+        "match": {"exe": ["gopher64-windows-x86_64.exe", "gopher64.exe"], "keywords": ["gopher64"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "裸 exe，下载后直接使用"
+      },
+      "ares": {
+        "version": "148",
+        "url": "https://github.com/ares-emulator/ares/releases/download/v148/ares-windows-x64.zip",
+        "url_type": "direct",
+        "github_repo": "ares-emulator/ares",
+        "archive": "zip",
+        "match": {"exe": ["ares.exe"], "folder": ["ares"], "keywords": ["ares"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "多平台模拟器"
       },
       "simple64": {
         "version": "2024.12.1",
@@ -713,6 +766,19 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "perf_profiles": {},
         "official": true
       },
+      "neon64": {
+        "version": "2.0-beta.4",
+        "url": "https://github.com/hcs64/neon64v2/releases/download/v2.0-beta.4/neon64v2b4.zip",
+        "url_type": "direct",
+        "github_repo": "hcs64/neon64v2",
+        "archive": "zip",
+        "match": {"exe": ["neon64.exe"], "folder": ["neon64", "neon64v2"], "keywords": ["neon64"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "轻量 N64 模拟器"
+      },
       "project64": {
         "version": "unknown",
         "url": "manual",
@@ -725,6 +791,19 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "perf_profiles": {},
         "official": false,
         "note": "需手动下载"
+      },
+      "cen64": {
+        "version": "unknown",
+        "url": "manual",
+        "url_type": "manual",
+        "official_site": "https://github.com/cen64/cen64",
+        "archive": "zip",
+        "match": {"exe": ["cen64.exe"], "keywords": ["cen64"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "精度优先，无 Windows 预编译包"
       }
     }
   },
@@ -755,6 +834,19 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true
+      },
+      "noods": {
+        "version": "latest",
+        "url": "https://github.com/Hydr8gon/NooDS/releases/download/release/noods-windows.zip",
+        "url_type": "direct",
+        "github_repo": "Hydr8gon/NooDS",
+        "archive": "zip",
+        "match": {"exe": ["noods.exe", "NooDS.exe"], "folder": ["noods", "NooDS"], "keywords": ["noods"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "轻量 NDS/GBA 模拟器"
       }
     }
   },
@@ -775,6 +867,19 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true,
         "note": "Citra 后继项目"
+      },
+      "zakuro": {
+        "version": "0.2.9",
+        "url": "https://github.com/fearkov/zakuro/releases/download/v0.2.9/zakuro-windows-x86_64.zip",
+        "url_type": "direct",
+        "github_repo": "fearkov/zakuro",
+        "archive": "zip",
+        "match": {"exe": ["zakuro.exe"], "folder": ["zakuro"], "keywords": ["zakuro"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "⚠ 实验性：Rust 重写的 3DS 模拟器"
       }
     }
   },
@@ -950,13 +1055,17 @@ DEFAULT_ENGINES_JSON_STR = r"""
   "neogeo": {
     "platform_name": "Neo Geo",
     "rom_extensions": [".zip", ".neo"],
-    "engines": {"mame": {"use_shared": "mame"}}
+    "engines": {
+      "mame": {"use_shared": "mame"}
+    }
   },
 
   "arcade": {
     "platform_name": "Arcade",
     "rom_extensions": [".zip", ".7z"],
-    "engines": {"mame": {"use_shared": "mame"}}
+    "engines": {
+      "mame": {"use_shared": "mame"}
+    }
   },
 
   "x68000": {
@@ -1239,7 +1348,9 @@ DEFAULT_ENGINES_JSON_STR = r"""
   "multi": {
     "platform_name": "万能 / 前端",
     "rom_extensions": [],
-    "engines": {"retroarch": {"use_shared": "retroarch"}}
+    "engines": {
+      "retroarch": {"use_shared": "retroarch"}
+    }
   },
 
   "wii": {
@@ -1353,6 +1464,19 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true
+      },
+      "cpc_syntax_error": {
+        "version": "0.3.0",
+        "url": "https://github.com/WacKEDmaN/CPCSyntaxError/releases/download/v0.3.0/CPCSyntaxError-win64-v0.3.0.zip",
+        "url_type": "direct",
+        "github_repo": "WacKEDmaN/CPCSyntaxError",
+        "archive": "zip",
+        "match": {"exe": ["CPCSyntaxError.exe", "cpcsyntaxerror.exe"], "folder": ["CPCSyntaxError"], "keywords": ["cpcsyntax"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "⚠ 实验性：CPC 新模拟器"
       }
     }
   },
@@ -1432,6 +1556,19 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "settings_args": "",
         "perf_profiles": {},
         "official": true
+      },
+      "1984": {
+        "version": "0.4.20",
+        "url": "https://github.com/salvogendut/1984/releases/download/v0.4.20/1984-v0.4.20-windows-x86_64.zip",
+        "url_type": "direct",
+        "github_repo": "salvogendut/1984",
+        "archive": "zip",
+        "match": {"exe": ["1984.exe", "emulator.exe"], "folder": ["1984"], "keywords": ["1984"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "⚠ 实验性：ZX Spectrum 新模拟器"
       }
     }
   },
@@ -1478,6 +1615,26 @@ DEFAULT_ENGINES_JSON_STR = r"""
     }
   },
 
+  "bbcmicro": {
+    "platform_name": "BBC Micro",
+    "rom_extensions": [".ssd", ".dsd", ".adf", ".uef", ".tap", ".zip"],
+    "engines": {
+      "b2": {
+        "version": "20260322",
+        "url": "https://github.com/tom-seddon/b2/releases/download/b2-20260322-193052-51e70d7/symbols.b2-windows-20260322-193052-51e70d7.7z",
+        "url_type": "direct",
+        "github_repo": "tom-seddon/b2",
+        "archive": "7z",
+        "match": {"exe": ["b2.exe", "B2.exe"], "folder": ["b2", "B2"], "keywords": ["b2"]},
+        "launch_template": "{exe} \"{rom}\"",
+        "settings_args": "",
+        "perf_profiles": {},
+        "official": true,
+        "note": "⚠ 你提供的是符号包，若识别不到主程序请手动导入"
+      }
+    }
+  },
+
   "unknown": {
     "platform_name": "未知渠道",
     "rom_extensions": [],
@@ -1500,8 +1657,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
 }
 """
 
+
+# ★ v1.6.3：默认工作区支持多文件夹
 DEFAULT_FOLDERS_JSON = {
-    "folders": [{"name": "默认工作区", "path": str(DATA_DIR)}],
+    "folders": [
+        {"name": "默认工作区", "path": str(DATA_DIR), "type": "mixed"}
+    ],
     "active_index": 0,
 }
 
@@ -1551,6 +1712,7 @@ DEFAULT_SETTINGS_JSON = {
     "proxy_pwd": "",
     "proxy_bypass": "",
     "plugins_auto_load": True,
+    # v1.5.1
     "log_level": "INFO",
     "log_keep_days": 14,
     "crash_report_enabled": True,
@@ -1563,6 +1725,13 @@ DEFAULT_SETTINGS_JSON = {
     "resource_mem_mb": 0,
     "resource_force_unlock": False,
     "resource_safety_ratio": 70,
+    # v1.6.3
+    "background_image": "",
+    "background_mode": "cover",
+    "background_opacity": 100,
+    "drag_drop_enabled": True,
+    "drag_drop_bios_exts": [".bin", ".rom", ".dat", ".keys"],
+    "drag_drop_game_min_size": 4096,
 }
 
 DEFAULT_MIRRORS_JSON = {
@@ -1590,8 +1759,7 @@ DEFAULT_ROMS_JSON = {"games": []}
 DEFAULT_RESOURCES_JSON = {
     "groups": [
         {
-            "name": "安全跳转",
-            "icon": "✅",
+            "name": "安全跳转", "icon": "✅",
             "items": [
                 {"name": "Internet Archive", "url": "https://archive.org/", "desc": "非营利数字图书馆，含合法归档的老游戏"},
                 {"name": "Internet Archive 软件区", "url": "https://archive.org/details/software", "desc": "老软件、老游戏归档，分类浏览"},
@@ -1603,8 +1771,7 @@ DEFAULT_RESOURCES_JSON = {
             ]
         },
         {
-            "name": "灰色跳转",
-            "icon": "⚠️",
+            "name": "灰色跳转", "icon": "⚠️",
             "items": [
                 {"name": "Myrient", "url": "https://myrient.erista.me/", "desc": "被 Emulation Wiki 评为最好的现代 ROM 库"},
                 {"name": "Vimm's Lair", "url": "https://vimm.net/", "desc": "老牌站，已下架大量第一方内容"},
@@ -1635,7 +1802,8 @@ DEFAULT_BIOS_DB = {
                 "scph10000.bin": {"md5": "8dd7d5296a650fac7319bcecf08d9a3c", "region": "JP", "ver": "1.0"},
                 "scph7502.bin": {"md5": "b9d9a0286c33dc6b7237bb13cd46fdee", "region": "EU", "ver": "2.2"}
             },
-            "aliases": {"SCPH1001.BIN": "scph1001.bin", "bios.bin": "scph1001.bin", "ps1bios.bin": "scph1001.bin", "psx.bin": "scph1001.bin"}
+            "aliases": {"SCPH1001.BIN": "scph1001.bin", "bios.bin": "scph1001.bin",
+                        "ps1bios.bin": "scph1001.bin", "psx.bin": "scph1001.bin"}
         },
         "ss": {
             "display": "Sega Saturn",
@@ -1772,6 +1940,7 @@ DEFAULT_LANG_PACKS = {
         "nav_library": "游戏库", "nav_engines": "模拟器", "nav_bios": "BIOS",
         "nav_stats": "统计", "nav_resources": "资源", "nav_lan": "局域网",
         "nav_webtransfer": "局域网传输",
+        "nav_retro_docs": "老游戏资料",
         "nav_settings": "设置",
         "toolbar_import_engine": "导入模拟器", "toolbar_download_engine": "下载模拟器",
         "toolbar_import_game": "导入游戏", "toolbar_export": "导出",
@@ -1919,6 +2088,46 @@ DEFAULT_LANG_PACKS = {
         "settings_platform_saved": "平台已保存",
         "settings_credits": "鸣谢",
         "settings_credits_btn": "查看鸣谢",
+        # ★ v1.6.3
+        "settings_project": "项目",
+        "settings_project_repo": "项目地址",
+        "settings_project_open": "🌐 打开项目主页",
+        "settings_project_hint": "点击后用系统默认浏览器打开 GitHub 仓库。",
+        "settings_background": "全局背景",
+        "settings_background_hint": "选择一张图片作为主窗口背景。留空 = 使用主题默认背景。",
+        "settings_background_pick": "选择图片…",
+        "settings_background_clear": "清除背景",
+        "settings_background_mode": "填充方式",
+        "settings_background_mode_cover": "铺满（裁切）",
+        "settings_background_mode_contain": "适应（留边）",
+        "settings_background_mode_stretch": "拉伸",
+        "settings_background_mode_tile": "平铺",
+        "settings_background_opacity": "不透明度",
+        "settings_background_applied": "背景已更新",
+        "settings_folders": "多文件夹管理",
+        "settings_folders_hint": "管理多个工作区。当前工作区决定 ROM / BIOS / 存档的根目录。",
+        "settings_folders_col_name": "名称",
+        "settings_folders_col_path": "路径",
+        "settings_folders_col_type": "类型",
+        "settings_folders_col_op": "操作",
+        "settings_folders_add": "添加工作区",
+        "settings_folders_save": "保存工作区",
+        "settings_folders_del": "删除",
+        "settings_folders_del_confirm": "删除工作区「{name}」？（不会删除磁盘文件）",
+        "settings_folders_saved": "工作区已保存",
+        "settings_folders_active": "设为当前",
+        "settings_folders_type_mixed": "综合",
+        "settings_folders_type_rom": "仅 ROM",
+        "settings_folders_type_bios": "仅 BIOS",
+        "settings_drag_drop": "拖拽识别",
+        "settings_drag_drop_enable": "启用拖拽自动识别",
+        "settings_drag_drop_hint": "把文件拖到主窗口：.py → 插件；.bin/.rom 等 → BIOS；游戏后缀 → 游戏库。",
+        "retro_docs_title": "老游戏资料",
+        "retro_docs_hint": "内嵌资料站，方便查老游戏攻略和详情。需要联网。",
+        "retro_docs_open_external": "用外部浏览器打开",
+        "retro_docs_reload": "重新加载",
+        "retro_docs_fallback": "未检测到 QtWebEngine，无法内嵌网页。\n\n点下方按钮用外部浏览器打开资料站。",
+        "retro_docs_url": "https://nostalibrary.tzengyuxio.me/",
         "credits_title": "鸣谢",
         "credits_deps": "Python 依赖",
         "credits_emulators": "开源模拟器项目",
@@ -2258,6 +2467,7 @@ DEFAULT_LANG_PACKS = {
         "webtransfer_install_failed": "启动安装进程失败。",
         "msg_ok": "确定", "msg_cancel": "取消", "msg_warning": "警告",
         "msg_error": "错误", "msg_info": "提示", "msg_confirm": "确认",
+        # 插件相关
         "plugins_title": "插件",
         "plugins_hint": "插件放在 data/mikan_emu/plugins/<id>/ 下，每个插件包含 plugin.json 和 main.py。\n启用/禁用或导入新插件后，需要点「重启程序」才能生效。",
         "plugins_col_enabled": "启用",
@@ -2278,6 +2488,7 @@ DEFAULT_LANG_PACKS = {
         "plugins_state_disabled": "禁用",
         "plugins_restart_confirm": "将关闭当前窗口并重新启动程序。\n继续？",
         "plugins_load_failed": "插件 {pid} 加载失败: {err}",
+        # v1.5.1 日志 / 诊断
         "log_viewer_title": "日志与诊断",
         "log_level_all": "全部",
         "log_auto_scroll": "自动滚动",
@@ -2297,9 +2508,11 @@ DEFAULT_LANG_PACKS = {
         "settings_log_level": "日志级别",
         "settings_log_keep_days": "日志保留天数",
         "settings_crash_report_enabled": "未捕获异常时自动生成诊断包",
+        # v1.5.1 Windows 版本
         "win_version_too_old_title": "系统版本过低",
-        "win_version_too_old": "当前 Windows 构建号 {build}，低于本程序要求（Win7 SP1 = 7601）。\n请安装 SP1 补丁包，或升级系统。",
+        "win_version_too_old": "当前 Windows 构建号 {build}，低于 Qt6 要求的 17763（Win10 1809）。\n请升级系统，或使用旧版 mikan_emu。",
         "win_version_label": "系统: {name} (build {build}) · 机器档次: {tier}",
+        # v1.5.1 机器档次 / 资源策略
         "machine_tier_title": "资源策略",
         "machine_tier_label": "机器档次",
         "machine_tier_low": "低配 (老电脑)",
@@ -2321,6 +2534,7 @@ DEFAULT_LANG_PACKS = {
         "nav_library": "Library", "nav_engines": "Emulators", "nav_bios": "BIOS",
         "nav_stats": "Stats", "nav_resources": "Resources", "nav_lan": "LAN",
         "nav_webtransfer": "LAN Transfer",
+        "nav_retro_docs": "Retro Docs",
         "nav_settings": "Settings",
         "toolbar_import_engine": "Import Engine",
         "toolbar_download_engine": "Download Engine",
@@ -2470,6 +2684,46 @@ DEFAULT_LANG_PACKS = {
         "settings_platform_saved": "Platforms saved",
         "settings_credits": "Credits",
         "settings_credits_btn": "View Credits",
+        # ★ v1.6.3
+        "settings_project": "Project",
+        "settings_project_repo": "Project URL",
+        "settings_project_open": "🌐 Open Project Homepage",
+        "settings_project_hint": "Click to open the GitHub repository in your default browser.",
+        "settings_background": "Global Background",
+        "settings_background_hint": "Pick an image as the main window background. Empty = theme default.",
+        "settings_background_pick": "Pick image…",
+        "settings_background_clear": "Clear background",
+        "settings_background_mode": "Fill mode",
+        "settings_background_mode_cover": "Cover (crop)",
+        "settings_background_mode_contain": "Contain (letterbox)",
+        "settings_background_mode_stretch": "Stretch",
+        "settings_background_mode_tile": "Tile",
+        "settings_background_opacity": "Opacity",
+        "settings_background_applied": "Background updated",
+        "settings_folders": "Multi-Folder",
+        "settings_folders_hint": "Manage multiple workspaces. Active workspace sets root for ROM / BIOS / Saves.",
+        "settings_folders_col_name": "Name",
+        "settings_folders_col_path": "Path",
+        "settings_folders_col_type": "Type",
+        "settings_folders_col_op": "Op",
+        "settings_folders_add": "Add Workspace",
+        "settings_folders_save": "Save Workspaces",
+        "settings_folders_del": "Del",
+        "settings_folders_del_confirm": "Delete workspace '{name}'? (Disk files untouched)",
+        "settings_folders_saved": "Workspaces saved",
+        "settings_folders_active": "Set Active",
+        "settings_folders_type_mixed": "Mixed",
+        "settings_folders_type_rom": "ROM only",
+        "settings_folders_type_bios": "BIOS only",
+        "settings_drag_drop": "Drag & Drop",
+        "settings_drag_drop_enable": "Enable drag & drop auto-detect",
+        "settings_drag_drop_hint": "Drop files onto main window: .py → plugins; .bin/.rom → BIOS; game extensions → library.",
+        "retro_docs_title": "Retro Docs",
+        "retro_docs_hint": "Embedded docs site for old games. Requires network.",
+        "retro_docs_open_external": "Open in browser",
+        "retro_docs_reload": "Reload",
+        "retro_docs_fallback": "QtWebEngine not found. Cannot embed page.\n\nClick the button below to open the docs site in your browser.",
+        "retro_docs_url": "https://nostalibrary.tzengyuxio.me/",
         "credits_title": "Credits",
         "credits_deps": "Python Dependencies",
         "credits_emulators": "Open Source Emulator Projects",
@@ -2857,7 +3111,7 @@ DEFAULT_LANG_PACKS = {
         "settings_log_keep_days": "Keep log for (days)",
         "settings_crash_report_enabled": "Auto-generate diagnostics on uncaught exception",
         "win_version_too_old_title": "OS Version Too Old",
-        "win_version_too_old": "Current Windows build {build} is below Win7 SP1 (7601).\nPlease install SP1 or upgrade.",
+        "win_version_too_old": "Current Windows build {build} is below Qt6 minimum 17763 (Win10 1809).\nPlease upgrade or use older mikan_emu.",
         "win_version_label": "OS: {name} (build {build}) · Machine tier: {tier}",
         "machine_tier_title": "Resource Policy",
         "machine_tier_label": "Machine tier",
@@ -2879,63 +3133,43 @@ DEFAULT_LANG_PACKS = {
 
 def _machine_translate(zh_pack: dict, lang: str) -> dict:
     MAPS = {
-        "ru": {
-            "游戏库": "Библиотека", "模拟器": "Эмуляторы", "设置": "Настройки",
-            "统计": "Статистика", "资源": "Ресурсы", "局域网": "Локальная сеть",
-            "局域网传输": "Локальная передача",
-            "导入": "Импорт", "下载": "Скачать",
-            "刷新": "Обновить", "全部平台": "Все платформы",
-            "名称": "Имя", "平台": "Платформа",
-            "大小": "Размер", "时长": "Время", "路径": "Путь",
-            "收藏": "Избранное", "最近": "Недавние", "全部": "Все",
-            "启动": "Запуск", "取消": "Отмена", "确定": "OK",
-            "警告": "Внимание", "错误": "Ошибка", "提示": "Инфо",
-            "确认": "Подтвердить", "保存": "Сохранить",
-            "语言": "Язык", "工作区": "Рабочая область",
-            "管理员权限": "Права администратора",
-            "下载线程数": "Потоки загрузки", "添加": "Добавить",
-            "删除": "Удалить", "上移": "Вверх", "下移": "Вниз",
-            "测试全部": "Проверить все", "恢复默认": "Сбросить",
-            "系统托盘": "Системный трей",
-        },
-        "ja": {
-            "游戏库": "ライブラリ", "模拟器": "エミュレータ", "设置": "設定",
-            "统计": "統計", "资源": "リソース", "局域网": "LAN",
-            "局域网传输": "LAN 転送",
-            "导入": "インポート", "下载": "ダウンロード",
-            "刷新": "更新", "全部平台": "すべてのプラットフォーム",
-            "名称": "名前", "平台": "プラットフォーム",
-            "大小": "サイズ", "时长": "プレイ時間", "路径": "パス",
-            "收藏": "お気に入り", "最近": "最近", "全部": "すべて",
-            "启动": "起動", "取消": "キャンセル", "确定": "OK",
-            "警告": "警告", "错误": "エラー", "提示": "情報",
-            "确认": "確認", "保存": "保存",
-            "语言": "言語", "工作区": "ワークスペース",
-            "管理员权限": "管理者権限",
-            "下载线程数": "ダウンロードスレッド数", "添加": "追加",
-            "删除": "削除", "上移": "上へ", "下移": "下へ",
-            "测试全部": "すべてテスト", "恢复默认": "デフォルトに戻す",
-            "系统托盘": "システムトレイ",
-        },
-        "fr": {
-            "游戏库": "Bibliothèque", "模拟器": "Émulateurs", "设置": "Paramètres",
-            "统计": "Statistiques", "资源": "Ressources", "局域网": "LAN",
-            "局域网传输": "Transfert LAN",
-            "导入": "Importer", "下载": "Télécharger",
-            "刷新": "Actualiser", "全部平台": "Toutes les plateformes",
-            "名称": "Nom", "平台": "Plateforme",
-            "大小": "Taille", "时长": "Durée", "路径": "Chemin",
-            "收藏": "Favoris", "最近": "Récents", "全部": "Tout",
-            "启动": "Lancer", "取消": "Annuler", "确定": "OK",
-            "警告": "Avertissement", "错误": "Erreur", "提示": "Info",
-            "确认": "Confirmer", "保存": "Enregistrer",
-            "语言": "Langue", "工作区": "Espace de travail",
-            "管理员权限": "Droits admin",
-            "下载线程数": "Threads de téléchargement", "添加": "Ajouter",
-            "删除": "Supprimer", "上移": "Monter", "下移": "Descendre",
-            "测试全部": "Tout tester", "恢复默认": "Réinitialiser",
-            "系统托盘": "Barre système",
-        },
+        "ru": {"游戏库": "Библиотека", "模拟器": "Эмуляторы", "设置": "Настройки",
+               "统计": "Статистика", "资源": "Ресурсы", "局域网": "Локальная сеть",
+               "局域网传输": "Локальная передача", "导入": "Импорт", "下载": "Скачать",
+               "刷新": "Обновить", "全部平台": "Все платформы", "名称": "Имя",
+               "平台": "Платформа", "大小": "Размер", "时长": "Время", "路径": "Путь",
+               "收藏": "Избранное", "最近": "Недавние", "全部": "Все", "启动": "Запуск",
+               "取消": "Отмена", "确定": "OK", "警告": "Внимание", "错误": "Ошибка",
+               "提示": "Инфо", "确认": "Подтвердить", "保存": "Сохранить", "语言": "Язык",
+               "工作区": "Рабочая область", "管理员权限": "Права администратора",
+               "下载线程数": "Потоки загрузки", "添加": "Добавить", "删除": "Удалить",
+               "上移": "Вверх", "下移": "Вниз", "测试全部": "Проверить все",
+               "恢复默认": "Сбросить", "系统托盘": "Системный трей"},
+        "ja": {"游戏库": "ライブラリ", "模拟器": "エミュレータ", "设置": "設定",
+               "统计": "統計", "资源": "リソース", "局域网": "LAN", "局域网传输": "LAN 転送",
+               "导入": "インポート", "下载": "ダウンロード", "刷新": "更新",
+               "全部平台": "すべてのプラットフォーム", "名称": "名前", "平台": "プラットフォーム",
+               "大小": "サイズ", "时长": "プレイ時間", "路径": "パス", "收藏": "お気に入り",
+               "最近": "最近", "全部": "すべて", "启动": "起動", "取消": "キャンセル",
+               "确定": "OK", "警告": "警告", "错误": "エラー", "提示": "情報",
+               "确认": "確認", "保存": "保存", "语言": "言語", "工作区": "ワークスペース",
+               "管理员权限": "管理者権限", "下载线程数": "ダウンロードスレッド数",
+               "添加": "追加", "删除": "削除", "上移": "上へ", "下移": "下へ",
+               "测试全部": "すべてテスト", "恢复默认": "デフォルトに戻す",
+               "系统托盘": "システムトレイ"},
+        "fr": {"游戏库": "Bibliothèque", "模拟器": "Émulateurs", "设置": "Paramètres",
+               "统计": "Statistiques", "资源": "Ressources", "局域网": "LAN",
+               "局域网传输": "Transfert LAN", "导入": "Importer", "下载": "Télécharger",
+               "刷新": "Actualiser", "全部平台": "Toutes les plateformes", "名称": "Nom",
+               "平台": "Plateforme", "大小": "Taille", "时长": "Durée", "路径": "Chemin",
+               "收藏": "Favoris", "最近": "Récents", "全部": "Tout", "启动": "Lancer",
+               "取消": "Annuler", "确定": "OK", "警告": "Avertissement",
+               "错误": "Erreur", "提示": "Info", "确认": "Confirmer", "保存": "Enregistrer",
+               "语言": "Langue", "工作区": "Espace de travail",
+               "管理员权限": "Droits admin", "下载线程数": "Threads de téléchargement",
+               "添加": "Ajouter", "删除": "Supprimer", "上移": "Monter", "下移": "Descendre",
+               "测试全部": "Tout tester", "恢复默认": "Réinitialiser",
+               "系统托盘": "Barre système"},
     }
     m = MAPS.get(lang, {})
     out = {}
@@ -3051,16 +3285,47 @@ STATS: dict = {}
 UPDATE_IGNORE: dict = {}
 
 
+_FOLDER_TYPE_MIGRATION = {
+    "mixed": "mixed",
+    "rom": "rom",
+    "bios": "bios",
+    "general": "mixed",
+    "": "mixed",
+}
+
+
+def _normalize_folder_entry(folder: dict) -> dict:
+    if not isinstance(folder, dict):
+        return {"name": "未命名工作区", "path": str(DATA_DIR), "type": "mixed"}
+    name = (folder.get("name") or "未命名工作区").strip() or "未命名工作区"
+    path = (folder.get("path") or str(DATA_DIR)).strip() or str(DATA_DIR)
+    ftype = _FOLDER_TYPE_MIGRATION.get((folder.get("type") or "mixed").lower(), "mixed")
+    return {"name": name, "path": path, "type": ftype}
+
+
 def load_folders_config():
     global FOLDERS_CONFIG
     if FOLDERS_FILE.exists():
         try:
             with open(FOLDERS_FILE, "r", encoding="utf-8") as f:
-                FOLDERS_CONFIG = json.load(f)
-        except Exception:
-            FOLDERS_CONFIG = json.loads(json.dumps(DEFAULT_FOLDERS_JSON))
-    if not FOLDERS_CONFIG.get("folders"):
-        FOLDERS_CONFIG = json.loads(json.dumps(DEFAULT_FOLDERS_JSON))
+                raw = json.load(f)
+        except Exception as e:
+            logger.exception(f"加载 folders 失败: {e}")
+            raw = None
+        if isinstance(raw, dict) and isinstance(raw.get("folders"), list):
+            normalized = [_normalize_folder_entry(x) for x in raw["folders"]]
+            try:
+                idx = int(raw.get("active_index", 0))
+            except Exception:
+                idx = 0
+            if not (0 <= idx < len(normalized)):
+                idx = 0
+            FOLDERS_CONFIG = {"folders": normalized, "active_index": idx}
+            return
+    FOLDERS_CONFIG = json.loads(json.dumps(DEFAULT_FOLDERS_JSON))
+    FOLDERS_CONFIG["folders"] = [
+        _normalize_folder_entry(x) for x in FOLDERS_CONFIG.get("folders", [])
+    ]
 
 
 def save_folders_config():
@@ -3079,6 +3344,9 @@ def load_settings():
                 SETTINGS.update(json.load(f))
         except Exception as e:
             logger.exception(f"加载 settings 失败: {e}")
+    for k, v in DEFAULT_SETTINGS_JSON.items():
+        SETTINGS.setdefault(
+            k, json.loads(json.dumps(v)) if isinstance(v, (dict, list)) else v)
 
 
 def save_settings():
@@ -3131,12 +3399,9 @@ def load_mirrors():
         try:
             with open(MIRRORS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if "mirrors" not in data:
-                data["mirrors"] = list(DEFAULT_MIRRORS_JSON["mirrors"])
-            if "api_mirrors" not in data:
-                data["api_mirrors"] = list(DEFAULT_MIRRORS_JSON["api_mirrors"])
-            if "enabled" not in data:
-                data["enabled"] = True
+            data.setdefault("mirrors", list(DEFAULT_MIRRORS_JSON["mirrors"]))
+            data.setdefault("api_mirrors", list(DEFAULT_MIRRORS_JSON["api_mirrors"]))
+            data.setdefault("enabled", True)
             MIRRORS_CONFIG = data
         except Exception:
             MIRRORS_CONFIG = json.loads(json.dumps(DEFAULT_MIRRORS_JSON))
@@ -3213,18 +3478,14 @@ def get_mirror_list() -> list:
     if not MIRRORS_CONFIG.get("enabled", True):
         return [""]
     mirrors = MIRRORS_CONFIG.get("mirrors", [])
-    if not mirrors:
-        return [""]
-    return mirrors
+    return mirrors if mirrors else [""]
 
 
 def get_api_mirror_list() -> list:
     if not MIRRORS_CONFIG.get("enabled", True):
         return [""]
     mirrors = MIRRORS_CONFIG.get("api_mirrors", [])
-    if not mirrors:
-        return [""]
-    return mirrors
+    return mirrors if mirrors else [""]
 
 
 def get_active_folder() -> dict:
@@ -3232,7 +3493,31 @@ def get_active_folder() -> dict:
     idx = FOLDERS_CONFIG.get("active_index", 0)
     if folders and 0 <= idx < len(folders):
         return folders[idx]
-    return {"name": "默认工作区", "path": str(DATA_DIR)}
+    return {"name": "默认工作区", "path": str(DATA_DIR), "type": "mixed"}
+
+
+def get_active_rom_dir() -> Path:
+    f = get_active_folder()
+    ftype = f.get("type", "mixed")
+    base = Path(f.get("path", str(DATA_DIR)))
+    if ftype == "bios":
+        return ROM_DIR
+    return base / "roms" if (base / "roms").exists() or ftype == "mixed" else ROM_DIR
+
+
+def get_active_bios_dir() -> Path:
+    f = get_active_folder()
+    ftype = f.get("type", "mixed")
+    base = Path(f.get("path", str(DATA_DIR)))
+    if ftype == "rom":
+        return BIOS_DIR
+    return base / "bios" if (base / "bios").exists() or ftype == "mixed" else BIOS_DIR
+
+
+def get_active_save_dir() -> Path:
+    f = get_active_folder()
+    base = Path(f.get("path", str(DATA_DIR)))
+    return base / "saves" if (base / "saves").exists() else SAVE_DIR
 
 
 load_folders_config()
@@ -3245,6 +3530,7 @@ load_stats()
 load_update_ignore()
 
 setup_logging()
+
 
 # ============================================================
 # 5.1 Windows 版本检测（Win7 SP1 最低要求）+ 硬件探测
@@ -3293,7 +3579,8 @@ def get_windows_name(build: int) -> str:
     return "未知"
 
 
-def check_win7_sp1_minimum() -> tuple:
+def check_win10_1809_minimum() -> tuple:
+    """Win7 移植版：最低要求 Win7 SP1 (build 7601)。"""
     build = get_windows_build()
     if build == 0:
         return True, ""
@@ -3305,22 +3592,12 @@ def check_win7_sp1_minimum() -> tuple:
     return True, ""
 
 
-def check_win10_1809_minimum() -> tuple:
-    return check_win7_sp1_minimum()
-
-
 def probe_hardware(force: bool = False) -> dict:
     global _HW_CACHE
     if _HW_CACHE and not force:
         return _HW_CACHE
-
-    info = {
-        "cpu_logical": 1,
-        "cpu_physical": 1,
-        "mem_total_mb": 0,
-        "mem_available_mb": 0,
-        "has_psutil": HAS_PSUTIL,
-    }
+    info = {"cpu_logical": 1, "cpu_physical": 1,
+            "mem_total_mb": 0, "mem_available_mb": 0, "has_psutil": HAS_PSUTIL}
     if HAS_PSUTIL:
         try:
             info["cpu_logical"] = psutil.cpu_count(logical=True) or 1
@@ -3330,14 +3607,12 @@ def probe_hardware(force: bool = False) -> dict:
             info["mem_available_mb"] = vm.available // (1024 * 1024)
         except Exception as e:
             logger.warning(f"硬件探测失败: {e}")
-
     try:
         ratio = int(SETTINGS.get("resource_safety_ratio", 70)) / 100.0
     except Exception:
         ratio = 0.70
     info["cpu_limit"] = max(1, int(info["cpu_logical"] * ratio))
     info["mem_limit_mb"] = int(info["mem_total_mb"] * ratio)
-
     _HW_CACHE = info
     return info
 
@@ -3422,23 +3697,18 @@ def apply_resource_policy(pid: int, cores: int, mem_mb: int) -> tuple:
         proc = psutil.Process(pid)
     except Exception as e:
         return False, str(e)
-
     applied = []
     if cores > 0:
         try:
             hw = probe_hardware()
-            n = min(int(cores), int(hw["cpu_logical"]))
-            if n < 1:
-                n = 1
+            n = max(1, min(int(cores), int(hw["cpu_logical"])))
             affinity = list(range(n))
             proc.cpu_affinity(affinity)
             applied.append(f"CPU 亲和性: {affinity}")
         except Exception as e:
             logger.warning(f"CPU 亲和性设置失败: {e}")
-
     if mem_mb > 0:
         logger.info(f"内存建议: 目标 {mem_mb}MB（Windows 无原生 per-process 限额，仅记录）")
-
     if applied:
         logger.info(f"资源策略已应用: {'; '.join(applied)}")
         return True, ""
@@ -3484,7 +3754,6 @@ def _collect_system_info() -> str:
         lines.append(f"DATA_DIR: {DATA_DIR}")
     except Exception:
         pass
-
     if HAS_PSUTIL:
         try:
             lines.append(f"CPU: {psutil.cpu_count(logical=False)}C/{psutil.cpu_count()}T")
@@ -3492,7 +3761,6 @@ def _collect_system_info() -> str:
             lines.append(f"RAM: {vm.total / (1 << 30):.1f} GB (可用 {vm.available / (1 << 30):.1f} GB)")
         except Exception as e:
             lines.append(f"psutil 信息读取失败: {e}")
-
     for mod, pkg in OPTIONAL.items():
         try:
             importlib.import_module(mod)
@@ -3501,7 +3769,6 @@ def _collect_system_info() -> str:
             lines.append(f"opt {pkg}: MISSING")
         except Exception as e:
             lines.append(f"opt {pkg}: ERROR ({e})")
-
     return "\n".join(lines)
 
 
@@ -3644,34 +3911,18 @@ def autodetect_save_paths(engines_json: dict) -> dict:
     localappdata = Path(os.environ.get("LOCALAPPDATA", ""))
     candidates = {
         "snes9x": [docs / "Snes9x" / "Saves", DATA_DIR / "snes9x"],
-        "duckstation": [docs / "DuckStation", home / ".local/share/DuckStation", localappdata / "DuckStation"],
+        "duckstation": [docs / "DuckStation", localappdata / "DuckStation"],
         "mednafen": [home / ".mednafen" / "sav", DATA_DIR / "mednafen" / "sav"],
         "mgba": [docs / "mGBA", DATA_DIR / "mgba"],
-        "pcsx2": [docs / "PCSX2" / "memcards", home / ".config" / "PCSX2"],
+        "pcsx2": [docs / "PCSX2" / "memcards"],
         "ppsspp": [docs / "PPSSPP" / "PSP" / "SAVEDATA"],
         "desmume": [docs / "DeSmuME" / "Battery"],
         "melonds": [docs / "melonDS"],
-        "ryujinx": [appdata / "Ryujinx" / "bis" / "user" / "save"],
         "fceux": [DATA_DIR / "fceux" / "fcs"],
-        "mesen": [docs / "Mesen" / "saves"],
-        "mupen64plus": [DATA_DIR / "mupen64plus" / "save"],
         "mame": [DATA_DIR / "mame" / "nvram"],
-        "blastem": [DATA_DIR / "blastem"],
-        "sameboy": [docs / "SameBoy"],
-        "gambatte": [DATA_DIR / "gambatte"],
-        "flycast": [docs / "Flycast", DATA_DIR / "flycast"],
-        "ymir": [docs / "Ymir", appdata / "Ymir"],
-        "86box": [DATA_DIR / "86box", appdata / "86Box"],
-        "pcem": [DATA_DIR / "pcem", appdata / "PCem"],
         "dolphin": [docs / "Dolphin Emulator", appdata / "Dolphin Emulator"],
         "cemu": [DATA_DIR / "cemu", appdata / "Cemu"],
         "rpcs3": [DATA_DIR / "rpcs3", appdata / "rpcs3"],
-        "vita3k": [appdata / "Vita3K", DATA_DIR / "Vita3K"],
-        "azahar": [appdata / "azahar", DATA_DIR / "azahar"],
-        "vba-m": [DATA_DIR / "vba-m", appdata / "visualboyadvance-m"],
-        "noods": [DATA_DIR / "noods"],
-        "geargrafx": [DATA_DIR / "geargrafx"],
-        "gearcoleco": [DATA_DIR / "gearcoleco"],
     }
     result = {}
     for engine_name, paths in candidates.items():
@@ -3695,13 +3946,22 @@ def autodetect_retroarch_core_dir() -> str:
     installed = load_installed()
     for e in installed:
         if e.engine == "retroarch":
-            p = Path(e.engine_path).parent / "cores"
-            candidates.insert(0, p)
+            candidates.insert(0, Path(e.engine_path).parent / "cores")
     for c in candidates:
         if c.exists() and c.is_dir():
             return str(c)
     return ""
 
+
+def _dir_size(p: Path) -> int:
+    total = 0
+    try:
+        for f in p.rglob("*"):
+            if f.is_file():
+                total += f.stat().st_size
+    except Exception:
+        pass
+    return total
 
 # ============================================================
 # 5.5 操作说明数据库
@@ -3781,19 +4041,31 @@ CONTROLS_DB = {
         "方向": "方向键", "A/B": "Z / X",
         "Start/Select": "Enter / RShift",
         "存档/读档": "F5 / F7", "快进": "Tab", "全屏": "Alt+Enter"}},
+    "nintendulator": {"source": "http://www.qmtpro.com/~nes/nintendulator/", "keys": {
+        "方向": "方向键", "A/B": "Z / X",
+        "Start/Select": "Enter / Shift", "全屏": "Alt+Enter"}},
     "mupen64plus": {"source": "https://mupen64plus.org/", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter",
         "存档/读档": "F5 / F7", "全屏": "Alt+Enter"}},
+    "gopher64": {"source": "https://github.com/gopher64/gopher64", "keys": {
+        "说明": "键位参考 README 或源码默认值"}},
+    "ares": {"source": "https://ares-emu.net/", "keys": {
+        "说明": "多平台模拟器，键位在设置里逐平台配置",
+        "菜单": "F1 或手柄 Start"}},
     "simple64": {"source": "https://simple64.github.io/", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter", "存档/读档": "F5 / F7"}},
     "rmg": {"source": "https://github.com/Rosalie241/RMG", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter", "存档/读档": "F5 / F7"}},
+    "neon64": {"source": "https://github.com/hcs64/neon64v2", "keys": {
+        "说明": "轻量 N64 模拟器，键位参考 README"}},
     "project64": {"source": "https://www.pj64-emu.com/", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter", "存档/读档": "F5 / F7"}},
+    "cen64": {"source": "https://github.com/cen64/cen64", "keys": {
+        "说明": "命令行精度模拟器，无 GUI 键位设置"}},
     "desmume": {"source": "https://desmume.org/", "keys": {
         "方向": "方向键", "A/B/X/Y": "X / Z / S / A", "L/R": "Q / W",
         "Start/Select": "Enter / Backspace", "触摸屏": "鼠标",
@@ -3809,6 +4081,8 @@ CONTROLS_DB = {
         "方向": "WASD / 摇杆", "A/B/X/Y": "手柄默认",
         "L/R/ZL/ZR": "手柄默认", "Start/Select": "Enter / Backspace",
         "触摸屏": "鼠标", "全屏": "Alt+Enter"}},
+    "zakuro": {"source": "https://github.com/fearkov/zakuro", "keys": {
+        "说明": "Rust 实验性 3DS 模拟器，键位参考 README"}},
     "blastem": {"source": "https://www.retrodev.com/blastem/", "keys": {
         "方向": "方向键", "A/B/C": "A / S / D", "X/Y/Z": "Z / X / C",
         "Start/Mode": "Enter / Shift", "全屏": "Alt+Enter"}},
@@ -3837,6 +4111,9 @@ CONTROLS_DB = {
         "方向": "WASD / 方向键", "A/B/X/Y": "手柄默认",
         "L/R/ZL/ZR": "手柄默认", "全屏": "F11"}},
     "yuzu": {"source": "https://yuzu-mirror.github.io/", "keys": {
+        "方向": "WASD", "A/B/X/Y": "手柄默认",
+        "L/R/ZL/ZR": "手柄默认", "全屏": "F11"}},
+    "suyu": {"source": "https://github.com/suyu-emu/suyu-main", "keys": {
         "方向": "WASD", "A/B/X/Y": "手柄默认",
         "L/R/ZL/ZR": "手柄默认", "全屏": "F11"}},
     "mame": {"source": "https://docs.mamedev.org/usingmame/defaultkeys.html", "keys": {
@@ -3915,6 +4192,8 @@ CONTROLS_DB = {
     "caprice32": {"source": "https://github.com/ColinPitrat/caprice32", "keys": {
         "方向": "方向键", "A/B": "Z / X",
         "空格": "Space", "Enter": "Return", "全屏": "F11"}},
+    "cpc_syntax_error": {"source": "https://github.com/WacKEDmaN/CPCSyntaxError", "keys": {
+        "说明": "⚠ 实验性：CPC 新模拟器，键位参考 README"}},
     "vice": {"source": "https://vice-emu.sourceforge.io/", "keys": {
         "说明": "VICE，键位在菜单 Settings → Keyboard 里配置",
         "菜单": "F12 打开菜单"}},
@@ -3927,11 +4206,15 @@ CONTROLS_DB = {
     "zesarux": {"source": "https://github.com/chernandezba/zesarux", "keys": {
         "方向": "方向键", "按键": "Z / X / C / V",
         "菜单": "F5 打开菜单", "全屏": "F11"}},
+    "1984": {"source": "https://github.com/salvogendut/1984", "keys": {
+        "说明": "⚠ 实验性：ZX Spectrum 新模拟器，键位参考 README"}},
     "gearcoleco": {"source": "https://github.com/drhelius/Gearcoleco", "keys": {
         "方向": "方向键", "按钮 1/2": "Z / X",
         "小键盘": "1 / 2 / 3（按需）", "全屏": "Alt+Enter"}},
     "jzintv": {"source": "https://github.com/jenergy/jzIntvImGui", "keys": {
         "说明": "jzIntv ImGui 前端，键位参考 README"}},
+    "b2": {"source": "https://github.com/tom-seddon/b2", "keys": {
+        "说明": "⚠ BBC Micro 模拟器，键位参考 README"}},
 }
 
 
@@ -3951,6 +4234,7 @@ def get_generic_controls() -> dict:
             "提示": "不同模拟器键位不同，请查看对应官网文档。",
         }
     }
+
 
 # ============================================================
 # 6. engines.json 加载（深度合并 + 版本适配 + 共享定义）
@@ -5684,7 +5968,8 @@ def diagnose_launch_failure(engine: EmulatorConfig, game: GameEntry,
             bios_dir_rel = resolve_engine_field(engine, "bios_dir", "") or ""
             bios_dir = Path(engine.engine_dir) / bios_dir_rel
             for bf in bios_files:
-                if not (bios_dir / bf).exists() and not (BIOS_DIR / bf).exists():
+                if (not (bios_dir / bf).exists()
+                        and not (get_active_bios_dir() / bf).exists()):
                     issues.append(f"⚠️ 可能缺少 BIOS: {bf}")
 
     if exe.exists():
@@ -6533,6 +6818,7 @@ class LanChatServer(QThread):
             mtype = obj.get("type", "")
 
             if peer_id == self._identity.id:
+                logger.debug("忽略自环消息")
                 try:
                     conn.sendall(b'{"ok":true,"self":true}\n')
                 except Exception:
@@ -6972,19 +7258,8 @@ LAN_EMOJIS = [
     "🐱", "🐶", "🍕", "🍺", "☕", "🌸", "🌙", "☀️",
 ]
 
-
-def _dir_size(p: Path) -> int:
-    total = 0
-    try:
-        for f in p.rglob("*"):
-            if f.is_file():
-                total += f.stat().st_size
-    except Exception:
-        pass
-    return total
-
 # ============================================================
-# 17. QSS（Win11 风格样式表，PyQt5 完全兼容）
+# 17. QSS
 # ============================================================
 WIN11_QSS = """
 * {
@@ -7626,7 +7901,6 @@ def export_config_pack(
         "app": APP_NAME,
         "version": APP_VERSION,
         "format": 1,
-        "platform": "win7-pyqt5",
         "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "include": {
             "covers": include_covers,
@@ -7650,6 +7924,7 @@ def export_config_pack(
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("manifest.json",
                     json.dumps(manifest, ensure_ascii=False, indent=2))
+
         for name, path in [
             ("folders.json", FOLDERS_FILE),
             ("settings.json", SETTINGS_FILE),
@@ -7661,11 +7936,14 @@ def export_config_pack(
             ("update_ignore.json", UPDATE_IGNORE_FILE),
         ]:
             _add_file(zf, path, f"config/{name}")
+
         if include_stats:
             _add_file(zf, STATS_FILE, "config/stats.json")
+
         _add_file(zf, ENGINES_JSON, "engines/engines.json")
         _add_file(zf, INSTALLED_FILE, "engines/installed.json")
         _add_file(zf, ROMS_FILE, "roms/roms.json")
+
         if include_covers:
             _add_dir(zf, COVER_DIR, "covers")
         if include_saves:
@@ -7700,6 +7978,7 @@ def import_config_pack(pack_path: Path,
 
     with zipfile.ZipFile(pack_path, "r") as zf:
         names = zf.namelist()
+
         if "manifest.json" in names:
             try:
                 mf = json.loads(zf.read("manifest.json"))
@@ -8446,7 +8725,8 @@ class CreditsDialog(QDialog):
             "<b>SteamGridDB</b> — 现代平台封面<br>"
             "<b>Libretro 文档</b><br>"
             "<b>LocalSend Web</b> — 局域网传输后端<br>"
-            "<b>IPS / UPS 格式文档</b> — 补丁工具"
+            "<b>IPS / UPS 格式文档</b> — 补丁工具<br>"
+            "<b>骨灰集散地</b> — 老游戏资料"
         )
         lbl3 = QLabel(data_text)
         lbl3.setWordWrap(True)
@@ -8475,6 +8755,8 @@ class CreditsDialog(QDialog):
 
 
 class LogViewerDialog(QDialog):
+    """实时日志查看器。"""
+
     LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
     def __init__(self, parent=None):
@@ -8483,6 +8765,7 @@ class LogViewerDialog(QDialog):
         self.setMinimumSize(820, 560)
 
         self._keyword = ""
+        self._level_floor_idx = 2
         self._auto_scroll = True
         self._last_rendered_count = 0
 
@@ -8549,7 +8832,8 @@ class LogViewerDialog(QDialog):
         self.view.setReadOnly(True)
         self.view.setLineWrapMode(QTextEdit.NoWrap)
         self.view.setStyleSheet(
-            "font-family: 'Cascadia Mono', 'Consolas', monospace; font-size: 12px;")
+            "font-family: 'Cascadia Mono', 'Consolas', monospace; "
+            "font-size: 12px;")
         v.addWidget(self.view, 1)
 
         bottom = QHBoxLayout()
@@ -9420,7 +9704,10 @@ class LibraryPage(QWidget):
         self._proxy = GameFilterProxy()
         self._proxy.setSourceModel(self._model)
         self._games: list = []
-        self._view_mode = "list"
+        if SETTINGS.get("low_spec_mode", False):
+            self._view_mode = "list"
+        else:
+            self._view_mode = "list"
         self._build_ui()
 
     def _build_ui(self):
@@ -11678,6 +11965,124 @@ class ResourcesPage(QWidget):
 
 
 # ============================================================
+# ★ v1.6.3 新增：老游戏资料站页面
+# ============================================================
+class RetroDocsPage(QWidget):
+    """老游戏资料站。用 QtWebEngine 内嵌，没装时降级为外部浏览器打开。"""
+
+    def __init__(self):
+        super().__init__()
+        self._view = None
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        top = QHBoxLayout()
+        title = QLabel(tr("retro_docs_title"))
+        title.setObjectName("SectionTitle")
+        top.addWidget(title)
+        top.addStretch(1)
+
+        btn_reload = QPushButton(tr("retro_docs_reload"))
+        btn_reload.clicked.connect(self._reload)
+        top.addWidget(btn_reload)
+
+        btn_ext = QPushButton(tr("retro_docs_open_external"))
+        btn_ext.clicked.connect(self._open_external)
+        top.addWidget(btn_ext)
+
+        root.addLayout(top)
+
+        hint = QLabel(tr("retro_docs_hint"))
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        self._stack = QStackedWidget()
+        root.addWidget(self._stack, 1)
+
+        if HAS_WEBENGINE:
+            self._setup_webengine()
+        else:
+            self._setup_fallback()
+
+    def _setup_webengine(self):
+        try:
+            # ★ PyQt5：没有 QWebEngineProfile(name, parent)，用 defaultProfile
+            profile = QWebEngineProfile.defaultProfile()
+            try:
+                cache_dir = WEBENGINE_DIR / "retro_cache"
+                storage_dir = WEBENGINE_DIR / "retro_storage"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                storage_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    profile.setCachePath(str(cache_dir))
+                    profile.setPersistentStoragePath(str(storage_dir))
+                except Exception as e:
+                    logger.debug(f"设置资料站缓存目录失败: {e}")
+            except Exception:
+                pass
+
+            self._view = QWebEngineView()
+            # 不再 setProfile（defaultProfile 已经是 page 的 profile）
+
+            try:
+                s = self._view.settings()
+                s.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
+                s.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
+            except Exception:
+                pass
+
+            url = tr("retro_docs_url") or RETRO_DOCS_URL
+            self._view.load(QUrl(url))
+            self._stack.addWidget(self._view)
+        except Exception as e:
+            logger.exception(f"资料站 WebEngine 初始化失败: {e}")
+            self._setup_fallback()
+
+    def _setup_fallback(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(24, 24, 24, 24)
+        v.setSpacing(16)
+
+        lbl = QLabel(tr("retro_docs_fallback"))
+        lbl.setWordWrap(True)
+        v.addWidget(lbl)
+        v.addStretch(1)
+
+        row = QHBoxLayout()
+        btn = QPushButton(tr("retro_docs_open_external"))
+        btn.setObjectName("PrimaryBtn")
+        btn.clicked.connect(self._open_external)
+        row.addWidget(btn)
+        row.addStretch(1)
+        v.addLayout(row)
+
+        self._stack.addWidget(w)
+
+    def _reload(self):
+        if HAS_WEBENGINE and self._view is not None:
+            try:
+                url = tr("retro_docs_url") or RETRO_DOCS_URL
+                self._view.load(QUrl(url))
+            except Exception as e:
+                logger.warning(f"资料站重新加载失败: {e}")
+        else:
+            self._open_external()
+
+    def _open_external(self):
+        try:
+            url = tr("retro_docs_url") or RETRO_DOCS_URL
+            webbrowser.open(url)
+        except Exception as e:
+            QMessageBox.warning(self, tr("msg_warning"), f"打开失败: {e}")
+
+
+# ============================================================
 # 23.5 局域网页面
 # ============================================================
 class EmojiPanel(QDialog):
@@ -12982,7 +13387,6 @@ class WebTransferPage(QWidget):
             except Exception:
                 pass
 
-
 # ============================================================
 # 24. 设置页
 # ============================================================
@@ -12995,6 +13399,8 @@ class SettingsPage(QWidget):
     theme_changed = Signal(str, str)
     plugins_changed = Signal()
     machine_tier_changed = Signal()
+    background_changed = Signal()
+    folders_changed = Signal()
 
     def __init__(self):
         super().__init__()
@@ -13021,9 +13427,10 @@ class SettingsPage(QWidget):
         title.setObjectName("SectionTitle")
         v.addWidget(title)
 
-        # 外观
+        # --- 外观 ---
         box_theme = QGroupBox(tr("settings_theme"))
         ft = QVBoxLayout(box_theme)
+
         row_t = QHBoxLayout()
         row_t.addWidget(QLabel(tr("settings_theme")))
         self.combo_theme = QComboBox()
@@ -13058,7 +13465,56 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_theme)
 
-        # 网络代理
+        # ★ v1.6.3：全局背景
+        box_bg = QGroupBox(tr("settings_background"))
+        fbg = QVBoxLayout(box_bg)
+
+        h_bg = QLabel(tr("settings_background_hint"))
+        h_bg.setObjectName("Hint")
+        h_bg.setWordWrap(True)
+        fbg.addWidget(h_bg)
+
+        row_bg1 = QHBoxLayout()
+        self.edit_bg_path = QLineEdit(SETTINGS.get("background_image", ""))
+        self.edit_bg_path.setPlaceholderText("（未设置）")
+        self.edit_bg_path.setReadOnly(True)
+        row_bg1.addWidget(self.edit_bg_path, 1)
+        b_pick = QPushButton(tr("settings_background_pick"))
+        b_pick.setObjectName("PrimaryBtn")
+        b_pick.clicked.connect(self._pick_background)
+        row_bg1.addWidget(b_pick)
+        b_clear = QPushButton(tr("settings_background_clear"))
+        b_clear.clicked.connect(self._clear_background)
+        row_bg1.addWidget(b_clear)
+        fbg.addLayout(row_bg1)
+
+        row_bg2 = QHBoxLayout()
+        row_bg2.addWidget(QLabel(tr("settings_background_mode")))
+        self.combo_bg_mode = QComboBox()
+        self.combo_bg_mode.addItem(tr("settings_background_mode_cover"), "cover")
+        self.combo_bg_mode.addItem(tr("settings_background_mode_contain"), "contain")
+        self.combo_bg_mode.addItem(tr("settings_background_mode_stretch"), "stretch")
+        self.combo_bg_mode.addItem(tr("settings_background_mode_tile"), "tile")
+        idx = self.combo_bg_mode.findData(SETTINGS.get("background_mode", "cover"))
+        if idx >= 0:
+            self.combo_bg_mode.setCurrentIndex(idx)
+        self.combo_bg_mode.currentIndexChanged.connect(self._on_bg_mode_changed)
+        row_bg2.addWidget(self.combo_bg_mode)
+
+        row_bg2.addWidget(QLabel(tr("settings_background_opacity")))
+        self.spin_bg_opacity = QSpinBox()
+        self.spin_bg_opacity.setRange(10, 100)
+        self.spin_bg_opacity.setSuffix(" %")
+        self.spin_bg_opacity.setValue(int(SETTINGS.get("background_opacity", 100)))
+        self.spin_bg_opacity.valueChanged.connect(self._on_bg_opacity_changed)
+        row_bg2.addWidget(self.spin_bg_opacity)
+
+        row_bg2.addStretch(1)
+        fbg.addLayout(row_bg2)
+
+        v.addWidget(box_bg)
+
+        # --- 网络代理 ---
         box_proxy = QGroupBox("网络代理")
         fp = QVBoxLayout(box_proxy)
 
@@ -13124,7 +13580,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_proxy)
 
-        # 语言
+        # --- 语言 ---
         box1 = QGroupBox(tr("settings_lang"))
         f1 = QVBoxLayout(box1)
         row1 = QHBoxLayout()
@@ -13141,7 +13597,7 @@ class SettingsPage(QWidget):
         f1.addWidget(h1)
         v.addWidget(box1)
 
-        # 系统优先级
+        # --- 系统优先级 ---
         box_prio = QGroupBox(tr("settings_priority"))
         fprio = QVBoxLayout(box_prio)
         h_prio = QLabel(tr("settings_priority_hint"))
@@ -13189,7 +13645,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_prio)
 
-        # 资源策略
+        # --- 资源策略 ---
         box_res = QGroupBox(tr("machine_tier_title"))
         fres = QVBoxLayout(box_res)
 
@@ -13276,7 +13732,22 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_res)
 
-        # 局域网
+        # ★ v1.6.3：拖拽识别
+        box_drag = QGroupBox(tr("settings_drag_drop"))
+        fdrag = QVBoxLayout(box_drag)
+        h_drag = QLabel(tr("settings_drag_drop_hint"))
+        h_drag.setObjectName("Hint")
+        h_drag.setWordWrap(True)
+        fdrag.addWidget(h_drag)
+
+        self.check_drag = QCheckBox(tr("settings_drag_drop_enable"))
+        self.check_drag.setChecked(bool(SETTINGS.get("drag_drop_enabled", True)))
+        self.check_drag.toggled.connect(
+            lambda val: self._set_setting("drag_drop_enabled", val))
+        fdrag.addWidget(self.check_drag)
+        v.addWidget(box_drag)
+
+        # --- 局域网 ---
         box_lan = QGroupBox(tr("settings_lan"))
         fl = QVBoxLayout(box_lan)
         h_lan = QLabel(tr("settings_lan_hint"))
@@ -13376,7 +13847,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_lan)
 
-        # 刮削
+        # --- 刮削 ---
         box_scrape = QGroupBox(tr("scrape_title"))
         fs = QVBoxLayout(box_scrape)
         row_s1 = QHBoxLayout()
@@ -13418,7 +13889,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_scrape)
 
-        # 版本探测
+        # --- 版本探测 ---
         box_ver = QGroupBox(tr("settings_version"))
         fver = QVBoxLayout(box_ver)
         h_ver = QLabel(tr("settings_version_hint"))
@@ -13433,7 +13904,7 @@ class SettingsPage(QWidget):
         fver.addWidget(self.check_ver_auto)
         v.addWidget(box_ver)
 
-        # 日志与诊断
+        # --- 日志与诊断 ---
         box_log = QGroupBox(tr("log_viewer_title"))
         flog = QVBoxLayout(box_log)
 
@@ -13481,7 +13952,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_log)
 
-        # 插件
+        # --- 插件 ---
         box_plug = QGroupBox(tr("plugins_title"))
         fplug = QVBoxLayout(box_plug)
 
@@ -13514,6 +13985,13 @@ class SettingsPage(QWidget):
         b_open_plug.clicked.connect(lambda: os.startfile(str(PLUGINS_DIR)))
         row_plug.addWidget(b_open_plug)
         b_import_plug = QPushButton("📥 导入插件（zip / 7z / json / 文件夹）")
+        b_import_plug.setToolTip(
+            "支持一次性多选：\n"
+            "  • .zip / .7z / .rar  插件压缩包\n"
+            "  • plugin.json       单个元数据（自动生成骨架代码）\n"
+            "  • main.py           单个脚本（自动生成 plugin.json）\n"
+            "  • 文件夹            直接拖进窗口也行\n\n"
+            "缺什么会自动补什么，导入后点「♻ 重启程序」生效。")
         b_import_plug.setObjectName("PrimaryBtn")
         b_import_plug.clicked.connect(self._import_plugin_zip)
         row_plug.addWidget(b_import_plug)
@@ -13529,7 +14007,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_plug)
 
-        # 可选依赖
+        # --- 可选依赖 ---
         box_opt = QGroupBox("可选依赖")
         fopt = QVBoxLayout(box_opt)
         self.lbl_opt = QLabel()
@@ -13549,7 +14027,7 @@ class SettingsPage(QWidget):
         fopt.addLayout(row_opt)
         v.addWidget(box_opt)
 
-        # 配置包
+        # --- 配置包 ---
         box_pack = QGroupBox(tr("pack_title"))
         fpack = QVBoxLayout(box_pack)
         h_pack = QLabel(tr("pack_hint"))
@@ -13569,7 +14047,7 @@ class SettingsPage(QWidget):
         fpack.addLayout(row_pack)
         v.addWidget(box_pack)
 
-        # 平台管理
+        # --- 平台管理 ---
         box_plat = QGroupBox(tr("settings_platform_mgr"))
         fpl = QVBoxLayout(box_plat)
         hint_pl = QLabel(tr("settings_platform_mgr_hint"))
@@ -13606,7 +14084,44 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_plat)
 
-        # 下载 + 镜像
+        # ★ v1.6.3：多文件夹管理
+        box_folders = QGroupBox(tr("settings_folders"))
+        ff = QVBoxLayout(box_folders)
+        h_folders = QLabel(tr("settings_folders_hint"))
+        h_folders.setObjectName("Hint")
+        h_folders.setWordWrap(True)
+        ff.addWidget(h_folders)
+
+        self.table_folders = QTableWidget(0, 4)
+        self.table_folders.setHorizontalHeaderLabels([
+            tr("settings_folders_col_name"),
+            tr("settings_folders_col_path"),
+            tr("settings_folders_col_type"),
+            tr("settings_folders_col_op"),
+        ])
+        self.table_folders.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table_folders.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table_folders.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table_folders.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table_folders.verticalHeader().setVisible(False)
+        self.table_folders.setMinimumHeight(180)
+        self._reload_folders_table()
+        ff.addWidget(self.table_folders)
+
+        row_folders = QHBoxLayout()
+        b_add_folder = QPushButton(tr("settings_folders_add"))
+        b_add_folder.clicked.connect(self._add_folder)
+        row_folders.addWidget(b_add_folder)
+        b_save_folders = QPushButton(tr("settings_folders_save"))
+        b_save_folders.setObjectName("PrimaryBtn")
+        b_save_folders.clicked.connect(self._save_folders)
+        row_folders.addWidget(b_save_folders)
+        row_folders.addStretch(1)
+        ff.addLayout(row_folders)
+
+        v.addWidget(box_folders)
+
+        # --- 下载 + 镜像 ---
         box_dl = QGroupBox(tr("settings_download"))
         fdl = QVBoxLayout(box_dl)
 
@@ -13692,7 +14207,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_dl)
 
-        # RetroArch
+        # --- RetroArch ---
         box_ra = QGroupBox(tr("settings_retroarch"))
         fra = QVBoxLayout(box_ra)
         h_ra = QLabel(tr("settings_retroarch_hint"))
@@ -13711,7 +14226,7 @@ class SettingsPage(QWidget):
         fra.addLayout(row_ra)
         v.addWidget(box_ra)
 
-        # 启动模板
+        # --- 启动模板 ---
         box_prof = QGroupBox(tr("config_profile_group"))
         fprof = QVBoxLayout(box_prof)
         hint_prof = QLabel(tr("config_profile_hint"))
@@ -13748,7 +14263,7 @@ class SettingsPage(QWidget):
             for eng in pcfg.get("engines", {}):
                 all_engines.add(eng)
 
-        # 金手指
+        # --- 金手指 ---
         box_ch = QGroupBox(tr("settings_cheats"))
         fch = QVBoxLayout(box_ch)
         h_ch = QLabel(tr("settings_cheats_hint"))
@@ -13780,7 +14295,7 @@ class SettingsPage(QWidget):
         fch.addWidget(b_save_ch)
         v.addWidget(box_ch)
 
-        # 托盘 + 性能
+        # --- 托盘 + 性能 ---
         box_tray = QGroupBox(tr("settings_tray"))
         ftr = QVBoxLayout(box_tray)
         self.check_tray_min = QCheckBox(tr("settings_tray_minimize"))
@@ -13801,7 +14316,7 @@ class SettingsPage(QWidget):
         ftr.addWidget(self.check_perf)
         v.addWidget(box_tray)
 
-        # 工作区
+        # --- 工作区 ---
         box2 = QGroupBox(tr("settings_workspace"))
         f2 = QVBoxLayout(box2)
         desc = QLabel(tr("settings_workspace_desc"))
@@ -13817,7 +14332,7 @@ class SettingsPage(QWidget):
         f2.addWidget(QLabel(f"数据目录: {DATA_DIR}"))
         v.addWidget(box2)
 
-        # 存档
+        # --- 存档 ---
         box_sv = QGroupBox(tr("settings_saves"))
         fsv = QVBoxLayout(box_sv)
         hint_sv = QLabel(tr("settings_saves_hint"))
@@ -13865,7 +14380,7 @@ class SettingsPage(QWidget):
         fsv.addLayout(row_sv2)
         v.addWidget(box_sv)
 
-        # 管理员 + 系统版本 + 鸣谢
+        # --- 管理员 + 系统版本 + 鸣谢 ---
         box3 = QGroupBox(tr("settings_admin"))
         f3v = QVBoxLayout(box3)
 
@@ -13889,7 +14404,7 @@ class SettingsPage(QWidget):
 
         v.addWidget(box3)
 
-        # 目录
+        # --- 目录 ---
         box4 = QGroupBox("目录")
         f4 = QHBoxLayout(box4)
         b1 = QPushButton(tr("settings_open_data"))
@@ -13901,13 +14416,191 @@ class SettingsPage(QWidget):
         f4.addStretch(1)
         v.addWidget(box4)
 
+        # ★ v1.6.3：项目地址
+        box_proj = QGroupBox(tr("settings_project"))
+        fproj = QVBoxLayout(box_proj)
+        h_proj = QLabel(tr("settings_project_hint"))
+        h_proj.setObjectName("Hint")
+        h_proj.setWordWrap(True)
+        fproj.addWidget(h_proj)
+
+        row_proj = QHBoxLayout()
+        lbl_repo = QLabel(f"{tr('settings_project_repo')}: {APP_REPO}")
+        lbl_repo.setObjectName("Hint")
+        lbl_repo.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        row_proj.addWidget(lbl_repo, 1)
+
+        btn_open_repo = QPushButton(tr("settings_project_open"))
+        btn_open_repo.setObjectName("PrimaryBtn")
+        btn_open_repo.clicked.connect(self._open_project_repo)
+        row_proj.addWidget(btn_open_repo)
+        fproj.addLayout(row_proj)
+
+        v.addWidget(box_proj)
+
         v.addStretch(1)
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
 
         QTimer.singleShot(0, self._reload_plugin_table)
 
-    # ---------- 主题 ----------
+    # ---- ★ v1.6.3：项目地址 ----
+    def _open_project_repo(self):
+        try:
+            webbrowser.open(APP_REPO)
+        except Exception as e:
+            QMessageBox.warning(self, tr("msg_warning"), f"打开失败: {e}")
+
+    # ---- ★ v1.6.3：全局背景 ----
+    def _pick_background(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, tr("settings_background_pick"), str(BACKGROUND_DIR),
+            "图片 (*.png *.jpg *.jpeg *.webp *.bmp);;所有文件 (*)")
+        if not fp:
+            return
+        src = Path(fp)
+        try:
+            dst = BACKGROUND_DIR / src.name
+            if src.resolve() != dst.resolve():
+                shutil.copy2(src, dst)
+            SETTINGS["background_image"] = str(dst)
+            save_settings()
+            self.edit_bg_path.setText(str(dst))
+            self.background_changed.emit()
+            QMessageBox.information(self, tr("msg_info"),
+                                    tr("settings_background_applied"))
+        except Exception as e:
+            QMessageBox.critical(self, tr("msg_error"), str(e))
+
+    def _clear_background(self):
+        SETTINGS["background_image"] = ""
+        save_settings()
+        self.edit_bg_path.setText("")
+        self.background_changed.emit()
+        QMessageBox.information(self, tr("msg_info"),
+                                tr("settings_background_applied"))
+
+    def _on_bg_mode_changed(self, _idx):
+        SETTINGS["background_mode"] = self.combo_bg_mode.currentData() or "cover"
+        save_settings()
+        self.background_changed.emit()
+
+    def _on_bg_opacity_changed(self, val):
+        SETTINGS["background_opacity"] = int(val)
+        save_settings()
+        self.background_changed.emit()
+
+    # ---- ★ v1.6.3：多文件夹管理 ----
+    def _reload_folders_table(self):
+        self.table_folders.setRowCount(0)
+        for i, folder in enumerate(FOLDERS_CONFIG.get("folders", [])):
+            row = self.table_folders.rowCount()
+            self.table_folders.insertRow(row)
+            self.table_folders.setItem(row, 0, QTableWidgetItem(folder.get("name", "")))
+            self.table_folders.setItem(row, 1, QTableWidgetItem(folder.get("path", "")))
+
+            combo = QComboBox()
+            combo.addItem(tr("settings_folders_type_mixed"), "mixed")
+            combo.addItem(tr("settings_folders_type_rom"), "rom")
+            combo.addItem(tr("settings_folders_type_bios"), "bios")
+            idx = combo.findData(folder.get("type", "mixed"))
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            self.table_folders.setCellWidget(row, 2, combo)
+
+            op_box = QWidget()
+            op_layout = QHBoxLayout(op_box)
+            op_layout.setContentsMargins(0, 0, 0, 0)
+            op_layout.setSpacing(4)
+
+            b_active = QPushButton(tr("settings_folders_active"))
+            b_active.setFixedWidth(80)
+            b_active.clicked.connect(lambda _=False, r=i: self._set_active_folder(r))
+            op_layout.addWidget(b_active)
+
+            b_del = QPushButton(tr("settings_folders_del"))
+            b_del.setFixedWidth(60)
+            b_del.clicked.connect(lambda _=False, r=row: self._del_folder_row(r))
+            op_layout.addWidget(b_del)
+
+            self.table_folders.setCellWidget(row, 3, op_box)
+
+    def _set_active_folder(self, idx: int):
+        if 0 <= idx < len(FOLDERS_CONFIG.get("folders", [])):
+            FOLDERS_CONFIG["active_index"] = idx
+            save_folders_config()
+            self.folders_changed.emit()
+            QMessageBox.information(
+                self, tr("msg_info"),
+                f"当前工作区已切换: {FOLDERS_CONFIG['folders'][idx].get('name')}")
+
+    def _add_folder(self):
+        row = self.table_folders.rowCount()
+        self.table_folders.insertRow(row)
+        self.table_folders.setItem(row, 0, QTableWidgetItem("新工作区"))
+        self.table_folders.setItem(row, 1, QTableWidgetItem(str(DATA_DIR)))
+
+        combo = QComboBox()
+        combo.addItem(tr("settings_folders_type_mixed"), "mixed")
+        combo.addItem(tr("settings_folders_type_rom"), "rom")
+        combo.addItem(tr("settings_folders_type_bios"), "bios")
+        self.table_folders.setCellWidget(row, 2, combo)
+
+        b_del = QPushButton(tr("settings_folders_del"))
+        b_del.setFixedWidth(60)
+        b_del.clicked.connect(lambda _=False, r=row: self._del_folder_row(r))
+        self.table_folders.setCellWidget(row, 3, b_del)
+
+    def _del_folder_row(self, row: int):
+        name_item = self.table_folders.item(row, 0)
+        name = name_item.text() if name_item else "?"
+        reply = QMessageBox.question(
+            self, tr("msg_confirm"),
+            tr("settings_folders_del_confirm", name=name),
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        self.table_folders.removeRow(row)
+        self._reload_folders_table()
+
+    def _save_folders(self):
+        folders = []
+        for row in range(self.table_folders.rowCount()):
+            name_item = self.table_folders.item(row, 0)
+            path_item = self.table_folders.item(row, 1)
+            if not name_item or not path_item:
+                continue
+            name = name_item.text().strip()
+            path = path_item.text().strip()
+            if not name or not path:
+                continue
+            combo = self.table_folders.cellWidget(row, 2)
+            ftype = combo.currentData() if combo else "mixed"
+            folders.append({"name": name, "path": path, "type": ftype})
+
+        if not folders:
+            QMessageBox.warning(self, tr("msg_warning"), "至少保留一个工作区")
+            return
+
+        FOLDERS_CONFIG["folders"] = folders
+        if FOLDERS_CONFIG.get("active_index", 0) >= len(folders):
+            FOLDERS_CONFIG["active_index"] = 0
+        save_folders_config()
+        self._reload_folders_table()
+        self._reload_workspace_combo()
+        self.folders_changed.emit()
+        QMessageBox.information(self, tr("msg_info"), tr("settings_folders_saved"))
+
+    def _reload_workspace_combo(self):
+        self.combo_workspace.blockSignals(True)
+        self.combo_workspace.clear()
+        for i, folder in enumerate(FOLDERS_CONFIG.get("folders", [])):
+            self.combo_workspace.addItem(
+                f"{folder.get('name')}  [{folder.get('path')}]", i)
+        self.combo_workspace.setCurrentIndex(FOLDERS_CONFIG.get("active_index", 0))
+        self.combo_workspace.blockSignals(False)
+
+    # ---- 主题 ----
     def _on_theme_changed(self, _i):
         mode = self.combo_theme.currentData()
         SETTINGS["theme"] = mode
@@ -13935,7 +14628,7 @@ class SettingsPage(QWidget):
         self.btn_accent.setText("选择…")
         self.theme_changed.emit(SETTINGS.get("theme", "auto"), "")
 
-    # ---------- 代理 ----------
+    # ---- 代理 ----
     def _on_proxy_changed(self, *_):
         SETTINGS["proxy_mode"] = self.combo_proxy_mode.currentData()
         SETTINGS["proxy_host"] = self.edit_proxy_host.text().strip()
@@ -13960,7 +14653,7 @@ class SettingsPage(QWidget):
             self.lbl_proxy_test.setText(f"❌ {msg}")
             self.lbl_proxy_test.setStyleSheet("color:#c42b1c;")
 
-    # ---------- 优先级 ----------
+    # ---- 优先级 ----
     def _on_priority_toggled(self, btn, checked):
         if not checked:
             return
@@ -13979,7 +14672,7 @@ class SettingsPage(QWidget):
                 return
         self._set_setting("process_priority", level)
 
-    # ---------- 机器档次 / 资源策略 ----------
+    # ---- 机器档次 / 资源策略 ----
     def _refresh_hw_info(self):
         try:
             hw = probe_hardware(force=True)
@@ -14039,7 +14732,7 @@ class SettingsPage(QWidget):
         SETTINGS["resource_force_unlock"] = bool(checked)
         save_settings()
 
-    # ---------- 日志 ----------
+    # ---- 日志 ----
     def _on_log_level_changed(self, _idx):
         level = self.combo_log_level.currentData() or "INFO"
         SETTINGS["log_level"] = level
@@ -14066,7 +14759,7 @@ class SettingsPage(QWidget):
         except Exception:
             self.lbl_winver.setText("")
 
-    # ---------- 可选依赖 ----------
+    # ---- 可选依赖 ----
     def _refresh_optional_label(self):
         lines = []
         for mod, pkg in OPTIONAL.items():
@@ -14074,7 +14767,7 @@ class SettingsPage(QWidget):
                 importlib.import_module(mod)
                 lines.append(f"✅ {pkg}  已安装")
             except ImportError:
-                lines.append(f"❌ {pkg}  未安装（局域网传输页将降级为外部浏览器）")
+                lines.append(f"❌ {pkg}  未安装（局域网传输 / 资料站将降级为外部浏览器）")
         self.lbl_opt.setText("\n".join(lines))
 
     def _install_missing_optional(self):
@@ -14101,6 +14794,7 @@ class SettingsPage(QWidget):
             "已在新窗口开始安装。\n"
             "安装完成后请关闭并重新启动 mikan_emu。")
 
+    # ---- 配置包 ----
     def _export_pack(self):
         dlg = ConfigPackDialog("export", self)
         dlg.exec_()
@@ -14111,7 +14805,7 @@ class SettingsPage(QWidget):
             self.platforms_changed.emit()
             self.saves_changed.emit()
 
-    # ---------- 启动模板 ----------
+    # ---- 启动模板 ----
     def _reload_profiles_table(self):
         self.table_prof.setRowCount(0)
         profiles = SETTINGS.get("launch_profiles", {}) or {}
@@ -14139,7 +14833,7 @@ class SettingsPage(QWidget):
         save_settings()
         QMessageBox.information(self, tr("msg_info"), "启动模板已保存")
 
-    # ---------- 局域网 ----------
+    # ---- 局域网 ----
     def _on_lan_enabled(self, checked: bool):
         self._set_setting("lan_enabled", checked)
         self.lan_changed.emit()
@@ -14158,7 +14852,7 @@ class SettingsPage(QWidget):
     def _show_credits(self):
         CreditsDialog(self).exec_()
 
-    # ---------- 平台 ----------
+    # ---- 平台 ----
     def _reload_platform_table(self):
         self.table_plat.setRowCount(0)
         engines_json = load_engines_json()
@@ -14228,7 +14922,7 @@ class SettingsPage(QWidget):
         self._reload_platform_table()
         self.platforms_changed.emit()
 
-    # ---------- 镜像 ----------
+    # ---- 镜像 ----
     def _refresh_mirror_list(self):
         self.list_mirrors.blockSignals(True)
         self.list_mirrors.clear()
@@ -14417,6 +15111,7 @@ class SettingsPage(QWidget):
             return
         FOLDERS_CONFIG["active_index"] = idx
         save_folders_config()
+        self.folders_changed.emit()
 
     def _browse_save_dir(self, edit: QLineEdit):
         d = QFileDialog.getExistingDirectory(self, "选择目录", str(DATA_DIR))
@@ -14490,6 +15185,7 @@ class SettingsPage(QWidget):
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"), str(e))
 
+    # ---- 插件 ----
     def _reload_plugin_table(self):
         pm = getattr(self.window(), "_plugin_manager", None)
         if pm is None:
@@ -15957,7 +16653,8 @@ class MainWindow(QMainWindow):
     NAV_RESOURCES = 4
     NAV_LAN = 5
     NAV_WEBTRANSFER = 6
-    NAV_SETTINGS = 7
+    NAV_RETRO_DOCS = 7
+    NAV_SETTINGS = 8
 
     def __init__(self):
         super().__init__()
@@ -15975,6 +16672,7 @@ class MainWindow(QMainWindow):
         self._theme_watcher = None
         self._plugin_manager = PluginManager(self)
         self._plugin_page_widgets: list = []
+        self._bg_pixmap: Optional[QPixmap] = None
 
         self._settle_stale_launches()
 
@@ -15996,6 +16694,7 @@ class MainWindow(QMainWindow):
                      tr("nav_bios"), tr("nav_stats"),
                      tr("nav_resources"), tr("nav_lan"),
                      tr("nav_webtransfer"),
+                     tr("nav_retro_docs"),
                      tr("nav_settings")]:
             QListWidgetItem(name, self.nav)
         self.nav.setCurrentRow(0)
@@ -16050,6 +16749,9 @@ class MainWindow(QMainWindow):
         self.page_webtransfer = WebTransferPage()
         self.stack.addWidget(self.page_webtransfer)
 
+        self.page_retro_docs = RetroDocsPage()
+        self.stack.addWidget(self.page_retro_docs)
+
         self.page_settings = SettingsPage()
         self.page_settings.lang_changed.connect(self._on_lang_changed)
         self.page_settings.platforms_changed.connect(self._on_platforms_changed)
@@ -16058,6 +16760,8 @@ class MainWindow(QMainWindow):
         self.page_settings.saves_changed.connect(self._reload_games)
         self.page_settings.plugins_changed.connect(self._load_plugins)
         self.page_settings.machine_tier_changed.connect(self._on_machine_tier_changed)
+        self.page_settings.background_changed.connect(self._apply_background)
+        self.page_settings.folders_changed.connect(self._on_folders_changed)
         self.stack.addWidget(self.page_settings)
 
         splitter.addWidget(self.stack)
@@ -16066,7 +16770,10 @@ class MainWindow(QMainWindow):
         splitter.setSizes([170, 1110])
         root.addWidget(splitter, 1)
 
+        self.setAcceptDrops(True)
+
         self._apply_theme()
+        self._apply_background()
         self._setup_tray()
         self._reload_games()
 
@@ -16084,7 +16791,7 @@ class MainWindow(QMainWindow):
 
     def _check_win_version_startup(self):
         try:
-            ok, msg = check_win7_sp1_minimum()
+            ok, msg = check_win10_1809_minimum()
             if not ok:
                 QMessageBox.warning(self, tr("win_version_too_old_title"), msg)
         except Exception as e:
@@ -16095,6 +16802,259 @@ class MainWindow(QMainWindow):
         self.status.showMessage(
             f"机器档次已更新为: {SETTINGS.get('machine_tier', '?')}")
 
+    def _load_background_pixmap(self) -> Optional[QPixmap]:
+        path = (SETTINGS.get("background_image", "") or "").strip()
+        if not path:
+            return None
+        p = Path(path)
+        if not p.exists() or not p.is_file():
+            return None
+        pix = QPixmap(str(p))
+        if pix.isNull():
+            return None
+        return pix
+
+    def _apply_background(self):
+        self._bg_pixmap = self._load_background_pixmap()
+        if self._bg_pixmap is None:
+            self.setAutoFillBackground(False)
+            self.update()
+            return
+        try:
+            palette = self.palette()
+            palette.setBrush(QPalette.Window, QBrush(self._bg_pixmap))
+            self.setPalette(palette)
+            self.setAutoFillBackground(True)
+        except Exception as e:
+            logger.warning(f"设置背景失败: {e}")
+        self.update()
+
+    def paintEvent(self, event):
+        mode = SETTINGS.get("background_mode", "cover")
+        opacity = int(SETTINGS.get("background_opacity", 100))
+        if self._bg_pixmap is None:
+            super().paintEvent(event)
+            return
+
+        painter = QPainter(self)
+        try:
+            painter.setOpacity(max(0.05, min(1.0, opacity / 100.0)))
+            rect = self.rect()
+            pix = self._bg_pixmap
+
+            if mode == "stretch":
+                painter.drawPixmap(rect, pix)
+            elif mode == "tile":
+                pw, ph = pix.width(), pix.height()
+                if pw > 0 and ph > 0:
+                    for x in range(0, rect.width(), pw):
+                        for y in range(0, rect.height(), ph):
+                            painter.drawPixmap(x, y, pix)
+            elif mode == "contain":
+                scaled = pix.scaled(rect.size(), Qt.KeepAspectRatio,
+                                    Qt.SmoothTransformation)
+                x = (rect.width() - scaled.width()) // 2
+                y = (rect.height() - scaled.height()) // 2
+                painter.drawPixmap(x, y, scaled)
+            else:
+                scaled = pix.scaled(rect.size(), Qt.KeepAspectRatioByExpanding,
+                                    Qt.SmoothTransformation)
+                x = (rect.width() - scaled.width()) // 2
+                y = (rect.height() - scaled.height()) // 2
+                painter.drawPixmap(x, y, scaled)
+        finally:
+            painter.end()
+
+        super().paintEvent(event)
+
+    def _on_folders_changed(self):
+        self._engines_json = load_engines_json()
+        self.page_library.refresh_platforms()
+        self._reload_games()
+        self.status.showMessage("工作区已切换")
+
+    # ---------- ★ v1.6.3：拖拽识别 ----------
+    def dragEnterEvent(self, event):
+        if not SETTINGS.get("drag_drop_enabled", True):
+            return
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if not SETTINGS.get("drag_drop_enabled", True):
+            return
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        if not SETTINGS.get("drag_drop_enabled", True):
+            return
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        paths = []
+        for u in urls:
+            try:
+                p = Path(u.toLocalFile())
+                if p.exists():
+                    paths.append(p)
+            except Exception:
+                pass
+        if not paths:
+            return
+        event.acceptProposedAction()
+        self._handle_dropped_paths(paths)
+
+    def _handle_dropped_paths(self, paths: list):
+        plugins = []
+        bios_files = []
+        game_files = []
+        unknown = []
+
+        bios_exts = {e.lower() for e in
+                     SETTINGS.get("drag_drop_bios_exts",
+                                  [".bin", ".rom", ".dat", ".keys"])}
+
+        engines_json = load_engines_json()
+        rom_ext_map = get_all_platform_rom_extensions(engines_json)
+
+        for p in paths:
+            if p.is_dir():
+                plugins.append(p)
+                continue
+
+            ext = p.suffix.lower()
+
+            if ext == ".py":
+                plugins.append(p)
+                continue
+
+            if ext in (".zip", ".7z", ".rar") and "plugin" in p.stem.lower():
+                plugins.append(p)
+                continue
+
+            if ext in rom_ext_map:
+                game_files.append(p)
+                continue
+
+            if ext in bios_exts:
+                try:
+                    md5 = md5_of_file(p)
+                except Exception:
+                    md5 = ""
+                if identify_bios_platform(p, md5):
+                    bios_files.append(p)
+                    continue
+                game_files.append(p)
+                continue
+
+            unknown.append(p)
+
+        summary = []
+
+        if plugins:
+            srcs = [str(x) for x in plugins]
+            self._import_plugins_from_drop(srcs)
+            summary.append(f"插件: {len(plugins)} 个")
+
+        if bios_files:
+            ok = 0
+            for bf in bios_files:
+                try:
+                    dst = BIOS_DIR / bf.name
+                    if dst.exists():
+                        dst = dst.with_name(f"{dst.stem}_{int(time.time())}{dst.suffix}")
+                    shutil.copy2(bf, dst)
+                    ok += 1
+                except Exception as e:
+                    logger.exception(f"复制 BIOS 失败: {e}")
+            if ok:
+                try:
+                    auto_organize_bios(dry_run=False)
+                except Exception:
+                    pass
+                self.page_bios.refresh()
+            summary.append(f"BIOS: {ok} 个")
+
+        if game_files:
+            self._import_games_from_drop(game_files)
+            summary.append(f"游戏: {len(game_files)} 个")
+
+        if unknown:
+            summary.append(f"未识别: {len(unknown)} 个")
+
+        if summary:
+            self.status.showMessage("拖拽导入完成 - " + " / ".join(summary))
+        else:
+            self.status.showMessage("拖拽的文件无法识别")
+
+    def _import_plugins_from_drop(self, paths: list):
+        ok_list = []
+        fail_list = []
+        for fp in paths:
+            try:
+                ok, pid, filled, msg = _import_plugin_any(Path(fp), overwrite=True)
+                if ok:
+                    ok_list.append(pid)
+                else:
+                    fail_list.append((Path(fp).name, msg or "未知错误"))
+            except Exception as e:
+                logger.exception(f"拖拽导入插件失败: {fp}")
+                fail_list.append((Path(fp).name, str(e)))
+        if ok_list:
+            logger.info(f"拖拽导入插件成功: {ok_list}")
+            QMessageBox.information(
+                self, tr("msg_info"),
+                f"已导入 {len(ok_list)} 个插件：\n"
+                + "\n".join(f"  • {x}" for x in ok_list)
+                + "\n\n请点「设置 → 重启程序」使其生效。")
+        if fail_list:
+            logger.warning(f"拖拽导入插件失败: {fail_list}")
+
+    def _import_games_from_drop(self, paths: list):
+        engines_json = load_engines_json()
+        new_games = []
+        skipped = 0
+        for src in paths:
+            platform = guess_platform_by_ext(src, engines_json)
+            if not platform:
+                skipped += 1
+                continue
+            try:
+                platform_dir = ROM_DIR / platform
+                platform_dir.mkdir(parents=True, exist_ok=True)
+                dst = platform_dir / src.name
+                if dst.exists():
+                    idx = 2
+                    while dst.exists():
+                        dst = platform_dir / f"{src.stem}_{idx}{src.suffix}"
+                        idx += 1
+                shutil.copy2(src, dst)
+                new_games.append(GameEntry(
+                    name=clean_game_name(dst),
+                    path=str(dst),
+                    platform=platform,
+                    size=dst.stat().st_size,
+                    added_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                ))
+            except Exception as e:
+                logger.exception(f"复制游戏失败: {src}")
+                skipped += 1
+
+        if new_games:
+            existing = load_games()
+            existing_paths = {g.path for g in existing}
+            for g in new_games:
+                if g.path not in existing_paths:
+                    existing.append(g)
+            save_games(existing)
+            self._reload_games()
+            QMessageBox.information(
+                self, tr("msg_info"),
+                f"已导入 {len(new_games)} 个游戏"
+                + (f"\n跳过 {skipped} 个" if skipped else ""))
+
+    # ---------- 顶部工具栏 ----------
     def _build_topbar(self):
         bar = QFrame()
         bar.setObjectName("TopBar")
@@ -16246,11 +17206,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._plugin_page_widgets.clear()
-        builtin_count = 8
+        builtin_count = 9
         while self.nav.count() > builtin_count:
             item = self.nav.takeItem(self.nav.count() - 1)
             del item
-        self.NAV_SETTINGS = 7
+        self.NAV_SETTINGS = 8
 
     def _apply_theme(self):
         mode = SETTINGS.get("theme", "auto")
@@ -16653,6 +17613,12 @@ class MainWindow(QMainWindow):
             save_games(games)
             self._reload_games()
             logger.info(f"游戏关闭: {game_path}")
+
+            try:
+                self._plugin_manager.emit("after_close",
+                                          game=game, seconds=secs)
+            except Exception:
+                pass
         except Exception as e:
             logger.exception(f"结算时长失败: {e}")
 
@@ -16865,7 +17831,7 @@ threading.excepthook = _threading_excepthook
 # ============================================================
 def main():
     try:
-        ok, msg = check_win7_sp1_minimum()
+        ok, msg = check_win10_1809_minimum()
         if not ok:
             print(f"[启动] {msg}")
             try:
@@ -16904,4 +17870,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-# ===== 全部完成 mikan_emu v1.5.1 Win7 移植版 =====
+# ===== 全部完成 mikan_emu v1.6.3 Win7 移植版 =====

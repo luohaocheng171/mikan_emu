@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-mikan_emu v1.5.1
+mikan_emu v1.6.3
 模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器
 + 性能监控 + 局域网聊天/文件/共享 + 局域网传输（内嵌 LocalSend Web）
 + 封面刮削（Libretro / SteamGridDB）+ 性能档位 + 系统优先级
@@ -11,7 +11,17 @@ mikan_emu v1.5.1
 Python 3.11+ / PySide6 / requests / loguru / py7zr / rarfile / psutil / packaging
 可选：PySide6-WebEngine（内嵌浏览器）、PySocks（SOCKS5 代理）
 
+项目地址: https://github.com/luohaocheng171/mikan_emu
+
 【法律】不提供 BIOS、不提供 ROM、不二次分发模拟器
+
+v1.6.3 变更：
+- ★ 新增拖拽自动识别（.py→插件 / .bin,.rom→BIOS / ROM 后缀→游戏）
+- ★ 新增多文件夹管理（工作区增删改 + 路径重定向）
+- ★ 新增全局背景自定义（设置页选择图片）
+- ★ 新增老游戏资料站侧边栏（QtWebEngine 内嵌）
+- ★ 设置页底部新增项目地址入口（默认浏览器打开）
+- ★ 保留 v1.5.1 全部功能
 
 v1.5.1 变更：
 - ★ 新增 F1：日志环形缓冲（最近 2000 条）+ 崩溃诊断包 + 日志查看器
@@ -170,7 +180,7 @@ try:
     )
     from PySide6.QtGui import (
         QColor, QFont, QAction, QPixmap, QIcon, QPainter, QPen,
-        QBrush, QLinearGradient, QPolygon
+        QBrush, QLinearGradient, QPolygon, QPalette
     )
     from PySide6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -205,7 +215,11 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # 3. 路径 & 常量
 # ============================================================
 APP_NAME = "mikan_emu"
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.6.3"
+APP_REPO = "https://github.com/luohaocheng171/mikan_emu"
+
+# ★ v1.6.3：老游戏资料站（QtWebEngine 内嵌）
+RETRO_DOCS_URL = "https://nostalibrary.tzengyuxio.me/"
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).resolve().parent
@@ -237,13 +251,15 @@ SCRAPE_CACHE_DIR = DATA_DIR / "scrape_cache"
 PLUGINS_DIR = DATA_DIR / "plugins"
 PLUGIN_STORAGE_DIR = DATA_DIR / "plugin_storage"
 CRASH_REPORT_DIR = DATA_DIR / "crash_reports"
+BACKGROUND_DIR = DATA_DIR / "backgrounds"   # ★ v1.6.3
 
 for d in (DATA_DIR, CONFIG_DIR, LANG_DIR, ENGINE_DIR, ENGINE_DOWNLOAD_DIR,
           BIOS_DIR, ROM_DIR, SAVE_DIR, SAVE_BACKUP_DIR, COVER_DIR,
           CHEAT_DIR, BACKUP_DIR, LOG_DIR, TEMP_DIR, EXPORT_DIR,
           LAN_DIR, LAN_HISTORY_DIR, LAN_FILES_DIR, LAN_SHARED_DIR,
           LAN_SHARED_DOWNLOAD_DIR, WEBENGINE_DIR, SCRAPE_CACHE_DIR,
-          PLUGINS_DIR, PLUGIN_STORAGE_DIR, CRASH_REPORT_DIR):
+          PLUGINS_DIR, PLUGIN_STORAGE_DIR, CRASH_REPORT_DIR,
+          BACKGROUND_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 FOLDERS_FILE = CONFIG_DIR / "folders.json"
@@ -339,13 +355,13 @@ def setup_logging():
 setup_logging()
 
 if not HAS_WEBENGINE:
-    logger.warning("QtWebEngine 未安装，「局域网传输」页将降级为外部浏览器模式")
+    logger.warning("QtWebEngine 未安装，「局域网传输」和「老游戏资料」页将降级为外部浏览器模式")
 
 # ============================================================
 # 3.5 内置默认 JSON 数据
 # ============================================================
 # 由于 DEFAULT_ENGINES_JSON_STR 极大，本段只保留其开头和结尾标记，
-# 你按原文件内容填入即可，v1.5.1 未对它做任何修改。
+# 你按原文件内容填入即可，v1.6.3 未对它做任何修改。
 DEFAULT_ENGINES_JSON_STR = r"""
 {
   "_shared": {
@@ -1721,8 +1737,11 @@ DEFAULT_ENGINES_JSON_STR = r"""
 """
 
 
+# ★ v1.6.3：默认工作区支持多文件夹
 DEFAULT_FOLDERS_JSON = {
-    "folders": [{"name": "默认工作区", "path": str(DATA_DIR)}],
+    "folders": [
+        {"name": "默认工作区", "path": str(DATA_DIR), "type": "mixed"}
+    ],
     "active_index": 0,
 }
 
@@ -1786,8 +1805,15 @@ DEFAULT_SETTINGS_JSON = {
     "resource_mem_mb": 0,
     "resource_force_unlock": False,
     "resource_safety_ratio": 85,
+    # ★ v1.6.3：全局背景
+    "background_image": "",
+    "background_mode": "cover",
+    "background_opacity": 100,
+    # ★ v1.6.3：拖拽识别开关
+    "drag_drop_enabled": True,
+    "drag_drop_bios_exts": [".bin", ".rom", ".dat", ".keys"],
+    "drag_drop_game_min_size": 4096,
 }
-
 DEFAULT_MIRRORS_JSON = {
     "enabled": True,
     "mirrors": [
@@ -1971,43 +1997,6 @@ DEFAULT_BIOS_DB = {
     }
 }
 
-
-def _ensure_json_file(path: Path, default_data):
-    if path.exists():
-        return
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(default_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"生成默认配置: {path}")
-    except Exception as e:
-        logger.exception(f"写出 {path} 失败: {e}")
-
-
-def _ensure_all_json_files():
-    _ensure_json_file(FOLDERS_FILE, DEFAULT_FOLDERS_JSON)
-    _ensure_json_file(SETTINGS_FILE, DEFAULT_SETTINGS_JSON)
-    _ensure_json_file(MIRRORS_FILE, DEFAULT_MIRRORS_JSON)
-    _ensure_json_file(SAVE_PATHS_FILE, DEFAULT_SAVE_PATHS_JSON)
-    _ensure_json_file(CHEAT_PATHS_FILE, DEFAULT_CHEAT_PATHS_JSON)
-    _ensure_json_file(STATS_FILE, DEFAULT_STATS_JSON)
-    _ensure_json_file(UPDATE_IGNORE_FILE, DEFAULT_UPDATE_IGNORE_JSON)
-    _ensure_json_file(RESOURCES_FILE, DEFAULT_RESOURCES_JSON)
-    _ensure_json_file(INSTALLED_FILE, DEFAULT_INSTALLED_JSON)
-    _ensure_json_file(ROMS_FILE, DEFAULT_ROMS_JSON)
-    _ensure_json_file(BIOS_DB_FILE, DEFAULT_BIOS_DB)
-    _ensure_json_file(PLUGINS_ENABLED_FILE, {})
-    if not ENGINES_JSON.exists():
-        try:
-            data = json.loads(DEFAULT_ENGINES_JSON_STR)
-            with open(ENGINES_JSON, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            logger.info(f"生成默认 engines.json: {ENGINES_JSON}")
-        except Exception as e:
-            logger.exception(f"写出 engines.json 失败: {e}")
-
-
-_ensure_all_json_files()
-
 # ============================================================
 # 4. 多语言（外置 JSON，自动生成）
 # ============================================================
@@ -2018,6 +2007,7 @@ DEFAULT_LANG_PACKS = {
         "nav_library": "游戏库", "nav_engines": "模拟器", "nav_bios": "BIOS",
         "nav_stats": "统计", "nav_resources": "资源", "nav_lan": "局域网",
         "nav_webtransfer": "局域网传输",
+        "nav_retro_docs": "老游戏资料",   # ★ v1.6.3
         "nav_settings": "设置",
         "toolbar_import_engine": "导入模拟器", "toolbar_download_engine": "下载模拟器",
         "toolbar_import_game": "导入游戏", "toolbar_export": "导出",
@@ -2165,6 +2155,46 @@ DEFAULT_LANG_PACKS = {
         "settings_platform_saved": "平台已保存",
         "settings_credits": "鸣谢",
         "settings_credits_btn": "查看鸣谢",
+        # ★ v1.6.3
+        "settings_project": "项目",
+        "settings_project_repo": "项目地址",
+        "settings_project_open": "🌐 打开项目主页",
+        "settings_project_hint": "点击后用系统默认浏览器打开 GitHub 仓库。",
+        "settings_background": "全局背景",
+        "settings_background_hint": "选择一张图片作为主窗口背景。留空 = 使用主题默认背景。",
+        "settings_background_pick": "选择图片…",
+        "settings_background_clear": "清除背景",
+        "settings_background_mode": "填充方式",
+        "settings_background_mode_cover": "铺满（裁切）",
+        "settings_background_mode_contain": "适应（留边）",
+        "settings_background_mode_stretch": "拉伸",
+        "settings_background_mode_tile": "平铺",
+        "settings_background_opacity": "不透明度",
+        "settings_background_applied": "背景已更新",
+        "settings_folders": "多文件夹管理",
+        "settings_folders_hint": "管理多个工作区。当前工作区决定 ROM / BIOS / 存档的根目录。",
+        "settings_folders_col_name": "名称",
+        "settings_folders_col_path": "路径",
+        "settings_folders_col_type": "类型",
+        "settings_folders_col_op": "操作",
+        "settings_folders_add": "添加工作区",
+        "settings_folders_save": "保存工作区",
+        "settings_folders_del": "删除",
+        "settings_folders_del_confirm": "删除工作区「{name}」？（不会删除磁盘文件）",
+        "settings_folders_saved": "工作区已保存",
+        "settings_folders_active": "设为当前",
+        "settings_folders_type_mixed": "综合",
+        "settings_folders_type_rom": "仅 ROM",
+        "settings_folders_type_bios": "仅 BIOS",
+        "settings_drag_drop": "拖拽识别",
+        "settings_drag_drop_enable": "启用拖拽自动识别",
+        "settings_drag_drop_hint": "把文件拖到主窗口：.py → 插件；.bin/.rom 等 → BIOS；游戏后缀 → 游戏库。",
+        "retro_docs_title": "老游戏资料",
+        "retro_docs_hint": "内嵌资料站，方便查老游戏攻略和详情。需要联网。",
+        "retro_docs_open_external": "用外部浏览器打开",
+        "retro_docs_reload": "重新加载",
+        "retro_docs_fallback": "未检测到 QtWebEngine，无法内嵌网页。\n\n点下方按钮用外部浏览器打开资料站。",
+        "retro_docs_url": "https://nostalibrary.tzengyuxio.me/",
         "credits_title": "鸣谢",
         "credits_deps": "Python 依赖",
         "credits_emulators": "开源模拟器项目",
@@ -2571,6 +2601,7 @@ DEFAULT_LANG_PACKS = {
         "nav_library": "Library", "nav_engines": "Emulators", "nav_bios": "BIOS",
         "nav_stats": "Stats", "nav_resources": "Resources", "nav_lan": "LAN",
         "nav_webtransfer": "LAN Transfer",
+        "nav_retro_docs": "Retro Docs",   # ★ v1.6.3
         "nav_settings": "Settings",
         "toolbar_import_engine": "Import Engine",
         "toolbar_download_engine": "Download Engine",
@@ -2720,6 +2751,46 @@ DEFAULT_LANG_PACKS = {
         "settings_platform_saved": "Platforms saved",
         "settings_credits": "Credits",
         "settings_credits_btn": "View Credits",
+        # ★ v1.6.3
+        "settings_project": "Project",
+        "settings_project_repo": "Project URL",
+        "settings_project_open": "🌐 Open Project Homepage",
+        "settings_project_hint": "Click to open the GitHub repository in your default browser.",
+        "settings_background": "Global Background",
+        "settings_background_hint": "Pick an image as the main window background. Empty = theme default.",
+        "settings_background_pick": "Pick image…",
+        "settings_background_clear": "Clear background",
+        "settings_background_mode": "Fill mode",
+        "settings_background_mode_cover": "Cover (crop)",
+        "settings_background_mode_contain": "Contain (letterbox)",
+        "settings_background_mode_stretch": "Stretch",
+        "settings_background_mode_tile": "Tile",
+        "settings_background_opacity": "Opacity",
+        "settings_background_applied": "Background updated",
+        "settings_folders": "Multi-Folder",
+        "settings_folders_hint": "Manage multiple workspaces. Active workspace sets root for ROM / BIOS / Saves.",
+        "settings_folders_col_name": "Name",
+        "settings_folders_col_path": "Path",
+        "settings_folders_col_type": "Type",
+        "settings_folders_col_op": "Op",
+        "settings_folders_add": "Add Workspace",
+        "settings_folders_save": "Save Workspaces",
+        "settings_folders_del": "Del",
+        "settings_folders_del_confirm": "Delete workspace '{name}'? (Disk files untouched)",
+        "settings_folders_saved": "Workspaces saved",
+        "settings_folders_active": "Set Active",
+        "settings_folders_type_mixed": "Mixed",
+        "settings_folders_type_rom": "ROM only",
+        "settings_folders_type_bios": "BIOS only",
+        "settings_drag_drop": "Drag & Drop",
+        "settings_drag_drop_enable": "Enable drag & drop auto-detect",
+        "settings_drag_drop_hint": "Drop files onto main window: .py → plugins; .bin/.rom → BIOS; game extensions → library.",
+        "retro_docs_title": "Retro Docs",
+        "retro_docs_hint": "Embedded docs site for old games. Requires network.",
+        "retro_docs_open_external": "Open in browser",
+        "retro_docs_reload": "Reload",
+        "retro_docs_fallback": "QtWebEngine not found. Cannot embed page.\n\nClick the button below to open the docs site in your browser.",
+        "retro_docs_url": "https://nostalibrary.tzengyuxio.me/",
         "credits_title": "Credits",
         "credits_deps": "Python Dependencies",
         "credits_emulators": "Open Source Emulator Projects",
@@ -3129,7 +3200,6 @@ DEFAULT_LANG_PACKS = {
     },
 }
 
-
 def _machine_translate(zh_pack: dict, lang: str) -> dict:
     MAPS = {
         "ru": {
@@ -3354,6 +3424,13 @@ SETTINGS = {
     "resource_mem_mb": 0,
     "resource_force_unlock": False,
     "resource_safety_ratio": 85,
+    # ★ v1.6.3
+    "background_image": "",
+    "background_mode": "cover",
+    "background_opacity": 100,
+    "drag_drop_enabled": True,
+    "drag_drop_bios_exts": [".bin", ".rom", ".dat", ".keys"],
+    "drag_drop_game_min_size": 4096,
 }
 SAVE_PATHS: dict = {}
 CHEAT_PATHS: dict = {}
@@ -3363,16 +3440,52 @@ STATS: dict = {}
 UPDATE_IGNORE: dict = {}
 
 
+# ★ v1.6.3：老版本 folders.json 兼容
+_FOLDER_TYPE_MIGRATION = {
+    "mixed": "mixed",
+    "rom": "rom",
+    "bios": "bios",
+    "general": "mixed",   # 老格式
+    "": "mixed",
+}
+
+
+def _normalize_folder_entry(folder: dict) -> dict:
+    """把老版本 folders.json 的条目规范化成 v1.6.3 格式。"""
+    if not isinstance(folder, dict):
+        return {"name": "未命名工作区", "path": str(DATA_DIR), "type": "mixed"}
+    name = (folder.get("name") or "未命名工作区").strip() or "未命名工作区"
+    path = (folder.get("path") or str(DATA_DIR)).strip() or str(DATA_DIR)
+    ftype = _FOLDER_TYPE_MIGRATION.get(
+        (folder.get("type") or "mixed").lower(), "mixed")
+    return {"name": name, "path": path, "type": ftype}
+
+
 def load_folders_config():
     global FOLDERS_CONFIG
     if FOLDERS_FILE.exists():
         try:
             with open(FOLDERS_FILE, "r", encoding="utf-8") as f:
-                FOLDERS_CONFIG = json.load(f)
-        except Exception:
-            FOLDERS_CONFIG = json.loads(json.dumps(DEFAULT_FOLDERS_JSON))
-    if not FOLDERS_CONFIG.get("folders"):
-        FOLDERS_CONFIG = json.loads(json.dumps(DEFAULT_FOLDERS_JSON))
+                raw = json.load(f)
+        except Exception as e:
+            logger.exception(f"加载 folders 失败: {e}")
+            raw = None
+        if isinstance(raw, dict) and isinstance(raw.get("folders"), list):
+            normalized = [_normalize_folder_entry(x) for x in raw["folders"]]
+            idx = raw.get("active_index", 0)
+            try:
+                idx = int(idx)
+            except Exception:
+                idx = 0
+            if not (0 <= idx < len(normalized)):
+                idx = 0
+            FOLDERS_CONFIG = {"folders": normalized, "active_index": idx}
+            return
+
+    FOLDERS_CONFIG = json.loads(json.dumps(DEFAULT_FOLDERS_JSON))
+    FOLDERS_CONFIG["folders"] = [
+        _normalize_folder_entry(x) for x in FOLDERS_CONFIG.get("folders", [])
+    ]
 
 
 def save_folders_config():
@@ -3391,6 +3504,9 @@ def load_settings():
                 SETTINGS.update(json.load(f))
         except Exception as e:
             logger.exception(f"加载 settings 失败: {e}")
+    # ★ v1.6.3：缺的字段用默认值兜底
+    for k, v in DEFAULT_SETTINGS_JSON.items():
+        SETTINGS.setdefault(k, json.loads(json.dumps(v)) if isinstance(v, (dict, list)) else v)
 
 
 def save_settings():
@@ -3544,7 +3660,35 @@ def get_active_folder() -> dict:
     idx = FOLDERS_CONFIG.get("active_index", 0)
     if folders and 0 <= idx < len(folders):
         return folders[idx]
-    return {"name": "默认工作区", "path": str(DATA_DIR)}
+    return {"name": "默认工作区", "path": str(DATA_DIR), "type": "mixed"}
+
+
+# ★ v1.6.3：多工作区路径重定向
+def get_active_rom_dir() -> Path:
+    """当前工作区的 ROM 根目录。"""
+    f = get_active_folder()
+    ftype = f.get("type", "mixed")
+    base = Path(f.get("path", str(DATA_DIR)))
+    if ftype == "bios":
+        return ROM_DIR   # BIOS 工作区不覆盖 ROM，回退全局
+    return base / "roms" if (base / "roms").exists() or ftype == "mixed" else ROM_DIR
+
+
+def get_active_bios_dir() -> Path:
+    """当前工作区的 BIOS 根目录。"""
+    f = get_active_folder()
+    ftype = f.get("type", "mixed")
+    base = Path(f.get("path", str(DATA_DIR)))
+    if ftype == "rom":
+        return BIOS_DIR
+    return base / "bios" if (base / "bios").exists() or ftype == "mixed" else BIOS_DIR
+
+
+def get_active_save_dir() -> Path:
+    """当前工作区的存档根目录。"""
+    f = get_active_folder()
+    base = Path(f.get("path", str(DATA_DIR)))
+    return base / "saves" if (base / "saves").exists() else SAVE_DIR
 
 
 load_folders_config()
@@ -6030,7 +6174,7 @@ def diagnose_launch_failure(engine: EmulatorConfig, game: GameEntry,
             bios_dir_rel = resolve_engine_field(engine, "bios_dir", "") or ""
             bios_dir = Path(engine.engine_dir) / bios_dir_rel
             for bf in bios_files:
-                if not (bios_dir / bf).exists() and not (BIOS_DIR / bf).exists():
+                if not (bios_dir / bf).exists() and not (get_active_bios_dir() / bf).exists():
                     issues.append(f"⚠️ 可能缺少 BIOS: {bf}")
 
     if exe.exists():
@@ -6160,7 +6304,6 @@ def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
     # ★ v1.5.1 F4：应用资源策略
     if SETTINGS.get("resource_policy_enabled", True):
         def _delayed_resource_policy():
-            # 延迟一点让进程真正起来，亲和性设置更稳
             time.sleep(0.3)
             try:
                 cores = int(SETTINGS.get("resource_cpu_cores", 0)) or 0
@@ -7746,7 +7889,6 @@ def relaunch_as_admin():
     except Exception:
         return False
 
-
 # ============================================================
 # 19. 数据模型
 # ============================================================
@@ -8543,6 +8685,7 @@ class SteamGridDBScraperWorker(QThread):
 
         self.done.emit(ok_count, fail_count, failed)
 
+
 # ============================================================
 # 21. 基础对话框
 # ============================================================
@@ -8849,7 +8992,8 @@ class CreditsDialog(QDialog):
             "<b>SteamGridDB</b> — 现代平台封面<br>"
             "<b>Libretro 文档</b><br>"
             "<b>LocalSend Web</b> — 局域网传输后端<br>"
-            "<b>IPS / UPS 格式文档</b> — 补丁工具"
+            "<b>IPS / UPS 格式文档</b> — 补丁工具<br>"
+            "<b>骨灰集散地</b> — 老游戏资料"
         )
         lbl3 = QLabel(data_text)
         lbl3.setWordWrap(True)
@@ -8881,14 +9025,7 @@ class CreditsDialog(QDialog):
 # 21.5 v1.5.1 F1：日志查看器
 # ============================================================
 class LogViewerDialog(QDialog):
-    """实时日志查看器。
-
-    - 顶部：级别下拉、关键词过滤、自动滚动、清空缓冲、打开日志目录、导出诊断包
-    - 中部：只读 QTextEdit，等宽、不换行
-    - 底部：计数标签 + 关闭
-
-    QTimer 每 1000ms 读一次 LOG_RING（加锁），渲染成 HTML。
-    """
+    """实时日志查看器。"""
 
     LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -8898,7 +9035,7 @@ class LogViewerDialog(QDialog):
         self.setMinimumSize(820, 560)
 
         self._keyword = ""
-        self._level_floor_idx = 2   # 默认 WARNING
+        self._level_floor_idx = 2
         self._auto_scroll = True
         self._last_rendered_count = 0
 
@@ -8922,7 +9059,7 @@ class LogViewerDialog(QDialog):
         self.combo_level.addItem(tr("log_level_all"), "ALL")
         for lv in self.LEVELS:
             self.combo_level.addItem(lv, lv)
-        self.combo_level.setCurrentIndex(3)  # WARNING
+        self.combo_level.setCurrentIndex(3)
         self.combo_level.currentIndexChanged.connect(self._on_level_changed)
         top.addWidget(self.combo_level)
 
@@ -9069,7 +9206,6 @@ class LogViewerDialog(QDialog):
             )
             lines_html.append(html)
 
-        # 只在有新内容时重建（避免闪烁）
         if shown != self._last_rendered_count or len(lines_html) > 0:
             new_html = "<br>".join(lines_html[-1500:])
             self.view.setHtml(new_html)
@@ -9819,7 +9955,6 @@ class CoverScrapeDialog(QDialog):
                 pass
         super().closeEvent(event)
 
-
 # ============================================================
 # 22. 页面：游戏库
 # ============================================================
@@ -9840,7 +9975,6 @@ class LibraryPage(QWidget):
         self._proxy = GameFilterProxy()
         self._proxy.setSourceModel(self._model)
         self._games: list = []
-        # ★ v1.5.1：低配模式默认列表视图
         if SETTINGS.get("low_spec_mode", False):
             self._view_mode = "list"
         else:
@@ -9984,7 +10118,6 @@ class LibraryPage(QWidget):
         self._reload_platform_combo()
 
     def _toggle_view(self):
-        # 低配模式下不显示网格视图
         if SETTINGS.get("low_spec_mode", False):
             modes = ["list", "timeline"]
         else:
@@ -10302,6 +10435,7 @@ class LibraryPage(QWidget):
             self._rebuild_grid()
         elif self._view_mode == "timeline":
             self._rebuild_timeline()
+
 
 # ============================================================
 # 22.5 统一配置中心对话框
@@ -12108,6 +12242,127 @@ class ResourcesPage(QWidget):
 
 
 # ============================================================
+# ★ v1.6.3 新增：老游戏资料站页面（QtWebEngine 内嵌）
+# ============================================================
+class RetroDocsPage(QWidget):
+    """老游戏资料站。用 QtWebEngine 内嵌，没装时降级为外部浏览器打开。"""
+
+    def __init__(self):
+        super().__init__()
+        self._view = None
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        top = QHBoxLayout()
+        title = QLabel(tr("retro_docs_title"))
+        title.setObjectName("SectionTitle")
+        top.addWidget(title)
+        top.addStretch(1)
+
+        btn_reload = QPushButton(tr("retro_docs_reload"))
+        btn_reload.clicked.connect(self._reload)
+        top.addWidget(btn_reload)
+
+        btn_ext = QPushButton(tr("retro_docs_open_external"))
+        btn_ext.clicked.connect(self._open_external)
+        top.addWidget(btn_ext)
+
+        root.addLayout(top)
+
+        hint = QLabel(tr("retro_docs_hint"))
+        hint.setObjectName("Hint")
+        hint.setWordWrap(True)
+        root.addWidget(hint)
+
+        self._stack = QStackedWidget()
+        root.addWidget(self._stack, 1)
+
+        if HAS_WEBENGINE:
+            self._setup_webengine()
+        else:
+            self._setup_fallback()
+
+    def _setup_webengine(self):
+        try:
+            profile = QWebEngineProfile("mikan_emu_retro_docs", self)
+            try:
+                cache_dir = WEBENGINE_DIR / "retro_cache"
+                storage_dir = WEBENGINE_DIR / "retro_storage"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                storage_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    profile.setCachePath(str(cache_dir))
+                    profile.setPersistentStoragePath(str(storage_dir))
+                except Exception as e:
+                    logger.debug(f"设置资料站缓存目录失败: {e}")
+            except Exception:
+                pass
+
+            self._view = QWebEngineView()
+            try:
+                page = self._view.page()
+                if page:
+                    page.setProfile(profile)
+            except Exception:
+                pass
+
+            try:
+                s = self._view.settings()
+                s.setAttribute(QWebEngineSettings.JavascriptEnabled, True)
+                s.setAttribute(QWebEngineSettings.LocalStorageEnabled, True)
+            except Exception:
+                pass
+
+            url = tr("retro_docs_url") or RETRO_DOCS_URL
+            self._view.load(QUrl(url))
+            self._stack.addWidget(self._view)
+        except Exception as e:
+            logger.exception(f"资料站 WebEngine 初始化失败: {e}")
+            self._setup_fallback()
+
+    def _setup_fallback(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(24, 24, 24, 24)
+        v.setSpacing(16)
+
+        lbl = QLabel(tr("retro_docs_fallback"))
+        lbl.setWordWrap(True)
+        v.addWidget(lbl)
+        v.addStretch(1)
+
+        row = QHBoxLayout()
+        btn = QPushButton(tr("retro_docs_open_external"))
+        btn.setObjectName("PrimaryBtn")
+        btn.clicked.connect(self._open_external)
+        row.addWidget(btn)
+        row.addStretch(1)
+        v.addLayout(row)
+
+        self._stack.addWidget(w)
+
+    def _reload(self):
+        if HAS_WEBENGINE and self._view is not None:
+            try:
+                url = tr("retro_docs_url") or RETRO_DOCS_URL
+                self._view.load(QUrl(url))
+            except Exception as e:
+                logger.warning(f"资料站重新加载失败: {e}")
+        else:
+            self._open_external()
+
+    def _open_external(self):
+        try:
+            url = tr("retro_docs_url") or RETRO_DOCS_URL
+            webbrowser.open(url)
+        except Exception as e:
+            QMessageBox.warning(self, tr("msg_warning"), f"打开失败: {e}")
+
+# ============================================================
 # 23.5 局域网页面
 # ============================================================
 class EmojiPanel(QDialog):
@@ -13412,6 +13667,7 @@ class WebTransferPage(QWidget):
             except Exception:
                 pass
 
+
 # ============================================================
 # 24. 设置页
 # ============================================================
@@ -13424,6 +13680,8 @@ class SettingsPage(QWidget):
     theme_changed = Signal(str, str)
     plugins_changed = Signal()
     machine_tier_changed = Signal()
+    background_changed = Signal()        # ★ v1.6.3
+    folders_changed = Signal()           # ★ v1.6.3
 
     def __init__(self):
         super().__init__()
@@ -13487,6 +13745,55 @@ class SettingsPage(QWidget):
             self.btn_accent.setText(cur_accent)
 
         v.addWidget(box_theme)
+
+        # ★ v1.6.3：全局背景
+        box_bg = QGroupBox(tr("settings_background"))
+        fbg = QVBoxLayout(box_bg)
+
+        h_bg = QLabel(tr("settings_background_hint"))
+        h_bg.setObjectName("Hint")
+        h_bg.setWordWrap(True)
+        fbg.addWidget(h_bg)
+
+        row_bg1 = QHBoxLayout()
+        self.edit_bg_path = QLineEdit(SETTINGS.get("background_image", ""))
+        self.edit_bg_path.setPlaceholderText("（未设置）")
+        self.edit_bg_path.setReadOnly(True)
+        row_bg1.addWidget(self.edit_bg_path, 1)
+        b_pick = QPushButton(tr("settings_background_pick"))
+        b_pick.setObjectName("PrimaryBtn")
+        b_pick.clicked.connect(self._pick_background)
+        row_bg1.addWidget(b_pick)
+        b_clear = QPushButton(tr("settings_background_clear"))
+        b_clear.clicked.connect(self._clear_background)
+        row_bg1.addWidget(b_clear)
+        fbg.addLayout(row_bg1)
+
+        row_bg2 = QHBoxLayout()
+        row_bg2.addWidget(QLabel(tr("settings_background_mode")))
+        self.combo_bg_mode = QComboBox()
+        self.combo_bg_mode.addItem(tr("settings_background_mode_cover"), "cover")
+        self.combo_bg_mode.addItem(tr("settings_background_mode_contain"), "contain")
+        self.combo_bg_mode.addItem(tr("settings_background_mode_stretch"), "stretch")
+        self.combo_bg_mode.addItem(tr("settings_background_mode_tile"), "tile")
+        idx = self.combo_bg_mode.findData(SETTINGS.get("background_mode", "cover"))
+        if idx >= 0:
+            self.combo_bg_mode.setCurrentIndex(idx)
+        self.combo_bg_mode.currentIndexChanged.connect(self._on_bg_mode_changed)
+        row_bg2.addWidget(self.combo_bg_mode)
+
+        row_bg2.addWidget(QLabel(tr("settings_background_opacity")))
+        self.spin_bg_opacity = QSpinBox()
+        self.spin_bg_opacity.setRange(10, 100)
+        self.spin_bg_opacity.setSuffix(" %")
+        self.spin_bg_opacity.setValue(int(SETTINGS.get("background_opacity", 100)))
+        self.spin_bg_opacity.valueChanged.connect(self._on_bg_opacity_changed)
+        row_bg2.addWidget(self.spin_bg_opacity)
+
+        row_bg2.addStretch(1)
+        fbg.addLayout(row_bg2)
+
+        v.addWidget(box_bg)
 
         # --- 网络代理 ---
         box_proxy = QGroupBox("网络代理")
@@ -13623,14 +13930,12 @@ class SettingsPage(QWidget):
         box_res = QGroupBox(tr("machine_tier_title"))
         fres = QVBoxLayout(box_res)
 
-        # 探测结果
         self.lbl_hw_info = QLabel()
         self.lbl_hw_info.setObjectName("Hint")
         self.lbl_hw_info.setWordWrap(True)
         fres.addWidget(self.lbl_hw_info)
         self._refresh_hw_info()
 
-        # 机器档次
         row_mt = QHBoxLayout()
         row_mt.addWidget(QLabel(tr("machine_tier_label")))
         self.combo_tier = QComboBox()
@@ -13651,14 +13956,12 @@ class SettingsPage(QWidget):
         row_mt.addStretch(1)
         fres.addLayout(row_mt)
 
-        # 低配模式
         self.check_low_spec = QCheckBox(tr("machine_tier_low_spec"))
         self.check_low_spec.setChecked(bool(SETTINGS.get("low_spec_mode", False)))
         self.check_low_spec.toggled.connect(
             lambda val: self._set_setting("low_spec_mode", val))
         fres.addWidget(self.check_low_spec)
 
-        # 资源策略开关
         self.check_res_enabled = QCheckBox(tr("resource_policy_enable"))
         self.check_res_enabled.setChecked(
             bool(SETTINGS.get("resource_policy_enabled", True)))
@@ -13666,7 +13969,6 @@ class SettingsPage(QWidget):
             lambda val: self._set_setting("resource_policy_enabled", val))
         fres.addWidget(self.check_res_enabled)
 
-        # CPU 核心数
         row_rc = QHBoxLayout()
         row_rc.addWidget(QLabel(tr("resource_cpu_cores")))
         self.spin_res_cores = QSpinBox()
@@ -13678,7 +13980,6 @@ class SettingsPage(QWidget):
         row_rc.addStretch(1)
         fres.addLayout(row_rc)
 
-        # 内存
         row_rm = QHBoxLayout()
         row_rm.addWidget(QLabel(tr("resource_mem_mb")))
         self.spin_res_mem = QSpinBox()
@@ -13691,7 +13992,6 @@ class SettingsPage(QWidget):
         row_rm.addStretch(1)
         fres.addLayout(row_rm)
 
-        # 安全上限
         row_rs = QHBoxLayout()
         row_rs.addWidget(QLabel(tr("resource_safety_ratio")))
         self.spin_safety = QSpinBox()
@@ -13703,7 +14003,6 @@ class SettingsPage(QWidget):
         row_rs.addStretch(1)
         fres.addLayout(row_rs)
 
-        # 强制解锁
         self.check_force = QCheckBox(
             tr("resource_force_unlock",
                ratio=int(SETTINGS.get("resource_safety_ratio", 85))))
@@ -13713,6 +14012,21 @@ class SettingsPage(QWidget):
         fres.addWidget(self.check_force)
 
         v.addWidget(box_res)
+
+        # ★ v1.6.3：拖拽识别
+        box_drag = QGroupBox(tr("settings_drag_drop"))
+        fdrag = QVBoxLayout(box_drag)
+        h_drag = QLabel(tr("settings_drag_drop_hint"))
+        h_drag.setObjectName("Hint")
+        h_drag.setWordWrap(True)
+        fdrag.addWidget(h_drag)
+
+        self.check_drag = QCheckBox(tr("settings_drag_drop_enable"))
+        self.check_drag.setChecked(bool(SETTINGS.get("drag_drop_enabled", True)))
+        self.check_drag.toggled.connect(
+            lambda val: self._set_setting("drag_drop_enabled", val))
+        fdrag.addWidget(self.check_drag)
+        v.addWidget(box_drag)
 
         # --- 局域网 ---
         box_lan = QGroupBox(tr("settings_lan"))
@@ -14051,6 +14365,43 @@ class SettingsPage(QWidget):
 
         v.addWidget(box_plat)
 
+        # ★ v1.6.3：多文件夹管理
+        box_folders = QGroupBox(tr("settings_folders"))
+        ff = QVBoxLayout(box_folders)
+        h_folders = QLabel(tr("settings_folders_hint"))
+        h_folders.setObjectName("Hint")
+        h_folders.setWordWrap(True)
+        ff.addWidget(h_folders)
+
+        self.table_folders = QTableWidget(0, 4)
+        self.table_folders.setHorizontalHeaderLabels([
+            tr("settings_folders_col_name"),
+            tr("settings_folders_col_path"),
+            tr("settings_folders_col_type"),
+            tr("settings_folders_col_op"),
+        ])
+        self.table_folders.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table_folders.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table_folders.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table_folders.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table_folders.verticalHeader().setVisible(False)
+        self.table_folders.setMinimumHeight(180)
+        self._reload_folders_table()
+        ff.addWidget(self.table_folders)
+
+        row_folders = QHBoxLayout()
+        b_add_folder = QPushButton(tr("settings_folders_add"))
+        b_add_folder.clicked.connect(self._add_folder)
+        row_folders.addWidget(b_add_folder)
+        b_save_folders = QPushButton(tr("settings_folders_save"))
+        b_save_folders.setObjectName("PrimaryBtn")
+        b_save_folders.clicked.connect(self._save_folders)
+        row_folders.addWidget(b_save_folders)
+        row_folders.addStretch(1)
+        ff.addLayout(row_folders)
+
+        v.addWidget(box_folders)
+
         # --- 下载 + 镜像 ---
         box_dl = QGroupBox(tr("settings_download"))
         fdl = QVBoxLayout(box_dl)
@@ -14319,7 +14670,6 @@ class SettingsPage(QWidget):
         self.lbl_admin = QLabel()
         row_admin.addWidget(self.lbl_admin)
 
-        # v1.5.1：Win 版本 + 机器档次显示
         self.lbl_winver = QLabel()
         self.lbl_winver.setObjectName("Hint")
         self._refresh_winver_label()
@@ -14348,11 +14698,189 @@ class SettingsPage(QWidget):
         f4.addStretch(1)
         v.addWidget(box4)
 
+        # ★ v1.6.3：设置页最底部 - 项目地址
+        box_proj = QGroupBox(tr("settings_project"))
+        fproj = QVBoxLayout(box_proj)
+        h_proj = QLabel(tr("settings_project_hint"))
+        h_proj.setObjectName("Hint")
+        h_proj.setWordWrap(True)
+        fproj.addWidget(h_proj)
+
+        row_proj = QHBoxLayout()
+        lbl_repo = QLabel(f"{tr('settings_project_repo')}: {APP_REPO}")
+        lbl_repo.setObjectName("Hint")
+        lbl_repo.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        row_proj.addWidget(lbl_repo, 1)
+
+        btn_open_repo = QPushButton(tr("settings_project_open"))
+        btn_open_repo.setObjectName("PrimaryBtn")
+        btn_open_repo.clicked.connect(self._open_project_repo)
+        row_proj.addWidget(btn_open_repo)
+        fproj.addLayout(row_proj)
+
+        v.addWidget(box_proj)
+
         v.addStretch(1)
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
 
         QTimer.singleShot(0, self._reload_plugin_table)
+
+    # ---- ★ v1.6.3：项目地址 ----
+    def _open_project_repo(self):
+        try:
+            webbrowser.open(APP_REPO)
+        except Exception as e:
+            QMessageBox.warning(self, tr("msg_warning"), f"打开失败: {e}")
+
+    # ---- ★ v1.6.3：全局背景 ----
+    def _pick_background(self):
+        fp, _ = QFileDialog.getOpenFileName(
+            self, tr("settings_background_pick"), str(BACKGROUND_DIR),
+            "图片 (*.png *.jpg *.jpeg *.webp *.bmp);;所有文件 (*)")
+        if not fp:
+            return
+        src = Path(fp)
+        try:
+            dst = BACKGROUND_DIR / src.name
+            if src.resolve() != dst.resolve():
+                shutil.copy2(src, dst)
+            SETTINGS["background_image"] = str(dst)
+            save_settings()
+            self.edit_bg_path.setText(str(dst))
+            self.background_changed.emit()
+            QMessageBox.information(self, tr("msg_info"),
+                                    tr("settings_background_applied"))
+        except Exception as e:
+            QMessageBox.critical(self, tr("msg_error"), str(e))
+
+    def _clear_background(self):
+        SETTINGS["background_image"] = ""
+        save_settings()
+        self.edit_bg_path.setText("")
+        self.background_changed.emit()
+        QMessageBox.information(self, tr("msg_info"),
+                                tr("settings_background_applied"))
+
+    def _on_bg_mode_changed(self, _idx):
+        SETTINGS["background_mode"] = self.combo_bg_mode.currentData() or "cover"
+        save_settings()
+        self.background_changed.emit()
+
+    def _on_bg_opacity_changed(self, val):
+        SETTINGS["background_opacity"] = int(val)
+        save_settings()
+        self.background_changed.emit()
+
+    # ---- ★ v1.6.3：多文件夹管理 ----
+    def _reload_folders_table(self):
+        self.table_folders.setRowCount(0)
+        for i, folder in enumerate(FOLDERS_CONFIG.get("folders", [])):
+            row = self.table_folders.rowCount()
+            self.table_folders.insertRow(row)
+            self.table_folders.setItem(row, 0, QTableWidgetItem(folder.get("name", "")))
+            self.table_folders.setItem(row, 1, QTableWidgetItem(folder.get("path", "")))
+
+            combo = QComboBox()
+            combo.addItem(tr("settings_folders_type_mixed"), "mixed")
+            combo.addItem(tr("settings_folders_type_rom"), "rom")
+            combo.addItem(tr("settings_folders_type_bios"), "bios")
+            idx = combo.findData(folder.get("type", "mixed"))
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            self.table_folders.setCellWidget(row, 2, combo)
+
+            op_box = QWidget()
+            op_layout = QHBoxLayout(op_box)
+            op_layout.setContentsMargins(0, 0, 0, 0)
+            op_layout.setSpacing(4)
+
+            b_active = QPushButton(tr("settings_folders_active"))
+            b_active.setFixedWidth(80)
+            b_active.clicked.connect(lambda _=False, r=i: self._set_active_folder(r))
+            op_layout.addWidget(b_active)
+
+            b_del = QPushButton(tr("settings_folders_del"))
+            b_del.setFixedWidth(60)
+            b_del.clicked.connect(lambda _=False, r=row: self._del_folder_row(r))
+            op_layout.addWidget(b_del)
+
+            self.table_folders.setCellWidget(row, 3, op_box)
+
+    def _set_active_folder(self, idx: int):
+        if 0 <= idx < len(FOLDERS_CONFIG.get("folders", [])):
+            FOLDERS_CONFIG["active_index"] = idx
+            save_folders_config()
+            self.folders_changed.emit()
+            QMessageBox.information(
+                self, tr("msg_info"),
+                f"当前工作区已切换: {FOLDERS_CONFIG['folders'][idx].get('name')}")
+
+    def _add_folder(self):
+        row = self.table_folders.rowCount()
+        self.table_folders.insertRow(row)
+        self.table_folders.setItem(row, 0, QTableWidgetItem("新工作区"))
+        self.table_folders.setItem(row, 1, QTableWidgetItem(str(DATA_DIR)))
+
+        combo = QComboBox()
+        combo.addItem(tr("settings_folders_type_mixed"), "mixed")
+        combo.addItem(tr("settings_folders_type_rom"), "rom")
+        combo.addItem(tr("settings_folders_type_bios"), "bios")
+        self.table_folders.setCellWidget(row, 2, combo)
+
+        b_del = QPushButton(tr("settings_folders_del"))
+        b_del.setFixedWidth(60)
+        b_del.clicked.connect(lambda _=False, r=row: self._del_folder_row(r))
+        self.table_folders.setCellWidget(row, 3, b_del)
+
+    def _del_folder_row(self, row: int):
+        name_item = self.table_folders.item(row, 0)
+        name = name_item.text() if name_item else "?"
+        reply = QMessageBox.question(
+            self, tr("msg_confirm"),
+            tr("settings_folders_del_confirm", name=name),
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        self.table_folders.removeRow(row)
+        self._reload_folders_table()
+
+    def _save_folders(self):
+        folders = []
+        for row in range(self.table_folders.rowCount()):
+            name_item = self.table_folders.item(row, 0)
+            path_item = self.table_folders.item(row, 1)
+            if not name_item or not path_item:
+                continue
+            name = name_item.text().strip()
+            path = path_item.text().strip()
+            if not name or not path:
+                continue
+            combo = self.table_folders.cellWidget(row, 2)
+            ftype = combo.currentData() if combo else "mixed"
+            folders.append({"name": name, "path": path, "type": ftype})
+
+        if not folders:
+            QMessageBox.warning(self, tr("msg_warning"), "至少保留一个工作区")
+            return
+
+        FOLDERS_CONFIG["folders"] = folders
+        if FOLDERS_CONFIG.get("active_index", 0) >= len(folders):
+            FOLDERS_CONFIG["active_index"] = 0
+        save_folders_config()
+        self._reload_folders_table()
+        self._reload_workspace_combo()
+        self.folders_changed.emit()
+        QMessageBox.information(self, tr("msg_info"), tr("settings_folders_saved"))
+
+    def _reload_workspace_combo(self):
+        self.combo_workspace.blockSignals(True)
+        self.combo_workspace.clear()
+        for i, folder in enumerate(FOLDERS_CONFIG.get("folders", [])):
+            self.combo_workspace.addItem(
+                f"{folder.get('name')}  [{folder.get('path')}]", i)
+        self.combo_workspace.setCurrentIndex(FOLDERS_CONFIG.get("active_index", 0))
+        self.combo_workspace.blockSignals(False)
 
     # ---- 主题 ----
     def _on_theme_changed(self, _i):
@@ -14426,7 +14954,7 @@ class SettingsPage(QWidget):
                 return
         self._set_setting("process_priority", level)
 
-    # ---- v1.5.1 F3/F4：机器档次 / 资源策略 ----
+    # ---- 机器档次 / 资源策略 ----
     def _refresh_hw_info(self):
         try:
             hw = probe_hardware(force=True)
@@ -14465,11 +14993,9 @@ class SettingsPage(QWidget):
     def _on_safety_changed(self, val):
         SETTINGS["resource_safety_ratio"] = int(val)
         save_settings()
-        # 重置硬件缓存，重新计算上限
         global _HW_CACHE
         _HW_CACHE = {}
         self._refresh_hw_info()
-        # 更新 force 复选框的文案
         self.check_force.setText(
             tr("resource_force_unlock", ratio=int(val)))
 
@@ -14488,7 +15014,7 @@ class SettingsPage(QWidget):
         SETTINGS["resource_force_unlock"] = bool(checked)
         save_settings()
 
-    # ---- v1.5.1 F1：日志 ----
+    # ---- 日志 ----
     def _on_log_level_changed(self, _idx):
         level = self.combo_log_level.currentData() or "INFO"
         SETTINGS["log_level"] = level
@@ -14528,7 +15054,7 @@ class SettingsPage(QWidget):
                 importlib.import_module(mod)
                 lines.append(f"✅ {pkg}  已安装")
             except ImportError:
-                lines.append(f"❌ {pkg}  未安装（局域网传输页将降级为外部浏览器）")
+                lines.append(f"❌ {pkg}  未安装（局域网传输 / 资料站将降级为外部浏览器）")
         self.lbl_opt.setText("\n".join(lines))
 
     def _install_missing_optional(self):
@@ -14843,7 +15369,6 @@ class SettingsPage(QWidget):
         self.edit_lan_nick.setText(SETTINGS.get("lan_nickname", "") or
                                     LanIdentity().name)
         self.edit_lan_pwd.setText(SETTINGS.get("lan_password", ""))
-        # v1.5.1：机器档次自动勾选状态
         if SETTINGS.get("machine_tier_auto", True):
             self.combo_tier.setEnabled(False)
         else:
@@ -14873,6 +15398,7 @@ class SettingsPage(QWidget):
             return
         FOLDERS_CONFIG["active_index"] = idx
         save_folders_config()
+        self.folders_changed.emit()
 
     def _browse_save_dir(self, edit: QLineEdit):
         d = QFileDialog.getExistingDirectory(self, "选择目录", str(DATA_DIR))
@@ -15090,6 +15616,7 @@ class SettingsPage(QWidget):
             QApplication.quit()
         else:
             QMessageBox.critical(self, tr("msg_error"), "提权失败")
+
 
 # ============================================================
 # 25. 导入对话框
@@ -16401,6 +16928,7 @@ class PluginManager:
         self.enabled_state[pid] = enabled
         save_plugin_enabled(self.enabled_state)
 
+
 # ============================================================
 # 28. 主窗口
 # ============================================================
@@ -16412,7 +16940,8 @@ class MainWindow(QMainWindow):
     NAV_RESOURCES = 4
     NAV_LAN = 5
     NAV_WEBTRANSFER = 6
-    NAV_SETTINGS = 7
+    NAV_RETRO_DOCS = 7      # ★ v1.6.3
+    NAV_SETTINGS = 8        # ★ v1.6.3（原来是 7）
 
     def __init__(self):
         super().__init__()
@@ -16430,6 +16959,7 @@ class MainWindow(QMainWindow):
         self._theme_watcher = None
         self._plugin_manager = PluginManager(self)
         self._plugin_page_widgets: list = []
+        self._bg_pixmap: Optional[QPixmap] = None   # ★ v1.6.3
 
         self._settle_stale_launches()
 
@@ -16451,6 +16981,7 @@ class MainWindow(QMainWindow):
                      tr("nav_bios"), tr("nav_stats"),
                      tr("nav_resources"), tr("nav_lan"),
                      tr("nav_webtransfer"),
+                     tr("nav_retro_docs"),         # ★ v1.6.3
                      tr("nav_settings")]:
             QListWidgetItem(name, self.nav)
         self.nav.setCurrentRow(0)
@@ -16505,6 +17036,9 @@ class MainWindow(QMainWindow):
         self.page_webtransfer = WebTransferPage()
         self.stack.addWidget(self.page_webtransfer)
 
+        self.page_retro_docs = RetroDocsPage()      # ★ v1.6.3
+        self.stack.addWidget(self.page_retro_docs)
+
         self.page_settings = SettingsPage()
         self.page_settings.lang_changed.connect(self._on_lang_changed)
         self.page_settings.platforms_changed.connect(self._on_platforms_changed)
@@ -16513,6 +17047,8 @@ class MainWindow(QMainWindow):
         self.page_settings.saves_changed.connect(self._reload_games)
         self.page_settings.plugins_changed.connect(self._load_plugins)
         self.page_settings.machine_tier_changed.connect(self._on_machine_tier_changed)
+        self.page_settings.background_changed.connect(self._apply_background)   # ★
+        self.page_settings.folders_changed.connect(self._on_folders_changed)    # ★
         self.stack.addWidget(self.page_settings)
 
         splitter.addWidget(self.stack)
@@ -16521,7 +17057,11 @@ class MainWindow(QMainWindow):
         splitter.setSizes([170, 1110])
         root.addWidget(splitter, 1)
 
+        # ★ v1.6.3：主窗口接受拖拽
+        self.setAcceptDrops(True)
+
         self._apply_theme()
+        self._apply_background()    # ★ v1.6.3
         self._setup_tray()
         self._reload_games()
 
@@ -16538,6 +17078,7 @@ class MainWindow(QMainWindow):
         # ★ v1.5.1 F2：启动后检查 Windows 版本
         QTimer.singleShot(300, self._check_win_version_startup)
 
+    # ---------- ★ v1.5.1 / v1.6.3：启动时系统/机器档次检查 ----------
     def _check_win_version_startup(self):
         try:
             ok, msg = check_win10_1809_minimum()
@@ -16552,6 +17093,275 @@ class MainWindow(QMainWindow):
         self.status.showMessage(
             f"机器档次已更新为: {SETTINGS.get('machine_tier', '?')}")
 
+    # ---------- ★ v1.6.3：全局背景 ----------
+    def _load_background_pixmap(self) -> Optional[QPixmap]:
+        path = (SETTINGS.get("background_image", "") or "").strip()
+        if not path:
+            return None
+        p = Path(path)
+        if not p.exists() or not p.is_file():
+            return None
+        pix = QPixmap(str(p))
+        if pix.isNull():
+            return None
+        return pix
+
+    def _apply_background(self):
+        self._bg_pixmap = self._load_background_pixmap()
+        # 背景图片用 QPalette 实现，避免污染 QSS 子控件样式
+        if self._bg_pixmap is None:
+            self.setAutoFillBackground(False)
+            self.update()
+            return
+
+        try:
+            palette = self.palette()
+            brush = QBrush(self._bg_pixmap)
+            palette.setBrush(QPalette.Window, brush)
+            self.setPalette(palette)
+            self.setAutoFillBackground(True)
+        except Exception as e:
+            logger.warning(f"设置背景失败: {e}")
+        self.update()
+
+    def paintEvent(self, event):
+        # 只在设置了背景图时手动绘制，按 mode 处理拉伸/平铺
+        mode = SETTINGS.get("background_mode", "cover")
+        opacity = int(SETTINGS.get("background_opacity", 100))
+        if self._bg_pixmap is None:
+            super().paintEvent(event)
+            return
+
+        painter = QPainter(self)
+        try:
+            painter.setOpacity(max(0.05, min(1.0, opacity / 100.0)))
+            rect = self.rect()
+            pix = self._bg_pixmap
+
+            if mode == "stretch":
+                painter.drawPixmap(rect, pix)
+            elif mode == "tile":
+                pw, ph = pix.width(), pix.height()
+                if pw > 0 and ph > 0:
+                    for x in range(0, rect.width(), pw):
+                        for y in range(0, rect.height(), ph):
+                            painter.drawPixmap(x, y, pix)
+            elif mode == "contain":
+                scaled = pix.scaled(rect.size(), Qt.KeepAspectRatio,
+                                    Qt.SmoothTransformation)
+                x = (rect.width() - scaled.width()) // 2
+                y = (rect.height() - scaled.height()) // 2
+                painter.drawPixmap(x, y, scaled)
+            else:  # cover
+                scaled = pix.scaled(rect.size(), Qt.KeepAspectRatioByExpanding,
+                                    Qt.SmoothTransformation)
+                x = (rect.width() - scaled.width()) // 2
+                y = (rect.height() - scaled.height()) // 2
+                painter.drawPixmap(x, y, scaled)
+        finally:
+            painter.end()
+
+        super().paintEvent(event)
+
+    # ---------- ★ v1.6.3：多文件夹切换 ----------
+    def _on_folders_changed(self):
+        self._engines_json = load_engines_json()
+        self.page_library.refresh_platforms()
+        self._reload_games()
+        self.status.showMessage("工作区已切换")
+
+    # ---------- ★ v1.6.3：拖拽识别 ----------
+    def dragEnterEvent(self, event):
+        if not SETTINGS.get("drag_drop_enabled", True):
+            return
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if not SETTINGS.get("drag_drop_enabled", True):
+            return
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        if not SETTINGS.get("drag_drop_enabled", True):
+            return
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        paths = []
+        for u in urls:
+            try:
+                p = Path(u.toLocalFile())
+                if p.exists():
+                    paths.append(p)
+            except Exception:
+                pass
+        if not paths:
+            return
+        event.acceptProposedAction()
+        self._handle_dropped_paths(paths)
+
+    def _handle_dropped_paths(self, paths: list):
+        """把拖入的文件按后缀分流处理。"""
+        plugins = []
+        bios_files = []
+        game_files = []
+        unknown = []
+
+        bios_exts = {e.lower() for e in
+                     SETTINGS.get("drag_drop_bios_exts",
+                                  [".bin", ".rom", ".dat", ".keys"])}
+
+        engines_json = load_engines_json()
+        rom_ext_map = get_all_platform_rom_extensions(engines_json)
+
+        for p in paths:
+            if p.is_dir():
+                # 目录：尝试作为插件目录导入
+                plugins.append(p)
+                continue
+
+            ext = p.suffix.lower()
+
+            if ext == ".py":
+                plugins.append(p)
+                continue
+
+            if ext in (".zip", ".7z", ".rar") and "plugin" in p.stem.lower():
+                plugins.append(p)
+                continue
+
+            # 先判断是不是已知平台的 ROM 后缀
+            if ext in rom_ext_map:
+                game_files.append(p)
+                continue
+
+            # 再判断是不是 BIOS 后缀
+            if ext in bios_exts:
+                # 用 BIOS DB 判断是不是真 BIOS
+                try:
+                    md5 = md5_of_file(p)
+                except Exception:
+                    md5 = ""
+                if identify_bios_platform(p, md5):
+                    bios_files.append(p)
+                    continue
+                # 否则当作游戏尝试（有些 .bin 是 PS1 镜像）
+                game_files.append(p)
+                continue
+
+            unknown.append(p)
+
+        summary = []
+
+        # 插件
+        if plugins:
+            srcs = [str(x) for x in plugins]
+            self._import_plugins_from_drop(srcs)
+            summary.append(f"插件: {len(plugins)} 个")
+
+        # BIOS
+        if bios_files:
+            ok = 0
+            for bf in bios_files:
+                try:
+                    dst = BIOS_DIR / bf.name
+                    if dst.exists():
+                        dst = dst.with_name(f"{dst.stem}_{int(time.time())}{dst.suffix}")
+                    shutil.copy2(bf, dst)
+                    ok += 1
+                except Exception as e:
+                    logger.exception(f"复制 BIOS 失败: {e}")
+            if ok:
+                # 自动归类
+                try:
+                    auto_organize_bios(dry_run=False)
+                except Exception:
+                    pass
+                self.page_bios.refresh()
+            summary.append(f"BIOS: {ok} 个")
+
+        # 游戏
+        if game_files:
+            self._import_games_from_drop(game_files)
+            summary.append(f"游戏: {len(game_files)} 个")
+
+        if unknown:
+            summary.append(f"未识别: {len(unknown)} 个")
+
+        if summary:
+            self.status.showMessage("拖拽导入完成 - " + " / ".join(summary))
+        else:
+            self.status.showMessage("拖拽的文件无法识别")
+
+    def _import_plugins_from_drop(self, paths: list):
+        ok_list = []
+        fail_list = []
+        for fp in paths:
+            try:
+                ok, pid, filled, msg = _import_plugin_any(Path(fp), overwrite=True)
+                if ok:
+                    ok_list.append(pid)
+                else:
+                    fail_list.append((Path(fp).name, msg or "未知错误"))
+            except Exception as e:
+                logger.exception(f"拖拽导入插件失败: {fp}")
+                fail_list.append((Path(fp).name, str(e)))
+        if ok_list:
+            logger.info(f"拖拽导入插件成功: {ok_list}")
+            QMessageBox.information(
+                self, tr("msg_info"),
+                f"已导入 {len(ok_list)} 个插件：\n"
+                + "\n".join(f"  • {x}" for x in ok_list)
+                + "\n\n请点「设置 → 重启程序」使其生效。")
+        if fail_list:
+            logger.warning(f"拖拽导入插件失败: {fail_list}")
+
+    def _import_games_from_drop(self, paths: list):
+        engines_json = load_engines_json()
+        new_games = []
+        skipped = 0
+        for src in paths:
+            platform = guess_platform_by_ext(src, engines_json)
+            if not platform:
+                skipped += 1
+                continue
+            try:
+                platform_dir = ROM_DIR / platform
+                platform_dir.mkdir(parents=True, exist_ok=True)
+                dst = platform_dir / src.name
+                if dst.exists():
+                    idx = 2
+                    while dst.exists():
+                        dst = platform_dir / f"{src.stem}_{idx}{src.suffix}"
+                        idx += 1
+                shutil.copy2(src, dst)
+                new_games.append(GameEntry(
+                    name=clean_game_name(dst),
+                    path=str(dst),
+                    platform=platform,
+                    size=dst.stat().st_size,
+                    added_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                ))
+            except Exception as e:
+                logger.exception(f"复制游戏失败: {src}")
+                skipped += 1
+
+        if new_games:
+            existing = load_games()
+            existing_paths = {g.path for g in existing}
+            for g in new_games:
+                if g.path not in existing_paths:
+                    existing.append(g)
+            save_games(existing)
+            self._reload_games()
+            QMessageBox.information(
+                self, tr("msg_info"),
+                f"已导入 {len(new_games)} 个游戏"
+                + (f"\n跳过 {skipped} 个" if skipped else ""))
+
+    # ---------- 顶部工具栏 ----------
     def _build_topbar(self):
         bar = QFrame()
         bar.setObjectName("TopBar")
@@ -16730,12 +17540,12 @@ class MainWindow(QMainWindow):
                 pass
         self._plugin_page_widgets.clear()
 
-        builtin_count = 8
+        builtin_count = 9   # ★ v1.6.3：多了资料站，从 8 改成 9
         while self.nav.count() > builtin_count:
             item = self.nav.takeItem(self.nav.count() - 1)
             del item
 
-        self.NAV_SETTINGS = 7
+        self.NAV_SETTINGS = 8   # ★ v1.6.3
 
     # ---------- 主题 ----------
     def _apply_theme(self):
@@ -17080,7 +17890,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-            # ★ v1.5.1 F3：低配模式下强制关闭性能小窗
             show_perf = SETTINGS.get("perf_monitor_on_launch", True)
             if SETTINGS.get("low_spec_mode", False):
                 show_perf = False
@@ -17266,7 +18075,6 @@ _CRASH_DIALOG_SHOWN = False
 
 
 def _show_crash_dialog(tb_text: str, zip_path):
-    """崩溃时弹窗。已做兜底，不会二次崩。"""
     try:
         box = QMessageBox()
         box.setIcon(QMessageBox.Critical)
@@ -17339,7 +18147,6 @@ def _excepthook(exc_type, exc_value, exc_tb):
         app = QApplication.instance()
         if app is None:
             return
-        # 直接用模态框，避免 QTimer 依赖事件循环
         _show_crash_dialog(tb_text, path)
     except Exception:
         pass
@@ -17349,7 +18156,6 @@ def _threading_excepthook(args):
     _excepthook(args.exc_type, args.exc_value, args.exc_traceback)
 
 
-# 模块顶层安装钩子，从启动第一秒就生效
 sys.excepthook = _excepthook
 threading.excepthook = _threading_excepthook
 
@@ -17362,13 +18168,11 @@ def main():
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
 
-    # ★ v1.5.1 F3：启动时刷新机器档次
     try:
         refresh_machine_tier()
     except Exception as e:
         logger.debug(f"刷新机器档次失败: {e}")
 
-    # ★ v1.5.1 F1：再次初始化日志（SETTINGS 已就绪）
     try:
         setup_logging()
     except Exception:
@@ -17377,7 +18181,6 @@ def main():
     win = MainWindow()
     win.show()
 
-    # ★ v1.5.1 F2：启动后异步检查 Windows 版本
     try:
         ok, msg = check_win10_1809_minimum()
         if not ok:
@@ -17396,4 +18199,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-# ===== 全部完成 v1.5.1 =====
+# ===== 全部完成 v1.6.3 =====
