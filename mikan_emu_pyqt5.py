@@ -1,85 +1,124 @@
 # -*- coding: utf-8 -*-
 """
-mikan_emu_pyqt5 v1.6.3-win7
-PyQt5 + Python 3.8 + Windows 7 移植版
+mikan_emu v1.7.0-win7
+模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器
++ 性能监控 + 局域网聊天/文件 + 局域网传输（内嵌 LocalSend Web 可选）
++ 封面刮削（Libretro / SteamGridDB）+ 性能档位 + 系统优先级
++ 版本适配（version_overrides）+ 打开模拟器设置
++ 引擎共享定义（_shared）+ BIOS 自动归类 + 统一代理 + 插件系统
++ 日志环形缓冲 + 崩溃诊断包 + Windows 版本检测 + 硬件探测 + 资源策略
++ ★ v1.7.0：MikanAPI 统一接口 + 镜像自动选路 + 补丁工具边界修复
++ ★ v1.7.0：os.chdir 竞态修复 + 时长结算修复 + 硬编码中文走 tr()
 
-Windows 7 兼容性：
-  - PyQt5 5.15.9 (Qt 5.15 LTS，最后支持 Win7 的 Qt 版本)
-  - Python 3.8 (最后支持 Win7 的官方 Python)
-  - 强制 QtWebEngine 软件渲染
-  - psutil < 5.9.6
-  - pyinstaller 4.10 打包
+★ Win7 兼容版说明 ★
+- Python 3.8（不要用 3.9+，PyQt5 在 3.8 上 Win7 兼容性最好）
+- PyQt5 5.15.4（最后一个官方支持 Win7 的 5.15.x 系列稳定版）
+- PyQtWebEngine 5.15.4（可选，Win7 上要装 5.15.4 对应版本）
+- 所有依赖锁定在 Win7 可用的最后版本
+- 用 PyInstaller 3.6 / 4.10 打包（5.x 开始不支持 Win7）
+  pip install "pyinstaller==4.10"
+  pyinstaller --noconfirm --clean --windowed --name mikan_emu mikan_emu.py
+
+依赖锁定版本（Win7 + Python 3.8 可用）：
+    PyQt5==5.15.4
+    PyQtWebEngine==5.15.4         # 可选
+    requests==2.25.1
+    loguru==0.5.3
+    py7zr==0.16.1
+    rarfile==4.0
+    certifi==2020.12.5
+    psutil==5.8.0
+    packaging==20.9
+    PySocks==1.7.1
+    pywin32==228                  # PyInstaller 需要
+
+安装命令（Python 3.8 环境）：
+    python -m pip install -i https://pypi.tuna.tsinghua.edu.cn/simple ^
+        PyQt5==5.15.4 requests==2.25.1 loguru==0.5.3 py7zr==0.16.1 ^
+        rarfile==4.0 certifi==2020.12.5 psutil==5.8.0 packaging==20.9 ^
+        PySocks==1.7.1 pywin32==228 "pyinstaller==4.10"
+
+项目地址: https://github.com/luohaocheng171/mikan_emu
+
+【法律】不提供 BIOS、不提供 ROM、不二次分发模拟器
 """
-
-from __future__ import annotations
 
 import os
 import sys
 
-# ── Win7：QtWebEngine 强制软件渲染 ──
-if sys.platform == "win32":
-    os.environ.setdefault(
-        "QTWEBENGINE_CHROMIUM_FLAGS",
-        "--disable-gpu --disable-software-rasterizer --no-sandbox "
-        "--single-process --disable-features=NetworkService"
-    )
-else:
-    os.environ.setdefault(
-        "QTWEBENGINE_CHROMIUM_FLAGS",
-        "--disable-gpu --disable-software-rasterizer"
-    )
+# ============================================================
+# 0. Win7 早期初始化（必须在任何 Qt 导入之前）
+# ============================================================
+# Qt5 在 Win7 上不需要特殊 flags，但保留一个空的初始化钩子
+def _setup_qt_flags():
+    """Qt5/Win7 无需 Chromium flags。仅为保持结构一致保留。"""
+    pass
+
+
+_setup_qt_flags()
+
 os.environ["MEDNAFEN_ALLOWMULTI"] = "1"
 
+# Win7 上高 DPI 缩放有问题，强制关闭（Qt5.15 默认开启缩放会花屏）
+os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "0")
+os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "0")
+
 # ============================================================
-# 1. 依赖自检
+# 1. 依赖自检（锁定 Win7 可用版本）
 # ============================================================
 import subprocess
 import importlib
 
+# 依赖名 -> (pip 包名, 锁定版本)
 REQUIRED = {
-    "PyQt5": "PyQt5==5.15.9",
-    "requests": "requests<2.32",
-    "loguru": "loguru<0.8",
-    "py7zr": "py7zr<0.21",
-    "rarfile": "rarfile<4.1",
-    "certifi": "certifi",
-    "psutil": "psutil<5.9.6",
-    "packaging": "packaging<24",
-    "socks": "PySocks",
+    "PyQt5": ("PyQt5", "5.15.4"),
+    "requests": ("requests", "2.25.1"),
+    "loguru": ("loguru", "0.5.3"),
+    "py7zr": ("py7zr", "0.16.1"),
+    "rarfile": ("rarfile", "4.0"),
+    "certifi": ("certifi", "2020.12.5"),
+    "psutil": ("psutil", "5.8.0"),
+    "packaging": ("packaging", "20.9"),
+    "socks": ("PySocks", "1.7.1"),
 }
-OPTIONAL = {"PyQt5.QtWebEngineWidgets": "PyQtWebEngine==5.15.6"}
+
+OPTIONAL = {
+    "PyQt5.QtWebEngineWidgets": ("PyQtWebEngine", "5.15.4"),
+}
+
 MIRRORS_PIP = [
     "https://pypi.tuna.tsinghua.edu.cn/simple",
     "https://mirrors.aliyun.com/pypi/simple",
     "https://pypi.org/simple",
 ]
+
 OPTIONAL_MISSING: dict = {}
 
 
 def _ensure_deps():
     missing = []
-    for mod, pkg in REQUIRED.items():
+    for mod, (pkg, ver) in REQUIRED.items():
         try:
             importlib.import_module(mod)
         except ImportError:
-            missing.append(pkg)
+            missing.append(f"{pkg}=={ver}")
     if not missing:
         return
     print(f"[启动] 检测到缺失依赖: {missing}，正在安装...")
-    for pkg in missing:
+    for spec in missing:
         ok = False
         for m in MIRRORS_PIP:
             try:
                 subprocess.check_call([
                     sys.executable, "-m", "pip", "install",
-                    pkg, "-i", m, "--quiet"
+                    spec, "-i", m, "--quiet"
                 ])
                 ok = True
                 break
             except subprocess.CalledProcessError:
                 continue
         if not ok:
-            print(f"[启动] 安装 {pkg} 失败，请手动安装后重试。")
+            print(f"[启动] 安装 {spec} 失败，请手动安装后重试。")
             sys.exit(1)
     print("[启动] 依赖安装完成。")
 
@@ -87,7 +126,7 @@ def _ensure_deps():
 def _check_optional() -> dict:
     global OPTIONAL_MISSING
     OPTIONAL_MISSING = {}
-    for mod, pkg in OPTIONAL.items():
+    for mod, (pkg, ver) in OPTIONAL.items():
         try:
             importlib.import_module(mod)
         except ImportError:
@@ -100,11 +139,19 @@ def _check_optional() -> dict:
 
 
 def install_optional_package(pkg: str, parent_widget=None) -> bool:
-    if pkg not in OPTIONAL.values():
+    """安装可选依赖（Win7 用 PyQt5 的版本）。"""
+    valid = {p for p, _ in OPTIONAL.values()}
+    if pkg not in valid:
         return False
+    ver = "5.15.4"
+    for _, (p, v) in OPTIONAL.items():
+        if p == pkg:
+            ver = v
+            break
     try:
         subprocess.Popen(
-            [sys.executable, "-m", "pip", "install", pkg,
+            [sys.executable, "-m", "pip", "install",
+             f"{pkg}=={ver}",
              "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"],
             creationflags=(
                 subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
@@ -120,14 +167,17 @@ _ensure_deps()
 _check_optional()
 
 # ============================================================
-# 2. 导入
+# 2. 导入（PyQt5）
 # ============================================================
 import ctypes
+import functools
 import hashlib
 import importlib.util
 import json
 import platform as _platform
+import random as _random
 import re
+import shlex
 import shutil
 import socket
 import subprocess as sp
@@ -144,6 +194,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional, Any
+from urllib.parse import urlparse
 
 import requests
 import urllib3
@@ -160,12 +211,12 @@ except ImportError:
 
 try:
     from PyQt5.QtCore import (
-        Qt, QThread, pyqtSignal as Signal, QModelIndex, QAbstractTableModel,
+        Qt, QThread, pyqtSignal, QModelIndex, QAbstractTableModel,
         QSortFilterProxyModel, QTimer, QSize, QObject, QPoint, QUrl,
     )
     from PyQt5.QtGui import (
         QColor, QFont, QPixmap, QIcon, QPainter, QPen,
-        QBrush, QLinearGradient, QPolygon, QPalette
+        QBrush, QLinearGradient, QPolygon, QPalette,
     )
     from PyQt5.QtWidgets import (
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -183,12 +234,13 @@ try:
 except ImportError as _e:
     HAS_QT = False
     print(f"[启动] PyQt5 导入失败: {_e}")
-    print("[启动] 请执行: pip install PyQt5==5.15.9")
+    print("请先安装: pip install PyQt5==5.15.4")
     sys.exit(1)
 
 try:
     from PyQt5.QtWebEngineWidgets import QWebEngineView
-    from PyQt5.QtWebEngineCore import QWebEngineSettings, QWebEngineProfile
+    from PyQt5.QtWebEngineWidgets import QWebEngineSettings
+    from PyQt5.QtWebEngineWidgets import QWebEngineProfile
     HAS_WEBENGINE = True
 except ImportError:
     HAS_WEBENGINE = False
@@ -202,8 +254,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # 3. 路径 & 常量
 # ============================================================
 APP_NAME = "mikan_emu"
-APP_VERSION = "1.6.3"
+APP_VERSION = "1.7.0"
 APP_REPO = "https://github.com/luohaocheng171/mikan_emu"
+
 RETRO_DOCS_URL = "https://nostalibrary.tzengyuxio.me/"
 
 if getattr(sys, 'frozen', False):
@@ -245,7 +298,10 @@ for d in (DATA_DIR, CONFIG_DIR, LANG_DIR, ENGINE_DIR, ENGINE_DOWNLOAD_DIR,
           LAN_SHARED_DOWNLOAD_DIR, WEBENGINE_DIR, SCRAPE_CACHE_DIR,
           PLUGINS_DIR, PLUGIN_STORAGE_DIR, CRASH_REPORT_DIR,
           BACKGROUND_DIR):
-    d.mkdir(parents=True, exist_ok=True)
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except Exception as _e:
+        print(f"[启动] 创建目录失败 {d}: {_e}")
 
 FOLDERS_FILE = CONFIG_DIR / "folders.json"
 SETTINGS_FILE = CONFIG_DIR / "settings.json"
@@ -304,12 +360,12 @@ def setup_logging():
 
         try:
             logger.add(
-                LOG_DIR / "mikan_emu_{time:YYYY-MM-DD}.log",
+                str(LOG_DIR / "mikan_emu_{time:YYYY-MM-DD}.log"),
                 rotation="10 MB",
                 retention=f"{keep} days",
                 encoding="utf-8",
                 level="DEBUG",
-                enqueue=False,          # ★ Win7 兼容：禁用子进程队列
+                enqueue=True,
             )
         except Exception as e:
             print(f"[启动] 日志文件初始化失败: {e}")
@@ -329,8 +385,12 @@ def setup_logging():
 setup_logging()
 
 if not HAS_WEBENGINE:
-    logger.warning("QtWebEngine 未安装，「局域网传输」和「老游戏资料」页将降级为外部浏览器模式")
+    logger.warning(
+        "PyQtWebEngine 未安装，「局域网传输」和「老游戏资料」页将降级为外部浏览器模式")
 
+# ============================================================
+# 3.5 内置默认 JSON 数据
+# ============================================================
 DEFAULT_ENGINES_JSON_STR = r"""
 {
   "_shared": {
@@ -354,7 +414,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
       "match": {"exe": ["mame.exe", "mame64.exe"], "folder": ["mame", "MAME"], "keywords": ["mame"]},
       "launch_template": "{exe} \"{rom}\"",
       "settings_args": "",
-      "perf_profiles": {"省电": "-nothrottle -frameskip 2", "平衡": "", "高性能": "-nothrottle", "画质优先": "-nothrottle"},
+      "perf_profiles": {
+        "省电": "-nothrottle -frameskip 2",
+        "平衡": "",
+        "高性能": "-nothrottle",
+        "画质优先": "-nothrottle"
+      },
       "official": true
     },
     "retroarch": {
@@ -365,7 +430,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
       "match": {"exe": ["retroarch.exe"], "folder": ["RetroArch", "retroarch"], "keywords": ["retroarch"]},
       "launch_template": "{exe} -L \"{core}\" \"{rom}\"",
       "settings_args": "",
-      "perf_profiles": {"省电": "--menu", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen --set-shader"},
+      "perf_profiles": {
+        "省电": "--menu",
+        "平衡": "",
+        "高性能": "--fullscreen",
+        "画质优先": "--fullscreen --set-shader"
+      },
       "official": true,
       "note": "libretro 前端，配合核心使用"
     }
@@ -383,7 +453,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["snes9x-x64.exe", "snes9x.exe"], "folder": ["snes9x"], "keywords": ["snes9x", "snes"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {"省电": "--frameskip 2", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
+        "perf_profiles": {
+          "省电": "--frameskip 2",
+          "平衡": "",
+          "高性能": "--fullscreen",
+          "画质优先": "--fullscreen"
+        },
         "official": true
       },
       "bsnes": {
@@ -395,7 +470,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["bsnes.exe"], "folder": ["bsnes"], "keywords": ["bsnes"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
+        "perf_profiles": {
+          "省电": "",
+          "平衡": "",
+          "高性能": "--fullscreen",
+          "画质优先": "--fullscreen"
+        },
         "official": true,
         "note": "精度优先，对 CPU 要求高"
       }
@@ -415,9 +495,18 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["duckstation-qt-x64-ReleaseLTCG.exe", "duckstation-qt-x64-Release.exe", "duckstation-qt-x64-Debug.exe", "duckstation.exe"], "folder": ["duckstation"], "keywords": ["duckstation"]},
         "launch_template": "{exe} -batch \"{rom}\"",
         "settings_args": "-settings",
-        "perf_profiles": {"省电": "-batch --renderer software", "平衡": "-batch", "高性能": "-batch --fullscreen", "画质优先": "-batch --fullscreen --renderer vulkan"},
+        "perf_profiles": {
+          "省电": "-batch --renderer software",
+          "平衡": "-batch",
+          "高性能": "-batch --fullscreen",
+          "画质优先": "-batch --fullscreen --renderer vulkan"
+        },
         "version_overrides": [
-          {"range": "<0.1.0", "launch_template": "{exe} -batch \"{rom}\"", "settings_args": "-settings"}
+          {
+            "range": "<0.1.0",
+            "launch_template": "{exe} -batch \"{rom}\"",
+            "settings_args": "-settings"
+          }
         ],
         "bios_dir": "bios",
         "official": true
@@ -602,7 +691,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["mGBA.exe", "mgba.exe", "mgba-qt.exe"], "folder": ["mgba", "mGBA"], "keywords": ["mgba"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
+        "perf_profiles": {
+          "省电": "",
+          "平衡": "",
+          "高性能": "--fullscreen",
+          "画质优先": "--fullscreen"
+        },
         "official": true
       },
       "vba-m": {
@@ -633,9 +727,18 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["pcsx2-qt.exe", "pcsx2.exe"], "folder": ["pcsx2"], "keywords": ["pcsx2"]},
         "launch_template": "{exe} -batch \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {"省电": "-batch --renderer software", "平衡": "-batch", "高性能": "-batch --fullscreen", "画质优先": "-batch --fullscreen --renderer vulkan"},
+        "perf_profiles": {
+          "省电": "-batch --renderer software",
+          "平衡": "-batch",
+          "高性能": "-batch --fullscreen",
+          "画质优先": "-batch --fullscreen --renderer vulkan"
+        },
         "version_overrides": [
-          {"range": "<2.0.0", "launch_template": "{exe} --batch \"{rom}\"", "settings_args": ""}
+          {
+            "range": "<2.0.0",
+            "launch_template": "{exe} --batch \"{rom}\"",
+            "settings_args": ""
+          }
         ],
         "bios_required": true,
         "bios_dir": "bios",
@@ -656,7 +759,12 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "match": {"exe": ["fceux.exe", "fceux64.exe"], "folder": ["fceux"], "keywords": ["fceux"]},
         "launch_template": "{exe} \"{rom}\"",
         "settings_args": "",
-        "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
+        "perf_profiles": {
+          "省电": "",
+          "平衡": "",
+          "高性能": "--fullscreen",
+          "画质优先": "--fullscreen"
+        },
         "official": true
       },
       "mesence": {
@@ -867,19 +975,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
         "perf_profiles": {"省电": "", "平衡": "", "高性能": "--fullscreen", "画质优先": "--fullscreen"},
         "official": true,
         "note": "Citra 后继项目"
-      },
-      "zakuro": {
-        "version": "0.2.9",
-        "url": "https://github.com/fearkov/zakuro/releases/download/v0.2.9/zakuro-windows-x86_64.zip",
-        "url_type": "direct",
-        "github_repo": "fearkov/zakuro",
-        "archive": "zip",
-        "match": {"exe": ["zakuro.exe"], "folder": ["zakuro"], "keywords": ["zakuro"]},
-        "launch_template": "{exe} \"{rom}\"",
-        "settings_args": "",
-        "perf_profiles": {},
-        "official": true,
-        "note": "⚠ 实验性：Rust 重写的 3DS 模拟器"
       }
     }
   },
@@ -1658,7 +1753,6 @@ DEFAULT_ENGINES_JSON_STR = r"""
 """
 
 
-# ★ v1.6.3：默认工作区支持多文件夹
 DEFAULT_FOLDERS_JSON = {
     "folders": [
         {"name": "默认工作区", "path": str(DATA_DIR), "type": "mixed"}
@@ -1712,7 +1806,6 @@ DEFAULT_SETTINGS_JSON = {
     "proxy_pwd": "",
     "proxy_bypass": "",
     "plugins_auto_load": True,
-    # v1.5.1
     "log_level": "INFO",
     "log_keep_days": 14,
     "crash_report_enabled": True,
@@ -1724,8 +1817,7 @@ DEFAULT_SETTINGS_JSON = {
     "resource_cpu_affinity": "",
     "resource_mem_mb": 0,
     "resource_force_unlock": False,
-    "resource_safety_ratio": 70,
-    # v1.6.3
+    "resource_safety_ratio": 85,
     "background_image": "",
     "background_mode": "cover",
     "background_opacity": 100,
@@ -1736,16 +1828,20 @@ DEFAULT_SETTINGS_JSON = {
 
 DEFAULT_MIRRORS_JSON = {
     "enabled": True,
+    "auto": True,
+    "region": "auto",
+    "probe_timeout": 3.0,
+    "probe_cache_ttl": 300,
     "mirrors": [
-        "https://ghproxy.com/",
-        "https://gh-proxy.com/",
-        "https://github.moeyy.xyz/",
-        "",
+        {"url": "https://ghproxy.com/", "enabled": True, "region": "cn", "weight": 10},
+        {"url": "https://gh-proxy.com/", "enabled": True, "region": "cn", "weight": 9},
+        {"url": "https://github.moeyy.xyz/", "enabled": True, "region": "cn", "weight": 8},
+        {"url": "", "enabled": True, "region": "direct", "weight": 1},
     ],
     "api_mirrors": [
-        "https://api.kkgithub.com/",
-        "https://gh-proxy.com/https://api.github.com/",
-        "",
+        {"url": "https://api.kkgithub.com/", "enabled": True, "region": "cn", "weight": 10},
+        {"url": "https://gh-proxy.com/https://api.github.com/", "enabled": True, "region": "cn", "weight": 8},
+        {"url": "", "enabled": True, "region": "direct", "weight": 1},
     ],
 }
 
@@ -1759,7 +1855,8 @@ DEFAULT_ROMS_JSON = {"games": []}
 DEFAULT_RESOURCES_JSON = {
     "groups": [
         {
-            "name": "安全跳转", "icon": "✅",
+            "name": "安全跳转",
+            "icon": "✅",
             "items": [
                 {"name": "Internet Archive", "url": "https://archive.org/", "desc": "非营利数字图书馆，含合法归档的老游戏"},
                 {"name": "Internet Archive 软件区", "url": "https://archive.org/details/software", "desc": "老软件、老游戏归档，分类浏览"},
@@ -1771,7 +1868,8 @@ DEFAULT_RESOURCES_JSON = {
             ]
         },
         {
-            "name": "灰色跳转", "icon": "⚠️",
+            "name": "灰色跳转",
+            "icon": "⚠️",
             "items": [
                 {"name": "Myrient", "url": "https://myrient.erista.me/", "desc": "被 Emulation Wiki 评为最好的现代 ROM 库"},
                 {"name": "Vimm's Lair", "url": "https://vimm.net/", "desc": "老牌站，已下架大量第一方内容"},
@@ -1789,6 +1887,7 @@ DEFAULT_RESOURCES_JSON = {
     ]
 }
 
+
 DEFAULT_BIOS_DB = {
     "version": "1.0",
     "platforms": {
@@ -1802,8 +1901,12 @@ DEFAULT_BIOS_DB = {
                 "scph10000.bin": {"md5": "8dd7d5296a650fac7319bcecf08d9a3c", "region": "JP", "ver": "1.0"},
                 "scph7502.bin": {"md5": "b9d9a0286c33dc6b7237bb13cd46fdee", "region": "EU", "ver": "2.2"}
             },
-            "aliases": {"SCPH1001.BIN": "scph1001.bin", "bios.bin": "scph1001.bin",
-                        "ps1bios.bin": "scph1001.bin", "psx.bin": "scph1001.bin"}
+            "aliases": {
+                "SCPH1001.BIN": "scph1001.bin",
+                "bios.bin": "scph1001.bin",
+                "ps1bios.bin": "scph1001.bin",
+                "psx.bin": "scph1001.bin"
+            }
         },
         "ss": {
             "display": "Sega Saturn",
@@ -1826,8 +1929,13 @@ DEFAULT_BIOS_DB = {
         "gba": {
             "display": "Game Boy Advance",
             "required_any": ["gba_bios.bin"],
-            "files": {"gba_bios.bin": {"md5": "a860e8c0b6d573d19181b6bc8e02dd4d"}},
-            "aliases": {"gba_bios.rom": "gba_bios.bin", "gba.rom": "gba_bios.bin"}
+            "files": {
+                "gba_bios.bin": {"md5": "a860e8c0b6d573d19181b6bc8e02dd4d"}
+            },
+            "aliases": {
+                "gba_bios.rom": "gba_bios.bin",
+                "gba.rom": "gba_bios.bin"
+            }
         },
         "nds": {
             "display": "Nintendo DS",
@@ -1837,12 +1945,18 @@ DEFAULT_BIOS_DB = {
                 "bios9.bin": {"md5": "a392174eb3e572fed6447e956bde4b25"},
                 "firmware.bin": {"md5": "8ad9c21c2b3280e45e8bfd1749f0b0e8"}
             },
-            "aliases": {"nds_bios_arm7.bin": "bios7.bin", "nds_bios_arm9.bin": "bios9.bin"}
+            "aliases": {
+                "nds_bios_arm7.bin": "bios7.bin",
+                "nds_bios_arm9.bin": "bios9.bin"
+            }
         },
         "switch": {
             "display": "Nintendo Switch",
             "required_any": ["prod.keys"],
-            "files": {"prod.keys": {"md5": ""}, "title.keys": {"md5": ""}},
+            "files": {
+                "prod.keys": {"md5": ""},
+                "title.keys": {"md5": ""}
+            },
             "aliases": {}
         },
         "ps2": {
@@ -1866,7 +1980,10 @@ DEFAULT_BIOS_DB = {
         "intellivision": {
             "display": "Intellivision",
             "required_any": ["exec.bin", "grom.bin"],
-            "files": {"exec.bin": {"md5": ""}, "grom.bin": {"md5": ""}},
+            "files": {
+                "exec.bin": {"md5": ""},
+                "grom.bin": {"md5": ""}
+            },
             "aliases": {}
         },
         "pcfx": {
@@ -1887,48 +2004,14 @@ DEFAULT_BIOS_DB = {
         "pc98": {
             "display": "NEC PC-98",
             "required_any": ["bios.rom", "font.rom"],
-            "files": {"bios.rom": {"md5": ""}, "font.rom": {"md5": ""}},
+            "files": {
+                "bios.rom": {"md5": ""},
+                "font.rom": {"md5": ""}
+            },
             "aliases": {}
         }
     }
 }
-
-
-def _ensure_json_file(path: Path, default_data):
-    if path.exists():
-        return
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(default_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"生成默认配置: {path}")
-    except Exception as e:
-        logger.exception(f"写出 {path} 失败: {e}")
-
-
-def _ensure_all_json_files():
-    _ensure_json_file(FOLDERS_FILE, DEFAULT_FOLDERS_JSON)
-    _ensure_json_file(SETTINGS_FILE, DEFAULT_SETTINGS_JSON)
-    _ensure_json_file(MIRRORS_FILE, DEFAULT_MIRRORS_JSON)
-    _ensure_json_file(SAVE_PATHS_FILE, DEFAULT_SAVE_PATHS_JSON)
-    _ensure_json_file(CHEAT_PATHS_FILE, DEFAULT_CHEAT_PATHS_JSON)
-    _ensure_json_file(STATS_FILE, DEFAULT_STATS_JSON)
-    _ensure_json_file(UPDATE_IGNORE_FILE, DEFAULT_UPDATE_IGNORE_JSON)
-    _ensure_json_file(RESOURCES_FILE, DEFAULT_RESOURCES_JSON)
-    _ensure_json_file(INSTALLED_FILE, DEFAULT_INSTALLED_JSON)
-    _ensure_json_file(ROMS_FILE, DEFAULT_ROMS_JSON)
-    _ensure_json_file(BIOS_DB_FILE, DEFAULT_BIOS_DB)
-    _ensure_json_file(PLUGINS_ENABLED_FILE, {})
-    if not ENGINES_JSON.exists():
-        try:
-            data = json.loads(DEFAULT_ENGINES_JSON_STR)
-            with open(ENGINES_JSON, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-            logger.info(f"生成默认 engines.json: {ENGINES_JSON}")
-        except Exception as e:
-            logger.exception(f"写出 engines.json 失败: {e}")
-
-
-_ensure_all_json_files()
 
 # ============================================================
 # 4. 多语言（外置 JSON，自动生成）
@@ -1998,6 +2081,7 @@ DEFAULT_LANG_PACKS = {
         "bios_import_pcem_hint": "选择 PCem / 86Box 的 roms 目录（或包含 roms 的上级目录），自动扫描 .bin/.rom/.zip 并复制到 bios/。",
         "bios_import_pcem_done": "已导入 {n} 个 ROM 文件到 bios/",
         "bios_import_pcem_no_files": "该目录下没有找到 .bin/.rom/.zip 文件",
+        "bios_unknown": "未知",
         "stats_title": "游戏统计", "stats_total_time": "总时长",
         "stats_total_games": "游戏总数", "stats_total_launches": "启动次数",
         "stats_by_platform": "按平台", "stats_last_7d": "最近 7 天",
@@ -2048,6 +2132,18 @@ DEFAULT_LANG_PACKS = {
         "settings_mirrors_up": "上移", "settings_mirrors_down": "下移",
         "settings_mirrors_test": "测试全部", "settings_mirrors_reset": "恢复默认",
         "settings_mirrors_enable": "启用镜像加速（针对 GitHub）",
+        "settings_mirrors_auto": "自动选路（测速后选最快）",
+        "settings_mirrors_region": "地区",
+        "settings_mirrors_region_auto": "自动",
+        "settings_mirrors_region_cn": "国内",
+        "settings_mirrors_region_overseas": "海外",
+        "settings_mirrors_region_direct": "直连",
+        "settings_mirrors_clear_probe": "清除测速缓存",
+        "settings_mirrors_probe_cleared": "测速缓存已清除",
+        "settings_mirrors_col_url": "地址",
+        "settings_mirrors_col_region": "地区",
+        "settings_mirrors_col_weight": "权重",
+        "settings_mirrors_col_enabled": "启用",
         "settings_mirrors_testing": "测试中...",
         "settings_mirrors_result": "结果：{ok} 成功 / {fail} 失败",
         "settings_api_mirrors": "GitHub API 镜像",
@@ -2070,7 +2166,7 @@ DEFAULT_LANG_PACKS = {
         "settings_tray_minimize_launch": "启动游戏后最小化",
         "settings_perf_monitor": "启动游戏时弹出性能小窗",
         "settings_lan": "局域网",
-        "settings_lan_hint": "启用后可在同一局域网内聊天、传文件、共享文件夹。Windows 首次会弹防火墙提示，勾「专用网络」允许。",
+        "settings_lan_hint": "启用后可在同一局域网内聊天、传文件。Windows 首次会弹防火墙提示，勾「专用网络」允许。",
         "settings_hotkey": "全局热键呼出",
         "settings_export": "导出设置",
         "settings_export_format": "导出格式",
@@ -2088,7 +2184,6 @@ DEFAULT_LANG_PACKS = {
         "settings_platform_saved": "平台已保存",
         "settings_credits": "鸣谢",
         "settings_credits_btn": "查看鸣谢",
-        # ★ v1.6.3
         "settings_project": "项目",
         "settings_project_repo": "项目地址",
         "settings_project_open": "🌐 打开项目主页",
@@ -2180,6 +2275,7 @@ DEFAULT_LANG_PACKS = {
         "game_config_tab_info": "ℹ️ 信息",
         "game_config_close": "关闭",
         "game_config_open_settings": "⚙ 打开此模拟器的设置界面",
+        "game_config_no_save_path": "未配置存档路径。\n去「设置 → 存档路径配置」里为当前引擎指定目录。",
         "controls_title": "操作说明",
         "controls_engine": "模拟器",
         "controls_source": "来源",
@@ -2256,6 +2352,9 @@ DEFAULT_LANG_PACKS = {
         "save_backup_failed": "备份失败: {err}",
         "save_restore_confirm": "还原备份 {name}？当前存档会先自动备份。",
         "save_restore_done": "已还原: {name}",
+        "save_no_backup": "没有备份",
+        "save_select_backup": "选择备份:",
+        "save_restore_title": "还原存档",
         "patch_title": "ROM 补丁工具",
         "patch_hint": "支持 IPS / UPS 补丁。\n把补丁文件放在 ROM 同目录（或下方「补丁目录」）会自动列出。\n应用后生成新文件，原 ROM 自动备份为 .bak。",
         "patch_state_clean": "当前是原始 ROM（未打补丁）。",
@@ -2363,6 +2462,7 @@ DEFAULT_LANG_PACKS = {
         "engine_settings_hint": "将不带游戏启动该模拟器，进入它自带的设置界面。",
         "engine_settings_launched": "已启动 {engine} 的设置界面",
         "engine_settings_failed": "启动失败: {err}",
+        "engine_not_found": "找不到引擎配置",
         "settings_version": "引擎版本",
         "settings_version_auto_detect": "启动时自动探测引擎版本",
         "settings_version_hint": "探测到的版本会用于套用 version_overrides（不同版本的参数差异）。",
@@ -2450,6 +2550,9 @@ DEFAULT_LANG_PACKS = {
         "lan_drop_to_broadcast": "把 {n} 个文件广播给所有在线用户？",
         "lan_drop_no_target": "请先在左侧选中一个用户或「全体」。",
         "lan_drop_ask_share": "拖入了 {n} 个文件。\n群聊不直接发文件，是否全部加入共享文件夹？",
+        "lan_peer_offline": "该用户已离线。",
+        "lan_peer_port_unknown": "还没拿到该用户的端口，请等 1~2 秒后再试。",
+        "lan_port_unknown": "暂时不知道对方端口，请等 1~2 秒。",
         "webtransfer_title": "局域网传输",
         "webtransfer_hint": "内嵌 LocalSend Web，打开后会自动发现同网络的设备，可直接选文件互传。\n💡 内嵌页【上传】正常。【下载】请点右上角「用外部浏览器打开」，由浏览器保存文件。",
         "webtransfer_open_external": "用外部浏览器打开",
@@ -2462,12 +2565,11 @@ DEFAULT_LANG_PACKS = {
             "2. 或点下方按钮用外部浏览器打开 LocalSend Web。"),
         "webtransfer_url": "https://web.localsend.org/",
         "webtransfer_install_btn": "自动安装 PyQtWebEngine",
-        "webtransfer_install_confirm": "将执行：pip install PyQtWebEngine==5.15.6\n\n包体积约 200MB，需要联网下载。是否继续？",
+        "webtransfer_install_confirm": "将执行：pip install PyQtWebEngine==5.15.4\n\n包体积约 200MB，需要联网下载。是否继续？",
         "webtransfer_install_started": "已在新窗口开始安装。\n安装完成后请关闭并重新启动 mikan_emu。",
         "webtransfer_install_failed": "启动安装进程失败。",
         "msg_ok": "确定", "msg_cancel": "取消", "msg_warning": "警告",
         "msg_error": "错误", "msg_info": "提示", "msg_confirm": "确认",
-        # 插件相关
         "plugins_title": "插件",
         "plugins_hint": "插件放在 data/mikan_emu/plugins/<id>/ 下，每个插件包含 plugin.json 和 main.py。\n启用/禁用或导入新插件后，需要点「重启程序」才能生效。",
         "plugins_col_enabled": "启用",
@@ -2488,7 +2590,6 @@ DEFAULT_LANG_PACKS = {
         "plugins_state_disabled": "禁用",
         "plugins_restart_confirm": "将关闭当前窗口并重新启动程序。\n继续？",
         "plugins_load_failed": "插件 {pid} 加载失败: {err}",
-        # v1.5.1 日志 / 诊断
         "log_viewer_title": "日志与诊断",
         "log_level_all": "全部",
         "log_auto_scroll": "自动滚动",
@@ -2497,6 +2598,9 @@ DEFAULT_LANG_PACKS = {
         "log_export_pack": "📦 导出诊断包",
         "log_count": "显示 {shown} 条 / 缓冲共 {total} 条",
         "log_export_success": "诊断包已生成：\n{path}\n\n是否打开所在目录？",
+        "log_viewer_level": "级别",
+        "log_viewer_filter": "过滤",
+        "log_filter_ph": "关键词（例如 plugin / download）",
         "crash_title": "程序异常",
         "crash_body": "mikan_emu 遇到一个未处理的异常。",
         "crash_pack_ready": "诊断包已生成:\n{path}",
@@ -2508,11 +2612,9 @@ DEFAULT_LANG_PACKS = {
         "settings_log_level": "日志级别",
         "settings_log_keep_days": "日志保留天数",
         "settings_crash_report_enabled": "未捕获异常时自动生成诊断包",
-        # v1.5.1 Windows 版本
         "win_version_too_old_title": "系统版本过低",
         "win_version_too_old": "当前 Windows 构建号 {build}，低于 Qt6 要求的 17763（Win10 1809）。\n请升级系统，或使用旧版 mikan_emu。",
         "win_version_label": "系统: {name} (build {build}) · 机器档次: {tier}",
-        # v1.5.1 机器档次 / 资源策略
         "machine_tier_title": "资源策略",
         "machine_tier_label": "机器档次",
         "machine_tier_low": "低配 (老电脑)",
@@ -2527,6 +2629,11 @@ DEFAULT_LANG_PACKS = {
         "resource_force_unlock": "⚠ 强制解锁（无视 {ratio}% 上限）",
         "resource_force_unlock_warn": "强制解锁会无视 {ratio}% 安全上限，可能导致系统卡顿甚至 OOM。\n继续？",
         "resource_safety_ratio": "安全上限百分比",
+        "folder_new_workspace": "新工作区",
+        "folder_untitled": "未命名工作区",
+        "file_not_found": "文件不存在: {path}",
+        "open_failed": "打开失败: {e}",
+        "copy_info_done": "已复制",
     },
     "en": {
         "_meta": {"name": "English", "code": "en", "translator": "Official"},
@@ -2596,6 +2703,7 @@ DEFAULT_LANG_PACKS = {
         "bios_import_pcem_hint": "Pick PCem/86Box roms dir (or parent).",
         "bios_import_pcem_done": "Imported {n} ROM files to bios/",
         "bios_import_pcem_no_files": "No .bin/.rom/.zip found in that dir",
+        "bios_unknown": "Unknown",
         "stats_title": "Statistics", "stats_total_time": "Total Time",
         "stats_total_games": "Games", "stats_total_launches": "Launches",
         "stats_by_platform": "By Platform", "stats_last_7d": "Last 7 Days",
@@ -2646,6 +2754,18 @@ DEFAULT_LANG_PACKS = {
         "settings_mirrors_up": "Up", "settings_mirrors_down": "Down",
         "settings_mirrors_test": "Test All", "settings_mirrors_reset": "Reset",
         "settings_mirrors_enable": "Enable mirror acceleration (GitHub)",
+        "settings_mirrors_auto": "Auto-route (probe and pick fastest)",
+        "settings_mirrors_region": "Region",
+        "settings_mirrors_region_auto": "Auto",
+        "settings_mirrors_region_cn": "China",
+        "settings_mirrors_region_overseas": "Overseas",
+        "settings_mirrors_region_direct": "Direct",
+        "settings_mirrors_clear_probe": "Clear probe cache",
+        "settings_mirrors_probe_cleared": "Probe cache cleared",
+        "settings_mirrors_col_url": "URL",
+        "settings_mirrors_col_region": "Region",
+        "settings_mirrors_col_weight": "Weight",
+        "settings_mirrors_col_enabled": "Enabled",
         "settings_mirrors_testing": "Testing...",
         "settings_mirrors_result": "Result: {ok} OK / {fail} failed",
         "settings_api_mirrors": "GitHub API Mirrors",
@@ -2667,7 +2787,7 @@ DEFAULT_LANG_PACKS = {
         "settings_tray_minimize_launch": "Minimize after launching game",
         "settings_perf_monitor": "Show performance window on launch",
         "settings_lan": "LAN",
-        "settings_lan_hint": "Enable chat / file transfer / shared folder on LAN.",
+        "settings_lan_hint": "Enable chat / file transfer on LAN.",
         "settings_hotkey": "Global Hotkey",
         "settings_export": "Export Settings", "settings_export_format": "Format",
         "settings_export_include_cover": "Include cover (HTML only)",
@@ -2684,7 +2804,6 @@ DEFAULT_LANG_PACKS = {
         "settings_platform_saved": "Platforms saved",
         "settings_credits": "Credits",
         "settings_credits_btn": "View Credits",
-        # ★ v1.6.3
         "settings_project": "Project",
         "settings_project_repo": "Project URL",
         "settings_project_open": "🌐 Open Project Homepage",
@@ -2779,6 +2898,7 @@ DEFAULT_LANG_PACKS = {
         "game_config_tab_info": "ℹ️ Info",
         "game_config_close": "Close",
         "game_config_open_settings": "⚙ Open this emulator's settings",
+        "game_config_no_save_path": "No save path configured.\nGo to Settings → Save Paths.",
         "controls_title": "Controls",
         "controls_engine": "Emulator",
         "controls_source": "Source",
@@ -2861,6 +2981,9 @@ DEFAULT_LANG_PACKS = {
         "save_backup_failed": "Backup failed: {err}",
         "save_restore_confirm": "Restore backup {name}?",
         "save_restore_done": "Restored: {name}",
+        "save_no_backup": "No backup",
+        "save_select_backup": "Select backup:",
+        "save_restore_title": "Restore Saves",
         "patch_title": "ROM Patch Tool",
         "patch_hint": "Supports IPS / UPS. Auto-scans ROM folder for patches.\nOriginals are backed up as .bak.",
         "patch_state_clean": "Original ROM (not patched).",
@@ -2968,6 +3091,7 @@ DEFAULT_LANG_PACKS = {
         "engine_settings_hint": "Launches the emulator without a game, entering its own settings UI.",
         "engine_settings_launched": "Opened {engine} settings",
         "engine_settings_failed": "Launch failed: {err}",
+        "engine_not_found": "Engine config not found",
         "settings_version": "Engine Version",
         "settings_version_auto_detect": "Auto-detect engine version on launch",
         "settings_version_hint": "Detected version is used to apply version_overrides (per-version arg differences).",
@@ -3055,6 +3179,10 @@ DEFAULT_LANG_PACKS = {
         "lan_drop_to_broadcast": "Broadcast {n} files to all peers?",
         "lan_drop_no_target": "Select a peer or Everyone first.",
         "lan_drop_ask_share": "Dropped {n} files.\nBroadcast doesn't send files directly. Add all to shared folder?",
+        "lan_peer_offline": "Peer is offline.",
+        "lan_peer_peer_unknown": "Peer port not yet known, wait 1~2 seconds and retry.",
+        "lan_peer_port_unknown": "Peer port not yet known, wait 1~2 seconds and retry.",
+        "lan_port_unknown": "Peer port not yet known, wait 1~2 seconds.",
         "webtransfer_title": "LAN Transfer",
         "webtransfer_hint": "Embedded LocalSend Web. Auto-discovers nearby devices.\n💡 Upload works in embedded page. For download, click 'Open in browser' (top-right).",
         "webtransfer_open_external": "Open in browser",
@@ -3066,7 +3194,7 @@ DEFAULT_LANG_PACKS = {
             "2. Or open LocalSend Web in your browser."),
         "webtransfer_url": "https://web.localsend.org/",
         "webtransfer_install_btn": "Install PyQtWebEngine",
-        "webtransfer_install_confirm": "Will run: pip install PyQtWebEngine==5.15.6\n\n~200MB download. Continue?",
+        "webtransfer_install_confirm": "Will run: pip install PyQtWebEngine==5.15.4\n\n~200MB download. Continue?",
         "webtransfer_install_started": "Installing in a new window.\nRestart mikan_emu after install finishes.",
         "webtransfer_install_failed": "Failed to start installer.",
         "msg_ok": "OK", "msg_cancel": "Cancel", "msg_warning": "Warning",
@@ -3099,6 +3227,9 @@ DEFAULT_LANG_PACKS = {
         "log_export_pack": "📦 Export Diagnostics",
         "log_count": "Showing {shown} / {total} in buffer",
         "log_export_success": "Diagnostic pack saved:\n{path}\n\nOpen containing folder?",
+        "log_viewer_level": "Level",
+        "log_viewer_filter": "Filter",
+        "log_filter_ph": "Keyword (e.g. plugin / download)",
         "crash_title": "Application Error",
         "crash_body": "mikan_emu encountered an unhandled exception.",
         "crash_pack_ready": "Diagnostic pack saved:\n{path}",
@@ -3127,49 +3258,74 @@ DEFAULT_LANG_PACKS = {
         "resource_force_unlock": "⚠ Force unlock (ignore {ratio}% cap)",
         "resource_force_unlock_warn": "Force unlock ignores {ratio}% safety cap and may cause system lag or OOM.\nContinue?",
         "resource_safety_ratio": "Safety cap percentage",
+        "folder_new_workspace": "New Workspace",
+        "folder_untitled": "Untitled Workspace",
+        "file_not_found": "File not found: {path}",
+        "open_failed": "Open failed: {e}",
+        "copy_info_done": "Copied",
     },
 }
 
 
 def _machine_translate(zh_pack: dict, lang: str) -> dict:
     MAPS = {
-        "ru": {"游戏库": "Библиотека", "模拟器": "Эмуляторы", "设置": "Настройки",
-               "统计": "Статистика", "资源": "Ресурсы", "局域网": "Локальная сеть",
-               "局域网传输": "Локальная передача", "导入": "Импорт", "下载": "Скачать",
-               "刷新": "Обновить", "全部平台": "Все платформы", "名称": "Имя",
-               "平台": "Платформа", "大小": "Размер", "时长": "Время", "路径": "Путь",
-               "收藏": "Избранное", "最近": "Недавние", "全部": "Все", "启动": "Запуск",
-               "取消": "Отмена", "确定": "OK", "警告": "Внимание", "错误": "Ошибка",
-               "提示": "Инфо", "确认": "Подтвердить", "保存": "Сохранить", "语言": "Язык",
-               "工作区": "Рабочая область", "管理员权限": "Права администратора",
-               "下载线程数": "Потоки загрузки", "添加": "Добавить", "删除": "Удалить",
-               "上移": "Вверх", "下移": "Вниз", "测试全部": "Проверить все",
-               "恢复默认": "Сбросить", "系统托盘": "Системный трей"},
-        "ja": {"游戏库": "ライブラリ", "模拟器": "エミュレータ", "设置": "設定",
-               "统计": "統計", "资源": "リソース", "局域网": "LAN", "局域网传输": "LAN 転送",
-               "导入": "インポート", "下载": "ダウンロード", "刷新": "更新",
-               "全部平台": "すべてのプラットフォーム", "名称": "名前", "平台": "プラットフォーム",
-               "大小": "サイズ", "时长": "プレイ時間", "路径": "パス", "收藏": "お気に入り",
-               "最近": "最近", "全部": "すべて", "启动": "起動", "取消": "キャンセル",
-               "确定": "OK", "警告": "警告", "错误": "エラー", "提示": "情報",
-               "确认": "確認", "保存": "保存", "语言": "言語", "工作区": "ワークスペース",
-               "管理员权限": "管理者権限", "下载线程数": "ダウンロードスレッド数",
-               "添加": "追加", "删除": "削除", "上移": "上へ", "下移": "下へ",
-               "测试全部": "すべてテスト", "恢复默认": "デフォルトに戻す",
-               "系统托盘": "システムトレイ"},
-        "fr": {"游戏库": "Bibliothèque", "模拟器": "Émulateurs", "设置": "Paramètres",
-               "统计": "Statistiques", "资源": "Ressources", "局域网": "LAN",
-               "局域网传输": "Transfert LAN", "导入": "Importer", "下载": "Télécharger",
-               "刷新": "Actualiser", "全部平台": "Toutes les plateformes", "名称": "Nom",
-               "平台": "Plateforme", "大小": "Taille", "时长": "Durée", "路径": "Chemin",
-               "收藏": "Favoris", "最近": "Récents", "全部": "Tout", "启动": "Lancer",
-               "取消": "Annuler", "确定": "OK", "警告": "Avertissement",
-               "错误": "Erreur", "提示": "Info", "确认": "Confirmer", "保存": "Enregistrer",
-               "语言": "Langue", "工作区": "Espace de travail",
-               "管理员权限": "Droits admin", "下载线程数": "Threads de téléchargement",
-               "添加": "Ajouter", "删除": "Supprimer", "上移": "Monter", "下移": "Descendre",
-               "测试全部": "Tout tester", "恢复默认": "Réinitialiser",
-               "系统托盘": "Barre système"},
+        "ru": {
+            "游戏库": "Библиотека", "模拟器": "Эмуляторы", "设置": "Настройки",
+            "统计": "Статистика", "资源": "Ресурсы", "局域网": "Локальная сеть",
+            "局域网传输": "Локальная передача",
+            "导入": "Импорт", "下载": "Скачать",
+            "刷新": "Обновить", "全部平台": "Все платформы",
+            "名称": "Имя", "平台": "Платформа",
+            "大小": "Размер", "时长": "Время", "路径": "Путь",
+            "收藏": "Избранное", "最近": "Недавние", "全部": "Все",
+            "启动": "Запуск", "取消": "Отмена", "确定": "OK",
+            "警告": "Внимание", "错误": "Ошибка", "提示": "Инфо",
+            "确认": "Подтвердить", "保存": "Сохранить",
+            "语言": "Язык", "工作区": "Рабочая область",
+            "管理员权限": "Права администратора",
+            "下载线程数": "Потоки загрузки", "添加": "Добавить",
+            "删除": "Удалить", "上移": "Вверх", "下移": "Вниз",
+            "测试全部": "Проверить все", "恢复默认": "Сбросить",
+            "系统托盘": "Системный трей",
+        },
+        "ja": {
+            "游戏库": "ライブラリ", "模拟器": "エミュレータ", "设置": "設定",
+            "统计": "統計", "资源": "リソース", "局域网": "LAN",
+            "局域网传输": "LAN 転送",
+            "导入": "インポート", "下载": "ダウンロード",
+            "刷新": "更新", "全部平台": "すべてのプラットフォーム",
+            "名称": "名前", "平台": "プラットフォーム",
+            "大小": "サイズ", "时长": "プレイ時間", "路径": "パス",
+            "收藏": "お気に入り", "最近": "最近", "全部": "すべて",
+            "启动": "起動", "取消": "キャンセル", "确定": "OK",
+            "警告": "警告", "错误": "エラー", "提示": "情報",
+            "确认": "確認", "保存": "保存",
+            "语言": "言語", "工作区": "ワークスペース",
+            "管理员权限": "管理者権限",
+            "下载线程数": "ダウンロードスレッド数", "添加": "追加",
+            "删除": "削除", "上移": "上へ", "下移": "下へ",
+            "测试全部": "すべてテスト", "恢复默认": "デフォルトに戻す",
+            "系统托盘": "システムトレイ",
+        },
+        "fr": {
+            "游戏库": "Bibliothèque", "模拟器": "Émulateurs", "设置": "Paramètres",
+            "统计": "Statistiques", "资源": "Ressources", "局域网": "LAN",
+            "局域网传输": "Transfert LAN",
+            "导入": "Importer", "下载": "Télécharger",
+            "刷新": "Actualiser", "全部平台": "Toutes les plateformes",
+            "名称": "Nom", "平台": "Plateforme",
+            "大小": "Taille", "时长": "Durée", "路径": "Chemin",
+            "收藏": "Favoris", "最近": "Récents", "全部": "Tout",
+            "启动": "Lancer", "取消": "Annuler", "确定": "OK",
+            "警告": "Avertissement", "错误": "Erreur", "提示": "Info",
+            "确认": "Confirmer", "保存": "Enregistrer",
+            "语言": "Langue", "工作区": "Espace de travail",
+            "管理员权限": "Droits admin",
+            "下载线程数": "Threads de téléchargement", "添加": "Ajouter",
+            "删除": "Supprimer", "上移": "Monter", "下移": "Descendre",
+            "测试全部": "Tout tester", "恢复默认": "Réinitialiser",
+            "系统托盘": "Barre système",
+        },
     }
     m = MAPS.get(lang, {})
     out = {}
@@ -3199,7 +3355,7 @@ def _ensure_lang_files():
         fp = LANG_DIR / f"{code}.json"
         if code not in existing:
             try:
-                with open(fp, "w", encoding="utf-8") as f:
+                with open(str(fp), "w", encoding="utf-8") as f:
                     json.dump(pack, f, ensure_ascii=False, indent=2)
                 logger.info(f"生成语言文件: {fp}")
             except Exception as e:
@@ -3216,7 +3372,7 @@ def load_all_langs():
     LANG_PACKS = {}
     for fp in LANG_DIR.glob("*.json"):
         try:
-            with open(fp, "r", encoding="utf-8") as f:
+            with open(str(fp), "r", encoding="utf-8") as f:
                 data = json.load(f)
             code = fp.stem
             for k, v in DEFAULT_LANG_PACKS.get("zh", {}).items():
@@ -3244,7 +3400,7 @@ def tr(key: str, **kwargs) -> str:
 
 def save_lang(lang: str) -> bool:
     try:
-        with open(LANG_FILE, "w", encoding="utf-8") as f:
+        with open(str(LANG_FILE), "w", encoding="utf-8") as f:
             json.dump({"language": lang}, f, ensure_ascii=False, indent=2)
         logger.info(f"语言已保存: {lang}")
         return True
@@ -3258,7 +3414,7 @@ def load_lang():
     load_all_langs()
     if LANG_FILE.exists():
         try:
-            with open(LANG_FILE, "r", encoding="utf-8") as f:
+            with open(str(LANG_FILE), "r", encoding="utf-8") as f:
                 data = json.load(f)
             lang = data.get("language", "zh")
             if lang not in LANG_PACKS:
@@ -3296,10 +3452,11 @@ _FOLDER_TYPE_MIGRATION = {
 
 def _normalize_folder_entry(folder: dict) -> dict:
     if not isinstance(folder, dict):
-        return {"name": "未命名工作区", "path": str(DATA_DIR), "type": "mixed"}
-    name = (folder.get("name") or "未命名工作区").strip() or "未命名工作区"
+        return {"name": tr("folder_untitled"), "path": str(DATA_DIR), "type": "mixed"}
+    name = (folder.get("name") or tr("folder_untitled")).strip() or tr("folder_untitled")
     path = (folder.get("path") or str(DATA_DIR)).strip() or str(DATA_DIR)
-    ftype = _FOLDER_TYPE_MIGRATION.get((folder.get("type") or "mixed").lower(), "mixed")
+    ftype = _FOLDER_TYPE_MIGRATION.get(
+        (folder.get("type") or "mixed").lower(), "mixed")
     return {"name": name, "path": path, "type": ftype}
 
 
@@ -3307,21 +3464,23 @@ def load_folders_config():
     global FOLDERS_CONFIG
     if FOLDERS_FILE.exists():
         try:
-            with open(FOLDERS_FILE, "r", encoding="utf-8") as f:
+            with open(str(FOLDERS_FILE), "r", encoding="utf-8") as f:
                 raw = json.load(f)
         except Exception as e:
             logger.exception(f"加载 folders 失败: {e}")
             raw = None
         if isinstance(raw, dict) and isinstance(raw.get("folders"), list):
             normalized = [_normalize_folder_entry(x) for x in raw["folders"]]
+            idx = raw.get("active_index", 0)
             try:
-                idx = int(raw.get("active_index", 0))
+                idx = int(idx)
             except Exception:
                 idx = 0
             if not (0 <= idx < len(normalized)):
                 idx = 0
             FOLDERS_CONFIG = {"folders": normalized, "active_index": idx}
             return
+
     FOLDERS_CONFIG = json.loads(json.dumps(DEFAULT_FOLDERS_JSON))
     FOLDERS_CONFIG["folders"] = [
         _normalize_folder_entry(x) for x in FOLDERS_CONFIG.get("folders", [])
@@ -3330,7 +3489,7 @@ def load_folders_config():
 
 def save_folders_config():
     try:
-        with open(FOLDERS_FILE, "w", encoding="utf-8") as f:
+        with open(str(FOLDERS_FILE), "w", encoding="utf-8") as f:
             json.dump(FOLDERS_CONFIG, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存 folders 失败: {e}")
@@ -3340,18 +3499,17 @@ def load_settings():
     global SETTINGS
     if SETTINGS_FILE.exists():
         try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            with open(str(SETTINGS_FILE), "r", encoding="utf-8") as f:
                 SETTINGS.update(json.load(f))
         except Exception as e:
             logger.exception(f"加载 settings 失败: {e}")
     for k, v in DEFAULT_SETTINGS_JSON.items():
-        SETTINGS.setdefault(
-            k, json.loads(json.dumps(v)) if isinstance(v, (dict, list)) else v)
+        SETTINGS.setdefault(k, json.loads(json.dumps(v)) if isinstance(v, (dict, list)) else v)
 
 
 def save_settings():
     try:
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+        with open(str(SETTINGS_FILE), "w", encoding="utf-8") as f:
             json.dump(SETTINGS, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存 settings 失败: {e}")
@@ -3361,7 +3519,7 @@ def load_save_paths():
     global SAVE_PATHS
     if SAVE_PATHS_FILE.exists():
         try:
-            with open(SAVE_PATHS_FILE, "r", encoding="utf-8") as f:
+            with open(str(SAVE_PATHS_FILE), "r", encoding="utf-8") as f:
                 SAVE_PATHS = json.load(f)
         except Exception:
             SAVE_PATHS = {}
@@ -3369,7 +3527,7 @@ def load_save_paths():
 
 def save_save_paths():
     try:
-        with open(SAVE_PATHS_FILE, "w", encoding="utf-8") as f:
+        with open(str(SAVE_PATHS_FILE), "w", encoding="utf-8") as f:
             json.dump(SAVE_PATHS, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存 save_paths 失败: {e}")
@@ -3379,7 +3537,7 @@ def load_cheat_paths():
     global CHEAT_PATHS
     if CHEAT_PATHS_FILE.exists():
         try:
-            with open(CHEAT_PATHS_FILE, "r", encoding="utf-8") as f:
+            with open(str(CHEAT_PATHS_FILE), "r", encoding="utf-8") as f:
                 CHEAT_PATHS = json.load(f)
         except Exception:
             CHEAT_PATHS = {}
@@ -3387,29 +3545,64 @@ def load_cheat_paths():
 
 def save_cheat_paths():
     try:
-        with open(CHEAT_PATHS_FILE, "w", encoding="utf-8") as f:
+        with open(str(CHEAT_PATHS_FILE), "w", encoding="utf-8") as f:
             json.dump(CHEAT_PATHS, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存 cheat_paths 失败: {e}")
+
+
+def _migrate_mirrors_v1_to_v2(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return json.loads(json.dumps(DEFAULT_MIRRORS_JSON))
+
+    out = dict(data)
+    out.setdefault("enabled", True)
+    out.setdefault("auto", True)
+    out.setdefault("region", "auto")
+    out.setdefault("probe_timeout", 3.0)
+    out.setdefault("probe_cache_ttl", 300)
+
+    def _convert(lst, is_api=False):
+        result = []
+        for item in lst or []:
+            if isinstance(item, dict):
+                item.setdefault("enabled", True)
+                item.setdefault("region", "direct" if not item.get("url") else "cn")
+                item.setdefault("weight", 5)
+                result.append(item)
+            elif isinstance(item, str):
+                result.append({
+                    "url": item,
+                    "enabled": True,
+                    "region": "direct" if not item else "cn",
+                    "weight": 5,
+                })
+        if not result:
+            default = DEFAULT_MIRRORS_JSON["api_mirrors" if is_api else "mirrors"]
+            result = json.loads(json.dumps(default))
+        return result
+
+    out["mirrors"] = _convert(out.get("mirrors", []), is_api=False)
+    out["api_mirrors"] = _convert(out.get("api_mirrors", []), is_api=True)
+    return out
 
 
 def load_mirrors():
     global MIRRORS_CONFIG
     if MIRRORS_FILE.exists():
         try:
-            with open(MIRRORS_FILE, "r", encoding="utf-8") as f:
+            with open(str(MIRRORS_FILE), "r", encoding="utf-8") as f:
                 data = json.load(f)
-            data.setdefault("mirrors", list(DEFAULT_MIRRORS_JSON["mirrors"]))
-            data.setdefault("api_mirrors", list(DEFAULT_MIRRORS_JSON["api_mirrors"]))
-            data.setdefault("enabled", True)
-            MIRRORS_CONFIG = data
+            MIRRORS_CONFIG = _migrate_mirrors_v1_to_v2(data)
         except Exception:
             MIRRORS_CONFIG = json.loads(json.dumps(DEFAULT_MIRRORS_JSON))
+    else:
+        MIRRORS_CONFIG = json.loads(json.dumps(DEFAULT_MIRRORS_JSON))
 
 
 def save_mirrors():
     try:
-        with open(MIRRORS_FILE, "w", encoding="utf-8") as f:
+        with open(str(MIRRORS_FILE), "w", encoding="utf-8") as f:
             json.dump(MIRRORS_CONFIG, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存 mirrors 失败: {e}")
@@ -3419,7 +3612,7 @@ def load_resources():
     global RESOURCES_CONFIG
     if RESOURCES_FILE.exists():
         try:
-            with open(RESOURCES_FILE, "r", encoding="utf-8") as f:
+            with open(str(RESOURCES_FILE), "r", encoding="utf-8") as f:
                 data = json.load(f)
             if "groups" not in data or not isinstance(data["groups"], list):
                 data = json.loads(json.dumps(DEFAULT_RESOURCES_JSON))
@@ -3430,7 +3623,7 @@ def load_resources():
 
 def save_resources():
     try:
-        with open(RESOURCES_FILE, "w", encoding="utf-8") as f:
+        with open(str(RESOURCES_FILE), "w", encoding="utf-8") as f:
             json.dump(RESOURCES_CONFIG, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存 resources 失败: {e}")
@@ -3440,7 +3633,7 @@ def load_stats():
     global STATS
     if STATS_FILE.exists():
         try:
-            with open(STATS_FILE, "r", encoding="utf-8") as f:
+            with open(str(STATS_FILE), "r", encoding="utf-8") as f:
                 STATS = json.load(f)
         except Exception:
             STATS = json.loads(json.dumps(DEFAULT_STATS_JSON))
@@ -3450,7 +3643,7 @@ def load_stats():
 
 def save_stats():
     try:
-        with open(STATS_FILE, "w", encoding="utf-8") as f:
+        with open(str(STATS_FILE), "w", encoding="utf-8") as f:
             json.dump(STATS, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存 stats 失败: {e}")
@@ -3460,7 +3653,7 @@ def load_update_ignore():
     global UPDATE_IGNORE
     if UPDATE_IGNORE_FILE.exists():
         try:
-            with open(UPDATE_IGNORE_FILE, "r", encoding="utf-8") as f:
+            with open(str(UPDATE_IGNORE_FILE), "r", encoding="utf-8") as f:
                 UPDATE_IGNORE = json.load(f)
         except Exception:
             UPDATE_IGNORE = {}
@@ -3468,7 +3661,7 @@ def load_update_ignore():
 
 def save_update_ignore():
     try:
-        with open(UPDATE_IGNORE_FILE, "w", encoding="utf-8") as f:
+        with open(str(UPDATE_IGNORE_FILE), "w", encoding="utf-8") as f:
             json.dump(UPDATE_IGNORE, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存 update_ignore 失败: {e}")
@@ -3476,16 +3669,20 @@ def save_update_ignore():
 
 def get_mirror_list() -> list:
     if not MIRRORS_CONFIG.get("enabled", True):
-        return [""]
+        return [{"url": "", "region": "direct", "enabled": True, "weight": 1}]
     mirrors = MIRRORS_CONFIG.get("mirrors", [])
-    return mirrors if mirrors else [""]
+    if not mirrors:
+        return [{"url": "", "region": "direct", "enabled": True, "weight": 1}]
+    return mirrors
 
 
 def get_api_mirror_list() -> list:
     if not MIRRORS_CONFIG.get("enabled", True):
-        return [""]
+        return [{"url": "", "region": "direct", "enabled": True, "weight": 1}]
     mirrors = MIRRORS_CONFIG.get("api_mirrors", [])
-    return mirrors if mirrors else [""]
+    if not mirrors:
+        return [{"url": "", "region": "direct", "enabled": True, "weight": 1}]
+    return mirrors
 
 
 def get_active_folder() -> dict:
@@ -3493,7 +3690,7 @@ def get_active_folder() -> dict:
     idx = FOLDERS_CONFIG.get("active_index", 0)
     if folders and 0 <= idx < len(folders):
         return folders[idx]
-    return {"name": "默认工作区", "path": str(DATA_DIR), "type": "mixed"}
+    return {"name": tr("folder_untitled"), "path": str(DATA_DIR), "type": "mixed"}
 
 
 def get_active_rom_dir() -> Path:
@@ -3533,7 +3730,7 @@ setup_logging()
 
 
 # ============================================================
-# 5.1 Windows 版本检测（Win7 SP1 最低要求）+ 硬件探测
+# 5.1 Windows 版本 + 硬件探测
 # ============================================================
 _HW_CACHE: dict = {}
 
@@ -3563,32 +3760,14 @@ def get_windows_build() -> int:
     return 0
 
 
-def get_windows_name(build: int) -> str:
-    if build == 0:
-        return "非 Windows"
-    if build >= 22000:
-        return "Win11"
-    if build >= 10240:
-        return "Win10"
-    if build >= 7601:
-        return "Win7 SP1"
-    if build >= 7600:
-        return "Win7"
-    if build >= 6000:
-        return "Vista"
-    return "未知"
-
-
 def check_win10_1809_minimum() -> tuple:
-    """Win7 移植版：最低要求 Win7 SP1 (build 7601)。"""
+    """Win7 兼容版：不强制 Win10 1809，仅提示。"""
     build = get_windows_build()
     if build == 0:
         return True, ""
+    # PyQt5 5.15.4 支持 Win7 SP1（build 7601）
     if build < 7601:
-        return False, (
-            f"当前 Windows 构建号 {build}，低于本程序最低要求 7601（Win7 SP1）。\n"
-            f"请安装 Windows 7 Service Pack 1，或升级系统。"
-        )
+        return False, tr("win_version_too_old", build=build)
     return True, ""
 
 
@@ -3596,8 +3775,14 @@ def probe_hardware(force: bool = False) -> dict:
     global _HW_CACHE
     if _HW_CACHE and not force:
         return _HW_CACHE
-    info = {"cpu_logical": 1, "cpu_physical": 1,
-            "mem_total_mb": 0, "mem_available_mb": 0, "has_psutil": HAS_PSUTIL}
+
+    info = {
+        "cpu_logical": 1,
+        "cpu_physical": 1,
+        "mem_total_mb": 0,
+        "mem_available_mb": 0,
+        "has_psutil": HAS_PSUTIL,
+    }
     if HAS_PSUTIL:
         try:
             info["cpu_logical"] = psutil.cpu_count(logical=True) or 1
@@ -3607,12 +3792,14 @@ def probe_hardware(force: bool = False) -> dict:
             info["mem_available_mb"] = vm.available // (1024 * 1024)
         except Exception as e:
             logger.warning(f"硬件探测失败: {e}")
+
     try:
-        ratio = int(SETTINGS.get("resource_safety_ratio", 70)) / 100.0
+        ratio = int(SETTINGS.get("resource_safety_ratio", 85)) / 100.0
     except Exception:
-        ratio = 0.70
+        ratio = 0.85
     info["cpu_limit"] = max(1, int(info["cpu_logical"] * ratio))
     info["mem_limit_mb"] = int(info["mem_total_mb"] * ratio)
+
     _HW_CACHE = info
     return info
 
@@ -3621,20 +3808,11 @@ def detect_machine_tier() -> str:
     hw = probe_hardware()
     cpu = hw["cpu_physical"]
     mem_gb = hw["mem_total_mb"] / 1024.0
-    build = get_windows_build()
-    is_win7 = (0 < build < 10240)
-    if is_win7:
-        if cpu <= 2 or mem_gb < 3:
-            return "low"
-        if cpu <= 4 or mem_gb < 6:
-            return "mid"
-        return "high"
-    else:
-        if cpu <= 2 or mem_gb < 4:
-            return "low"
-        if cpu <= 4 and mem_gb < 8:
-            return "mid"
-        return "high"
+    if cpu <= 2 or mem_gb < 4:
+        return "low"
+    if cpu <= 4 and mem_gb < 8:
+        return "mid"
+    return "high"
 
 
 def refresh_machine_tier():
@@ -3697,18 +3875,26 @@ def apply_resource_policy(pid: int, cores: int, mem_mb: int) -> tuple:
         proc = psutil.Process(pid)
     except Exception as e:
         return False, str(e)
+
     applied = []
+
     if cores > 0:
         try:
             hw = probe_hardware()
-            n = max(1, min(int(cores), int(hw["cpu_logical"])))
+            n = min(int(cores), int(hw["cpu_logical"]))
+            if n < 1:
+                n = 1
             affinity = list(range(n))
             proc.cpu_affinity(affinity)
             applied.append(f"CPU 亲和性: {affinity}")
         except Exception as e:
             logger.warning(f"CPU 亲和性设置失败: {e}")
+
     if mem_mb > 0:
-        logger.info(f"内存建议: 目标 {mem_mb}MB（Windows 无原生 per-process 限额，仅记录）")
+        logger.info(
+            f"内存建议: 目标 {mem_mb}MB"
+            f"（Windows 无原生 per-process 限额，仅记录）")
+
     if applied:
         logger.info(f"资源策略已应用: {'; '.join(applied)}")
         return True, ""
@@ -3716,12 +3902,12 @@ def apply_resource_policy(pid: int, cores: int, mem_mb: int) -> tuple:
 
 
 # ============================================================
-# 5.3 崩溃诊断包生成
+# 5.3 崩溃诊断包
 # ============================================================
 def _collect_system_info() -> str:
     lines = []
     try:
-        lines.append(f"mikan_emu {APP_VERSION} (Win7 移植版)")
+        lines.append(f"mikan_emu {APP_VERSION}")
     except Exception:
         lines.append("mikan_emu ?")
     try:
@@ -3741,8 +3927,7 @@ def _collect_system_info() -> str:
     except Exception:
         pass
     try:
-        build = get_windows_build()
-        lines.append(f"Windows Build: {build} ({get_windows_name(build)})")
+        lines.append(f"Windows Build: {get_windows_build()}")
     except Exception:
         pass
     try:
@@ -3754,14 +3939,18 @@ def _collect_system_info() -> str:
         lines.append(f"DATA_DIR: {DATA_DIR}")
     except Exception:
         pass
+
     if HAS_PSUTIL:
         try:
-            lines.append(f"CPU: {psutil.cpu_count(logical=False)}C/{psutil.cpu_count()}T")
+            lines.append(f"CPU: {psutil.cpu_count(logical=False)}C/"
+                         f"{psutil.cpu_count()}T")
             vm = psutil.virtual_memory()
-            lines.append(f"RAM: {vm.total / (1 << 30):.1f} GB (可用 {vm.available / (1 << 30):.1f} GB)")
+            lines.append(f"RAM: {vm.total / (1 << 30):.1f} GB "
+                         f"(可用 {vm.available / (1 << 30):.1f} GB)")
         except Exception as e:
             lines.append(f"psutil 信息读取失败: {e}")
-    for mod, pkg in OPTIONAL.items():
+
+    for mod, (pkg, _ver) in OPTIONAL.items():
         try:
             importlib.import_module(mod)
             lines.append(f"opt {pkg}: OK")
@@ -3769,6 +3958,7 @@ def _collect_system_info() -> str:
             lines.append(f"opt {pkg}: MISSING")
         except Exception as e:
             lines.append(f"opt {pkg}: ERROR ({e})")
+
     return "\n".join(lines)
 
 
@@ -3799,40 +3989,47 @@ def build_crash_report(exc_text: str = "") -> Path:
     tail_text = ""
     if today_log.exists():
         try:
-            with open(today_log, "r", encoding="utf-8", errors="ignore") as f:
+            with open(str(today_log), "r", encoding="utf-8", errors="ignore") as f:
                 tail_text = "".join(f.readlines()[-2000:])
         except Exception:
             pass
 
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(str(out), "w", zipfile.ZIP_DEFLATED) as zf:
         try:
             zf.writestr("system_info.txt", _collect_system_info())
         except Exception:
             pass
+
         if exc_text:
             try:
                 zf.writestr("exception.txt", exc_text)
             except Exception:
                 pass
+
         try:
-            zf.writestr("recent_log.txt",
-                        "\n".join(
-                            f"[{r['full_ts']}] {r['level']:8} "
-                            f"{r['name']}:{r['line']}  {r['msg']}"
-                            for r in ring_snapshot))
+            zf.writestr(
+                "recent_log.txt",
+                "\n".join(
+                    f"[{r['full_ts']}] {r['level']:8} "
+                    f"{r['name']}:{r['line']}  {r['msg']}"
+                    for r in ring_snapshot))
         except Exception:
             pass
+
         if tail_text:
             try:
                 zf.writestr("today_log_tail.txt", tail_text)
             except Exception:
                 pass
+
         try:
-            zf.writestr("settings_sanitized.json",
-                        json.dumps(_sanitize_settings_for_report(),
-                                   ensure_ascii=False, indent=2))
+            zf.writestr(
+                "settings_sanitized.json",
+                json.dumps(_sanitize_settings_for_report(),
+                           ensure_ascii=False, indent=2))
         except Exception:
             pass
+
         for name, path in [
             ("installed.json", INSTALLED_FILE),
             ("roms.json", ROMS_FILE),
@@ -3840,9 +4037,10 @@ def build_crash_report(exc_text: str = "") -> Path:
         ]:
             if path.exists():
                 try:
-                    zf.write(path, f"state/{name}")
+                    zf.write(str(path), f"state/{name}")
                 except Exception:
                     pass
+
         try:
             plugins_info = []
             enabled = load_plugin_enabled()
@@ -3867,7 +4065,7 @@ def build_crash_report(exc_text: str = "") -> Path:
 
 
 # ============================================================
-# 5.4 工具函数：存档 / 金手指 / 统计路径
+# 5.4 工具函数
 # ============================================================
 def get_save_path(engine_name: str) -> Optional[Path]:
     p = SAVE_PATHS.get(engine_name, "").strip()
@@ -3911,18 +4109,34 @@ def autodetect_save_paths(engines_json: dict) -> dict:
     localappdata = Path(os.environ.get("LOCALAPPDATA", ""))
     candidates = {
         "snes9x": [docs / "Snes9x" / "Saves", DATA_DIR / "snes9x"],
-        "duckstation": [docs / "DuckStation", localappdata / "DuckStation"],
+        "duckstation": [docs / "DuckStation", home / ".local/share/DuckStation", localappdata / "DuckStation"],
         "mednafen": [home / ".mednafen" / "sav", DATA_DIR / "mednafen" / "sav"],
         "mgba": [docs / "mGBA", DATA_DIR / "mgba"],
-        "pcsx2": [docs / "PCSX2" / "memcards"],
+        "pcsx2": [docs / "PCSX2" / "memcards", home / ".config" / "PCSX2"],
         "ppsspp": [docs / "PPSSPP" / "PSP" / "SAVEDATA"],
         "desmume": [docs / "DeSmuME" / "Battery"],
         "melonds": [docs / "melonDS"],
+        "ryujinx": [appdata / "Ryujinx" / "bis" / "user" / "save"],
         "fceux": [DATA_DIR / "fceux" / "fcs"],
+        "mesen": [docs / "Mesen" / "saves"],
+        "mupen64plus": [DATA_DIR / "mupen64plus" / "save"],
         "mame": [DATA_DIR / "mame" / "nvram"],
+        "blastem": [DATA_DIR / "blastem"],
+        "sameboy": [docs / "SameBoy"],
+        "gambatte": [DATA_DIR / "gambatte"],
+        "flycast": [docs / "Flycast", DATA_DIR / "flycast"],
+        "ymir": [docs / "Ymir", appdata / "Ymir"],
+        "86box": [DATA_DIR / "86box", appdata / "86Box"],
+        "pcem": [DATA_DIR / "pcem", appdata / "PCem"],
         "dolphin": [docs / "Dolphin Emulator", appdata / "Dolphin Emulator"],
         "cemu": [DATA_DIR / "cemu", appdata / "Cemu"],
         "rpcs3": [DATA_DIR / "rpcs3", appdata / "rpcs3"],
+        "vita3k": [appdata / "Vita3K", DATA_DIR / "Vita3K"],
+        "azahar": [appdata / "azahar", DATA_DIR / "azahar"],
+        "vba-m": [DATA_DIR / "vba-m", appdata / "visualboyadvance-m"],
+        "noods": [DATA_DIR / "noods"],
+        "geargrafx": [DATA_DIR / "geargrafx"],
+        "gearcoleco": [DATA_DIR / "gearcoleco"],
     }
     result = {}
     for engine_name, paths in candidates.items():
@@ -3946,35 +4160,20 @@ def autodetect_retroarch_core_dir() -> str:
     installed = load_installed()
     for e in installed:
         if e.engine == "retroarch":
-            candidates.insert(0, Path(e.engine_path).parent / "cores")
+            p = Path(e.engine_path).parent / "cores"
+            candidates.insert(0, p)
     for c in candidates:
         if c.exists() and c.is_dir():
             return str(c)
     return ""
 
 
-def _dir_size(p: Path) -> int:
-    total = 0
-    try:
-        for f in p.rglob("*"):
-            if f.is_file():
-                total += f.stat().st_size
-    except Exception:
-        pass
-    return total
-
-# ============================================================
-# 5.5 操作说明数据库
-# ============================================================
+# 操作说明数据库（占位，完整内容请在需要时补充）
 CONTROLS_DB = {
     "snes9x": {"source": "https://www.snes9x.com/", "keys": {
         "方向": "方向键", "A/B/X/Y": "A / S / D / X 或键盘映射",
         "L/R": "Q / W", "Start": "Enter", "Select": "Shift",
         "存档/读档": "F5 / F7", "快进": "Tab", "全屏": "Alt+Enter", "截图": "F12"}},
-    "bsnes": {"source": "https://github.com/bsnes-emu/bsnes", "keys": {
-        "方向": "方向键", "A/B/X/Y": "手柄默认 / 键盘可配",
-        "L/R": "手柄默认", "Start/Select": "Enter / RShift",
-        "菜单": "Esc", "全屏": "F11", "存档/读档": "F5 / F7"}},
     "duckstation": {"source": "https://github.com/stenzek/duckstation/wiki", "keys": {
         "方向": "WASD / 方向键", "△○×□": "I / L / K / J",
         "L1/R1/L2/R2": "Q / E / 1 / 3", "Start/Select": "Enter / Backspace",
@@ -4001,10 +4200,6 @@ CONTROLS_DB = {
         "说明": "libretro 核心，键位由 RetroArch 管理",
         "方向": "方向键 / 手柄", "A/B": "RetroArch 默认映射",
         "热键": "F1 打开 RetroArch 菜单"}},
-    "yaba_sanshiro_2": {"source": "https://www.uoyabause.org/", "keys": {
-        "方向": "方向键", "A/B/C": "Z / X / C",
-        "X/Y/Z": "A / S / D", "L/R": "Q / E",
-        "Start": "Enter", "全屏": "Alt+Enter"}},
     "flycast": {"source": "https://github.com/flyinghead/flycast", "keys": {
         "方向": "方向键", "A/B/X/Y": "A / S / D / X",
         "L/R": "Q / W", "Start": "Enter",
@@ -4020,10 +4215,6 @@ CONTROLS_DB = {
         "方向": "方向键", "A": "Z", "B": "X", "L": "A", "R": "S",
         "Start": "Enter", "Select": "Backspace", "快进": "Tab",
         "存档/读档": "F5 / F7", "全屏": "Alt+Enter"}},
-    "vba-m": {"source": "https://github.com/visualboyadvance-m/visualboyadvance-m", "keys": {
-        "方向": "方向键", "A": "Z", "B": "X", "L": "A", "R": "S",
-        "Start": "Enter", "Select": "Backspace", "快进": "Space",
-        "存档/读档": "Shift+F1 / F1", "全屏": "Alt+Enter"}},
     "pcsx2": {"source": "https://pcsx2.net/docs/", "keys": {
         "方向": "WASD / 方向键", "△○×□": "I / L / K / J",
         "L1/R1/L2/R2": "Q / E / 1 / 3", "Start/Select": "Enter / Backspace",
@@ -4037,13 +4228,6 @@ CONTROLS_DB = {
         "方向": "方向键", "A/B": "Z / X", "连发 A/B": "A / S",
         "Start/Select": "Enter / Shift",
         "存档/读档": "F5 / F7", "快进": "Tab", "全屏": "Alt+Enter"}},
-    "nestopia": {"source": "https://nestopia.sourceforge.net/", "keys": {
-        "方向": "方向键", "A/B": "Z / X",
-        "Start/Select": "Enter / RShift",
-        "存档/读档": "F5 / F7", "快进": "Tab", "全屏": "Alt+Enter"}},
-    "nintendulator": {"source": "http://www.qmtpro.com/~nes/nintendulator/", "keys": {
-        "方向": "方向键", "A/B": "Z / X",
-        "Start/Select": "Enter / Shift", "全屏": "Alt+Enter"}},
     "mupen64plus": {"source": "https://mupen64plus.org/", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter",
@@ -4059,13 +4243,9 @@ CONTROLS_DB = {
     "rmg": {"source": "https://github.com/Rosalie241/RMG", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter", "存档/读档": "F5 / F7"}},
-    "neon64": {"source": "https://github.com/hcs64/neon64v2", "keys": {
-        "说明": "轻量 N64 模拟器，键位参考 README"}},
     "project64": {"source": "https://www.pj64-emu.com/", "keys": {
         "方向": "方向键", "A/B": "X / C", "C 按键": "J / K / L / I",
         "L/R/Z": "Q / W / E", "Start": "Enter", "存档/读档": "F5 / F7"}},
-    "cen64": {"source": "https://github.com/cen64/cen64", "keys": {
-        "说明": "命令行精度模拟器，无 GUI 键位设置"}},
     "desmume": {"source": "https://desmume.org/", "keys": {
         "方向": "方向键", "A/B/X/Y": "X / Z / S / A", "L/R": "Q / W",
         "Start/Select": "Enter / Backspace", "触摸屏": "鼠标",
@@ -4074,32 +4254,16 @@ CONTROLS_DB = {
         "方向": "方向键", "A/B/X/Y": "X / Z / S / A", "L/R": "Q / W",
         "Start/Select": "Enter / Backspace", "触摸屏": "鼠标",
         "存档/读档": "F5 / F7", "全屏": "Alt+Enter"}},
-    "noods": {"source": "https://github.com/Hydr8gon/NooDS", "keys": {
-        "方向": "方向键 / 摇杆", "A/B/X/Y": "手柄默认",
-        "Start/Select": "Enter / RShift", "触摸屏": "鼠标"}},
-    "azahar": {"source": "https://azahar-emu.org/", "keys": {
-        "方向": "WASD / 摇杆", "A/B/X/Y": "手柄默认",
-        "L/R/ZL/ZR": "手柄默认", "Start/Select": "Enter / Backspace",
-        "触摸屏": "鼠标", "全屏": "Alt+Enter"}},
-    "zakuro": {"source": "https://github.com/fearkov/zakuro", "keys": {
-        "说明": "Rust 实验性 3DS 模拟器，键位参考 README"}},
     "blastem": {"source": "https://www.retrodev.com/blastem/", "keys": {
         "方向": "方向键", "A/B/C": "A / S / D", "X/Y/Z": "Z / X / C",
         "Start/Mode": "Enter / Shift", "全屏": "Alt+Enter"}},
     "kega-fusion": {"source": "https://kega-fusion.com/", "keys": {
         "方向": "方向键", "A/B/C": "A / S / D", "X/Y/Z": "Z / X / C",
         "Start": "Enter", "存档/读档": "F5 / F8", "全屏": "Alt+Enter"}},
-    "emulicious": {"source": "https://emulicious.net/", "keys": {
-        "方向": "方向键", "1/2 键": "Z / X",
-        "Start": "Enter", "全屏": "Alt+Enter"}},
     "sameboy": {"source": "https://github.com/LIJI32/SameBoy", "keys": {
         "方向": "方向键", "A/B": "A / S",
         "Start/Select": "Enter / Backspace",
         "存档/读档": "F5 / F7", "快进": "Tab"}},
-    "bgb": {"source": "http://bgb.bircd.org/", "keys": {
-        "方向": "方向键", "A/B": "Z / X",
-        "Start/Select": "Enter / Backspace",
-        "存档/读档": "F5 / F7", "快进": "Space"}},
     "gambatte": {"source": "https://github.com/sinamas/gambatte", "keys": {
         "方向": "方向键", "A/B": "Z / X",
         "Start/Select": "Enter / Backspace", "存档/读档": "F5 / F7"}},
@@ -4111,9 +4275,6 @@ CONTROLS_DB = {
         "方向": "WASD / 方向键", "A/B/X/Y": "手柄默认",
         "L/R/ZL/ZR": "手柄默认", "全屏": "F11"}},
     "yuzu": {"source": "https://yuzu-mirror.github.io/", "keys": {
-        "方向": "WASD", "A/B/X/Y": "手柄默认",
-        "L/R/ZL/ZR": "手柄默认", "全屏": "F11"}},
-    "suyu": {"source": "https://github.com/suyu-emu/suyu-main", "keys": {
         "方向": "WASD", "A/B/X/Y": "手柄默认",
         "L/R/ZL/ZR": "手柄默认", "全屏": "F11"}},
     "mame": {"source": "https://docs.mamedev.org/usingmame/defaultkeys.html", "keys": {
@@ -4151,70 +4312,36 @@ CONTROLS_DB = {
         "说明": "x86 PC 模拟器，键位在「Settings → Configure」里配置",
         "释放鼠标": "鼠标中键或 Ctrl+End", "暂停": "Pause",
         "软复位": "Ctrl+Alt+Del（直通给虚拟机）"}},
-    "dosbox-x": {"source": "https://dosbox-x.com/wiki/", "keys": {
-        "说明": "DOSBox-X，键位在 dosbox-x.conf 或快捷键面板里配置",
-        "释放鼠标": "Ctrl+F10", "全屏": "Alt+Enter",
-        "重启": "Ctrl+Alt+Home", "退出": "窗口关闭或 Ctrl+F9"}},
     "dolphin": {"source": "https://wiki.dolphin-emu.org/", "keys": {
         "方向": "方向键 / 摇杆",
         "A/B/X/Y": "手柄默认 / 键盘可配",
-        "L/R/Z": "手柄默认", "Start": "Enter", "菜单": "Esc 打开设置",
-        "全屏": "Alt+Enter", "存档/读档": "Shift+F1 / F1", "暂停": "F10"}},
+        "L/R/Z": "手柄默认",
+        "Start": "Enter",
+        "菜单": "Esc 打开设置",
+        "全屏": "Alt+Enter",
+        "存档/读档": "Shift+F1 / F1",
+        "暂停": "F10"}},
     "cemu": {"source": "https://cemu.info/", "keys": {
-        "方向": "WASD / 手柄", "A/B/X/Y": "手柄默认",
-        "L/R/ZL/ZR": "手柄默认", "全屏": "Alt+Enter", "菜单": "Esc"}},
-    "rpcs3": {"source": "https://rpcs3.net/quickstart", "keys": {
-        "方向": "方向键 / 手柄", "△○×□": "手柄默认",
-        "L1/R1/L2/R2/L3/R3": "手柄默认",
-        "Start/Select": "手柄默认", "菜单": "Esc", "全屏": "Alt+Enter",
-        "暂停": "Space", "存档": "Ctrl+S（游戏内）"}},
-    "vita3k": {"source": "https://vita3k.org/", "keys": {
-        "方向": "WASD / 手柄", "△○×□": "手柄默认",
-        "L/R": "手柄默认", "Start/Select": "Enter / Backspace",
+        "方向": "WASD / 手柄",
+        "A/B/X/Y": "手柄默认",
+        "L/R/ZL/ZR": "手柄默认",
+        "全屏": "Alt+Enter",
         "菜单": "Esc"}},
-    "shadps4": {"source": "https://github.com/shadps4-emu/shadPS4", "keys": {
-        "方向": "WASD / 手柄", "△○×□": "手柄默认",
-        "L1/R1/L2/R2": "手柄默认", "菜单": "Esc"}},
-    "kytyps5": {"source": "https://github.com/KytyPS5/KytyPS5", "keys": {
-        "说明": "PS5 实验性模拟器，键位参考 README"}},
-    "xemu": {"source": "https://xemu.app/docs/", "keys": {
-        "方向": "方向键 / 手柄", "A/B/X/Y": "手柄默认",
-        "L/R": "手柄默认", "Start/Back": "Enter / Backspace",
-        "菜单": "F5（打开菜单）"}},
-    "xenia_canary": {"source": "https://github.com/xenia-canary/xenia-canary", "keys": {
-        "方向": "WASD / 手柄", "A/B/X/Y": "手柄默认",
-        "菜单": "F4（打开菜单）", "全屏": "F11"}},
-    "xenia_edge": {"source": "https://github.com/has207/xenia-edge", "keys": {
-        "方向": "WASD / 手柄", "A/B/X/Y": "手柄默认",
-        "菜单": "F4（打开菜单）", "全屏": "F11"}},
-    "amspirit": {"source": "https://github.com/AMSpiriT-Emulator/amspirit-releases", "keys": {
-        "说明": "Amstrad CPC 模拟器，键位参考 README"}},
-    "caprice32": {"source": "https://github.com/ColinPitrat/caprice32", "keys": {
-        "方向": "方向键", "A/B": "Z / X",
-        "空格": "Space", "Enter": "Return", "全屏": "F11"}},
-    "cpc_syntax_error": {"source": "https://github.com/WacKEDmaN/CPCSyntaxError", "keys": {
-        "说明": "⚠ 实验性：CPC 新模拟器，键位参考 README"}},
-    "vice": {"source": "https://vice-emu.sourceforge.io/", "keys": {
-        "说明": "VICE，键位在菜单 Settings → Keyboard 里配置",
-        "菜单": "F12 打开菜单"}},
-    "hatari": {"source": "https://www.hatari-emu.org/", "keys": {
-        "说明": "Atari ST 模拟器，键位在配置里改",
-        "菜单": "F11 / F12 打开菜单"}},
-    "stella": {"source": "https://stella-emu.github.io/", "keys": {
-        "方向": "方向键 / 摇杆", "按钮 1": "Space / 摇杆按钮",
-        "菜单": "Tab 打开配置", "全屏": "Alt+Enter"}},
-    "zesarux": {"source": "https://github.com/chernandezba/zesarux", "keys": {
-        "方向": "方向键", "按键": "Z / X / C / V",
-        "菜单": "F5 打开菜单", "全屏": "F11"}},
-    "1984": {"source": "https://github.com/salvogendut/1984", "keys": {
-        "说明": "⚠ 实验性：ZX Spectrum 新模拟器，键位参考 README"}},
-    "gearcoleco": {"source": "https://github.com/drhelius/Gearcoleco", "keys": {
-        "方向": "方向键", "按钮 1/2": "Z / X",
-        "小键盘": "1 / 2 / 3（按需）", "全屏": "Alt+Enter"}},
-    "jzintv": {"source": "https://github.com/jenergy/jzIntvImGui", "keys": {
-        "说明": "jzIntv ImGui 前端，键位参考 README"}},
-    "b2": {"source": "https://github.com/tom-seddon/b2", "keys": {
-        "说明": "⚠ BBC Micro 模拟器，键位参考 README"}},
+    "rpcs3": {"source": "https://rpcs3.net/quickstart", "keys": {
+        "方向": "方向键 / 手柄",
+        "△○×□": "手柄默认",
+        "L1/R1/L2/R2/L3/R3": "手柄默认",
+        "Start/Select": "手柄默认",
+        "菜单": "Esc",
+        "全屏": "Alt+Enter",
+        "暂停": "Space",
+        "存档": "Ctrl+S（游戏内）"}},
+    "vita3k": {"source": "https://vita3k.org/", "keys": {
+        "方向": "WASD / 手柄",
+        "△○×□": "手柄默认",
+        "L/R": "手柄默认",
+        "Start/Select": "Enter / Backspace",
+        "菜单": "Esc"}},
 }
 
 
@@ -4234,7 +4361,6 @@ def get_generic_controls() -> dict:
             "提示": "不同模拟器键位不同，请查看对应官网文档。",
         }
     }
-
 
 # ============================================================
 # 6. engines.json 加载（深度合并 + 版本适配 + 共享定义）
@@ -4339,7 +4465,7 @@ def load_engines_json() -> dict:
     if not ENGINES_JSON.exists():
         try:
             data = json.loads(DEFAULT_ENGINES_JSON_STR)
-            with open(ENGINES_JSON, "w", encoding="utf-8") as f:
+            with open(str(ENGINES_JSON), "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             logger.info(f"生成默认 engines.json: {ENGINES_JSON}")
             return data
@@ -4348,7 +4474,7 @@ def load_engines_json() -> dict:
             return {}
 
     try:
-        with open(ENGINES_JSON, "r", encoding="utf-8") as f:
+        with open(str(ENGINES_JSON), "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
         logger.exception(f"读取 engines.json 失败: {e}")
@@ -4372,7 +4498,7 @@ def load_engines_json() -> dict:
 
     if changed:
         try:
-            with open(ENGINES_JSON, "w", encoding="utf-8") as f:
+            with open(str(ENGINES_JSON), "w", encoding="utf-8") as f:
                 json.dump(merged, f, indent=2, ensure_ascii=False)
             logger.info("engines.json 已自动补齐/展开")
         except Exception as e:
@@ -4383,7 +4509,7 @@ def load_engines_json() -> dict:
 
 def save_engines_json(data: dict):
     try:
-        with open(ENGINES_JSON, "w", encoding="utf-8") as f:
+        with open(str(ENGINES_JSON), "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存 engines.json 失败: {e}")
@@ -4582,7 +4708,7 @@ def load_installed() -> list:
     if not INSTALLED_FILE.exists():
         return []
     try:
-        with open(INSTALLED_FILE, "r", encoding="utf-8") as f:
+        with open(str(INSTALLED_FILE), "r", encoding="utf-8") as f:
             data = json.load(f)
         return [EmulatorConfig.from_dict(x) for x in data.get("engines", [])]
     except Exception:
@@ -4591,7 +4717,7 @@ def load_installed() -> list:
 
 def save_installed(engines):
     try:
-        with open(INSTALLED_FILE, "w", encoding="utf-8") as f:
+        with open(str(INSTALLED_FILE), "w", encoding="utf-8") as f:
             json.dump({"engines": [e.to_dict() for e in engines]},
                       f, indent=2, ensure_ascii=False)
     except Exception as e:
@@ -4602,7 +4728,7 @@ def load_games() -> list:
     if not ROMS_FILE.exists():
         return []
     try:
-        with open(ROMS_FILE, "r", encoding="utf-8") as f:
+        with open(str(ROMS_FILE), "r", encoding="utf-8") as f:
             data = json.load(f)
         return [GameEntry.from_dict(x) for x in data.get("games", [])]
     except Exception:
@@ -4611,7 +4737,7 @@ def load_games() -> list:
 
 def save_games(games):
     try:
-        with open(ROMS_FILE, "w", encoding="utf-8") as f:
+        with open(str(ROMS_FILE), "w", encoding="utf-8") as f:
             json.dump({"games": [g.to_dict() for g in games]},
                       f, indent=2, ensure_ascii=False)
     except Exception as e:
@@ -4623,24 +4749,27 @@ def save_games(games):
 # ============================================================
 ARCHIVE_EXTS = {".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz"}
 
+# 供 API 层复用
+ARCHIVE_EXTENSIONS = ARCHIVE_EXTS
+
 
 def extract_archive(archive: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     name = archive.name.lower()
     if name.endswith(".zip"):
-        with zipfile.ZipFile(archive, "r") as zf:
-            zf.extractall(dest)
+        with zipfile.ZipFile(str(archive), "r") as zf:
+            zf.extractall(str(dest))
     elif name.endswith(".7z"):
         import py7zr
-        with py7zr.SevenZipFile(archive, mode="r") as z:
-            z.extractall(dest)
+        with py7zr.SevenZipFile(str(archive), mode="r") as z:
+            z.extractall(str(dest))
     elif name.endswith(".rar"):
         import rarfile
-        with rarfile.RarFile(archive) as rf:
-            rf.extractall(dest)
+        with rarfile.RarFile(str(archive)) as rf:
+            rf.extractall(str(dest))
     elif any(name.endswith(x) for x in (".tar", ".tar.gz", ".tar.bz2", ".tar.xz", ".tgz")):
-        with tarfile.open(archive, "r:*") as tf:
-            tf.extractall(dest)
+        with tarfile.open(str(archive), "r:*") as tf:
+            tf.extractall(str(dest))
     else:
         raise ValueError(f"不支持的压缩格式: {archive.name}")
 
@@ -4651,7 +4780,7 @@ def scan_files(root: Path) -> list:
 
 def md5_of_file(path: Path, chunk: int = 1 << 20) -> str:
     h = hashlib.md5()
-    with open(path, "rb") as f:
+    with open(str(path), "rb") as f:
         while True:
             b = f.read(chunk)
             if not b:
@@ -4663,7 +4792,7 @@ def md5_of_file(path: Path, chunk: int = 1 << 20) -> str:
 def crc32_of_file(path: Path, chunk: int = 1 << 20) -> str:
     crc = 0
     try:
-        with open(path, "rb") as f:
+        with open(str(path), "rb") as f:
             while True:
                 b = f.read(chunk)
                 if not b:
@@ -4717,15 +4846,19 @@ _CUE_PLATFORMS = {"ps1", "ss", "dc", "pce", "pcfx", "fmtowns", "neogeo", "arcade
 
 
 def resolve_rom_for_launch(path_str: str, platform: str = "") -> tuple:
+    """★ P1-5：自动生成的 .cue 用 .mikan_auto.cue 后缀，不覆盖用户文件。"""
     p = Path(path_str)
     if p.suffix.lower() not in (".bin", ".iso", ".img"):
         return path_str, False
     if platform and platform not in _CUE_PLATFORMS:
         return path_str, False
 
+    # 1. 同目录同名 .cue
     cue = p.with_suffix(".cue")
     if cue.exists():
         return str(cue), True
+
+    # 2. 同目录同名任意 .cue（大小写不敏感）
     try:
         for f in p.parent.iterdir():
             if (f.is_file() and f.stem.lower() == p.stem.lower()
@@ -4734,14 +4867,18 @@ def resolve_rom_for_launch(path_str: str, platform: str = "") -> tuple:
     except Exception:
         pass
 
+    # 3. 生成 .mikan_auto.cue，不覆盖用户文件
     if p.suffix.lower() == ".bin":
         try:
-            with open(cue, "w", encoding="utf-8") as f:
+            auto_cue = p.parent / f"{p.stem}.mikan_auto.cue"
+            if auto_cue.exists():
+                return str(auto_cue), True
+            with open(str(auto_cue), "w", encoding="utf-8") as f:
                 f.write(f'FILE "{p.name}" BINARY\n')
                 f.write("  TRACK 01 MODE1/2352\n")
                 f.write("    INDEX 01 00:00:00\n")
-            logger.info(f"自动生成 .cue: {cue}")
-            return str(cue), True
+            logger.info(f"自动生成 .cue: {auto_cue}")
+            return str(auto_cue), True
         except Exception as e:
             logger.exception(f"生成 .cue 失败: {e}")
 
@@ -4757,6 +4894,7 @@ def parse_github_repo(url: str) -> Optional[str]:
 
 def detect_engine_version(engine: "EmulatorConfig",
                           force: bool = False) -> str:
+    """★ P1-7：优先匹配 version / v 前缀，过滤日期。"""
     if not engine:
         return ""
     recorded = (engine.version or "").strip()
@@ -4771,6 +4909,7 @@ def detect_engine_version(engine: "EmulatorConfig",
     flags = ("--version", "-version", "-v", "version")
     cflags = (sp.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     detected = ""
+
     for flag in flags:
         try:
             r = sp.run([str(exe), flag], capture_output=True,
@@ -4778,9 +4917,28 @@ def detect_engine_version(engine: "EmulatorConfig",
                        creationflags=cflags)
             text = (r.stdout or b"") + (r.stderr or b"")
             s = text.decode("utf-8", "ignore")
-            m = re.search(r"\b(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)\b", s)
-            if m:
-                detected = m.group(1)
+
+            patterns = [
+                r"(?:version|ver|v)\s*[:=]?\s*(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)",
+                r"\b(\d+\.\d+(?:\.\d+)?(?:\.\d+)?)\b",
+            ]
+            for pat in patterns:
+                for m in re.finditer(pat, s, re.IGNORECASE):
+                    candidate = m.group(1)
+                    parts = candidate.split(".")
+                    if len(parts) >= 2:
+                        try:
+                            y = int(parts[0])
+                            mo = int(parts[1])
+                            if y >= 2000 and 1 <= mo <= 12:
+                                continue
+                        except ValueError:
+                            pass
+                    detected = candidate
+                    break
+                if detected:
+                    break
+            if detected:
                 break
         except Exception:
             continue
@@ -4799,21 +4957,68 @@ def detect_engine_version(engine: "EmulatorConfig",
 
 
 # ============================================================
-# 8.5 ROM 补丁：IPS / UPS
+# 8.5 ROM 补丁：IPS / UPS（★ P0-1 / P0-2 修复）
 # ============================================================
 class PatchError(Exception):
     pass
 
 
+def _ensure_buf_size(buf: bytearray, need: int):
+    """★ 确保 bytearray 至少有 need 字节，不够就 extend。"""
+    if need > len(buf):
+        buf.extend(b"\x00" * (need - len(buf)))
+
+
 def patch_ips(rom_data: bytes, patch_data: bytes) -> bytes:
+    """★ P0-1：加 EEOF 支持 + 越界扩容，不再静默损坏 ROM。
+
+    IPS 标准格式：
+      - 5 字节 header "PATCH"
+      - 循环：3 字节偏移 + 2 字节大小
+        - 大小 > 0：后跟 size 字节数据
+        - 大小 == 0：RLE，3 字节 RLE 大小 + 1 字节 RLE 值
+      - 3 字节 "EOF" 结束
+
+    IPS 变种（EEOF）：
+      - 4 字节 "EEOF" 后可跟 4 字节偏移（支持 >16MB ROM）
+    """
     if len(patch_data) < 8 or patch_data[:5] != b"PATCH":
         raise PatchError(tr("patch_ips_invalid"))
 
     out = bytearray(rom_data)
     pos = 5
+    max_offset_3 = 0xFFFFFF
+
     while pos < len(patch_data):
         if patch_data[pos:pos + 3] == b"EOF":
             break
+
+        if patch_data[pos:pos + 4] == b"EEOF":
+            pos += 4
+            if pos + 4 <= len(patch_data):
+                offset = int.from_bytes(patch_data[pos:pos + 4], "big")
+                pos += 4
+                if pos + 2 > len(patch_data):
+                    raise PatchError(tr("patch_ips_truncated"))
+                size = int.from_bytes(patch_data[pos:pos + 2], "big")
+                pos += 2
+                if size == 0:
+                    if pos + 4 > len(patch_data):
+                        raise PatchError(tr("patch_ips_truncated"))
+                    rle_size = int.from_bytes(patch_data[pos:pos + 3], "big")
+                    rle_byte = patch_data[pos + 3]
+                    pos += 4
+                    _ensure_buf_size(out, offset + rle_size)
+                    out[offset:offset + rle_size] = bytes([rle_byte]) * rle_size
+                else:
+                    if pos + size > len(patch_data):
+                        raise PatchError(tr("patch_ips_truncated"))
+                    data = patch_data[pos:pos + size]
+                    pos += size
+                    _ensure_buf_size(out, offset + size)
+                    out[offset:offset + size] = data
+            continue
+
         if pos + 5 > len(patch_data):
             raise PatchError(tr("patch_ips_truncated"))
 
@@ -4821,28 +5026,33 @@ def patch_ips(rom_data: bytes, patch_data: bytes) -> bytes:
         size = int.from_bytes(patch_data[pos + 3:pos + 5], "big")
         pos += 5
 
+        if offset > max_offset_3:
+            logger.warning(
+                f"IPS 偏移 {offset:#x} 超出 3 字节范围，"
+                f"需要 EEOF 扩展。已跳过该记录。")
+            continue
+
         if size == 0:
             if pos + 4 > len(patch_data):
                 raise PatchError(tr("patch_ips_truncated"))
             rle_size = int.from_bytes(patch_data[pos:pos + 3], "big")
             rle_byte = patch_data[pos + 3]
             pos += 4
-            if offset + rle_size > len(out):
-                out.extend(b"\x00" * (offset + rle_size - len(out)))
+            _ensure_buf_size(out, offset + rle_size)
             out[offset:offset + rle_size] = bytes([rle_byte]) * rle_size
         else:
             if pos + size > len(patch_data):
                 raise PatchError(tr("patch_ips_truncated"))
             data = patch_data[pos:pos + size]
             pos += size
-            if offset + size > len(out):
-                out.extend(b"\x00" * (offset + size - len(out)))
+            _ensure_buf_size(out, offset + size)
             out[offset:offset + size] = data
 
     return bytes(out)
 
 
 def patch_ups(rom_data: bytes, patch_data: bytes) -> bytes:
+    """★ P0-2：varint 截断检测，不再产生半成品 ROM。"""
     if len(patch_data) < 4 or patch_data[:4] != b"UPS1":
         raise PatchError(tr("patch_ups_invalid"))
 
@@ -4878,18 +5088,25 @@ def patch_ups(rom_data: bytes, patch_data: bytes) -> bytes:
         rel += skip
         if rel == 0xFFFFFFFF:
             break
+
         xor_key = 0
+        inner_ok = False
         while pos < len(patch_data):
             b = patch_data[pos]
             pos += 1
             if b == 0x00:
                 xor_key ^= 0xFF
+                inner_ok = True
                 break
             data_byte = b ^ xor_key
             xor_key ^= data_byte
             if rel < len(out):
                 out[rel] = out[rel] ^ data_byte
             rel += 1
+
+        if not inner_ok:
+            raise PatchError(tr("patch_ups_truncated"))
+
     return bytes(out)
 
 
@@ -4920,7 +5137,7 @@ def apply_patch_file(rom_path: Path, patch_path: Path,
         bak = rom_path.with_suffix(rom_path.suffix + ".bak")
         if not bak.exists():
             try:
-                shutil.copy2(rom_path, bak)
+                shutil.copy2(str(rom_path), str(bak))
                 logger.info(f"ROM 备份: {bak}")
             except Exception as e:
                 logger.warning(f"备份失败: {e}")
@@ -5021,7 +5238,7 @@ def install_engine_from_match(match: dict, source_root: Path,
             rel = item.relative_to(source_root)
             dst = target_dir / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, dst)
+            shutil.copy2(str(item), str(dst))
             copied += 1
         except Exception as e:
             logger.exception(f"复制 {item} 失败: {e}")
@@ -5062,7 +5279,7 @@ def install_manual_engine(exe_path: Path, platform: str, engine_name: str,
             rel = item.relative_to(src_root)
             dst = target_dir / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, dst)
+            shutil.copy2(str(item), str(dst))
             copied += 1
         except Exception as e:
             logger.exception(f"复制 {item} 失败: {e}")
@@ -5080,7 +5297,7 @@ def install_manual_engine(exe_path: Path, platform: str, engine_name: str,
 
 
 # ============================================================
-# 12.x 统一 HTTP 会话（代理 + 重试 + 镜像）
+# 12.x 统一 HTTP 会话（★ P1-6 修复：加锁 + hostname bypass）
 # ============================================================
 class HttpSession:
     _instance = None
@@ -5092,6 +5309,7 @@ class HttpSession:
             "User-Agent": f"{APP_NAME}/{APP_VERSION}",
         })
         self._verify = self._init_verify()
+        self._proxy_lock = threading.RLock()
         self._refresh_proxy()
 
     @classmethod
@@ -5111,7 +5329,8 @@ class HttpSession:
             return True
 
     def refresh(self):
-        self._refresh_proxy()
+        with self._proxy_lock:
+            self._refresh_proxy()
 
     def _refresh_proxy(self):
         mode = (SETTINGS.get("proxy_mode", "none") or "none").lower()
@@ -5136,12 +5355,21 @@ class HttpSession:
         logger.debug(f"代理已刷新: mode={mode}, 有代理={bool(proxies)}")
 
     def _need_bypass(self, url: str) -> bool:
+        """★ P1-6：用 hostname 匹配，防止 evil.com/?x=github.com 绕过。"""
         bypass = (SETTINGS.get("proxy_bypass", "") or "").strip()
         if not bypass:
             return False
+        try:
+            host = (urlparse(url).hostname or "").lower()
+        except Exception:
+            host = ""
+        if not host:
+            return False
         for pat in bypass.split(","):
             pat = pat.strip().lower()
-            if pat and pat in url.lower():
+            if not pat:
+                continue
+            if host == pat or host.endswith("." + pat):
                 return True
         return False
 
@@ -5151,16 +5379,17 @@ class HttpSession:
             kwargs["verify"] = self._verify
         if self._need_bypass(url):
             kwargs["proxies"] = {}
-        try:
-            return self._session.request(method, url, **kwargs)
-        except requests.exceptions.SSLError:
-            logger.warning(f"SSL 失败，降级 verify=False: {url}")
-            kwargs["verify"] = False
-            return self._session.request(method, url, **kwargs)
-        except requests.exceptions.ProxyError as e:
-            logger.warning(f"代理错误: {e}，尝试直连")
-            kwargs["proxies"] = {}
-            return self._session.request(method, url, **kwargs)
+        with self._proxy_lock:
+            try:
+                return self._session.request(method, url, **kwargs)
+            except requests.exceptions.SSLError:
+                logger.warning(f"SSL 失败，降级 verify=False: {url}")
+                kwargs["verify"] = False
+                return self._session.request(method, url, **kwargs)
+            except requests.exceptions.ProxyError as e:
+                logger.warning(f"代理错误: {e}，尝试直连")
+                kwargs["proxies"] = {}
+                return self._session.request(method, url, **kwargs)
 
     def http_get(self, url, **kwargs):
         return self.request("GET", url, **kwargs)
@@ -5196,7 +5425,7 @@ def load_bios_db():
     global BIOS_DB, BIOS_MD5_INDEX
     if BIOS_DB_FILE.exists():
         try:
-            with open(BIOS_DB_FILE, "r", encoding="utf-8") as f:
+            with open(str(BIOS_DB_FILE), "r", encoding="utf-8") as f:
                 BIOS_DB = json.load(f)
         except Exception as e:
             logger.exception(f"读取 bios_db.json 失败: {e}")
@@ -5204,7 +5433,7 @@ def load_bios_db():
     if not BIOS_DB:
         BIOS_DB = json.loads(json.dumps(DEFAULT_BIOS_DB))
         try:
-            with open(BIOS_DB_FILE, "w", encoding="utf-8") as f:
+            with open(str(BIOS_DB_FILE), "w", encoding="utf-8") as f:
                 json.dump(BIOS_DB, f, indent=2, ensure_ascii=False)
         except Exception:
             pass
@@ -5285,11 +5514,33 @@ def auto_organize_bios(dry_run: bool = False) -> dict:
     return result
 
 
+# ★ P1-8：BIOS 检查缓存
+_BIOS_CHECK_CACHE: dict = {}
+_BIOS_CHECK_LOCK = threading.Lock()
+_BIOS_CHECK_TTL = 300  # 5 分钟
+
+
+def clear_bios_check_cache():
+    """清空 BIOS 检查缓存。在 BIOS 刷新按钮里调用。"""
+    with _BIOS_CHECK_LOCK:
+        _BIOS_CHECK_CACHE.clear()
+
+
 def check_bios_ready(engine: "EmulatorConfig") -> tuple:
+    """★ P1-8：加 5 分钟缓存，避免每次启动游戏都递归扫描。"""
     if not engine:
         return True, []
     if not engine.bios_required:
         return True, []
+
+    cache_key = f"{engine.platform}|{engine.engine}|{engine.engine_dir}"
+    now = time.time()
+
+    with _BIOS_CHECK_LOCK:
+        cached = _BIOS_CHECK_CACHE.get(cache_key)
+        if cached and now - cached[0] < _BIOS_CHECK_TTL:
+            return cached[1], cached[2]
+
     if not BIOS_DB:
         load_bios_db()
 
@@ -5307,6 +5558,7 @@ def check_bios_ready(engine: "EmulatorConfig") -> tuple:
     search_dirs.append(BIOS_DIR / engine.platform)
 
     missing = []
+    MAX_SCAN = 5000
     for req in required:
         found = False
         req_lower = req.lower()
@@ -5314,7 +5566,12 @@ def check_bios_ready(engine: "EmulatorConfig") -> tuple:
             if not d.exists():
                 continue
             try:
+                count = 0
                 for f in d.rglob("*"):
+                    count += 1
+                    if count > MAX_SCAN:
+                        logger.debug(f"BIOS 扫描 {d} 超过 {MAX_SCAN} 文件，截断")
+                        break
                     if f.is_file() and f.name.lower() == req_lower:
                         found = True
                         break
@@ -5325,18 +5582,106 @@ def check_bios_ready(engine: "EmulatorConfig") -> tuple:
         if not found:
             missing.append(req)
 
-    return (len(missing) == 0), missing
+    result = (len(missing) == 0), missing
+    with _BIOS_CHECK_LOCK:
+        _BIOS_CHECK_CACHE[cache_key] = (now, result[0], result[1])
+    return result
 
 
 load_bios_db()
+
+
+# ============================================================
+# ★ v1.7.0：镜像路由器（自动选路 + 可开关）
+# ============================================================
+class MirrorRouter:
+    """镜像路由器。
+
+    根据 MIRRORS_CONFIG 的 enabled/auto/region/mirrors 决定用哪些镜像。
+    自动模式下会测速并按延迟排序，结果缓存 probe_cache_ttl 秒。
+    """
+
+    _probe_cache: dict = {}
+    _probe_lock = threading.Lock()
+
+    @classmethod
+    def candidate_mirrors(cls, use_api: bool = False) -> list:
+        cfg = MIRRORS_CONFIG
+        if not cfg.get("enabled", True):
+            return [{"url": "", "region": "direct", "enabled": True, "weight": 1}]
+
+        region = cfg.get("region", "auto") or "auto"
+        if region == "direct":
+            return [{"url": "", "region": "direct", "enabled": True, "weight": 1}]
+
+        mirrors = cfg.get("api_mirrors" if use_api else "mirrors", [])
+        out = []
+        for m in mirrors:
+            if isinstance(m, str):
+                m = {"url": m, "enabled": True,
+                     "region": "direct" if not m else "cn", "weight": 5}
+            if not m.get("enabled", True):
+                continue
+            m_region = m.get("region", "direct")
+            if region != "auto" and m_region not in (region, "direct"):
+                continue
+            out.append(m)
+        if not out:
+            out.append({"url": "", "region": "direct", "enabled": True, "weight": 1})
+        return out
+
+    @classmethod
+    def order_mirrors(cls, test_url: str, use_api: bool = False) -> list:
+        cands = cls.candidate_mirrors(use_api)
+        if not MIRRORS_CONFIG.get("auto", True):
+            return cands
+
+        now = time.time()
+        ttl = int(MIRRORS_CONFIG.get("probe_cache_ttl", 300))
+        timeout = float(MIRRORS_CONFIG.get("probe_timeout", 3.0))
+        scored = []
+        for m in cands:
+            url = m.get("url", "")
+            full = url + test_url if url else test_url
+            with cls._probe_lock:
+                cached = cls._probe_cache.get(full)
+            if cached and now - cached[2] < ttl:
+                ok, ms, _ = cached
+            else:
+                ok, ms = cls._probe(full, timeout)
+                with cls._probe_lock:
+                    cls._probe_cache[full] = (ok, ms, now)
+            if ok:
+                scored.append((ms, m))
+
+        scored.sort(key=lambda x: x[0])
+        result = [m for _, m in scored]
+        if not any(m.get("region") == "direct" for m in result):
+            result.append({"url": "", "region": "direct", "enabled": True, "weight": 1})
+        return result
+
+    @staticmethod
+    def _probe(url: str, timeout: float = 3.0) -> tuple:
+        try:
+            t0 = time.time()
+            r = HttpSession.get().http_head(url, timeout=timeout, allow_redirects=True)
+            ms = (time.time() - t0) * 1000
+            return (r.status_code < 400, ms)
+        except Exception:
+            return (False, 99999)
+
+    @classmethod
+    def clear_probe_cache(cls):
+        with cls._probe_lock:
+            cls._probe_cache.clear()
 
 # ============================================================
 # 10. Worker: 导入模拟器
 # ============================================================
 class EngineImportWorker(QThread):
-    progress = Signal(str)
-    done = Signal(list, list, list)
-    fail = Signal(str)
+    progress = pyqtSignal(str)
+    done = pyqtSignal(list, list, list)
+    fail = pyqtSignal(str)
 
     def __init__(self, source: Path, engines_json: dict, is_archive: bool):
         super().__init__()
@@ -5385,7 +5730,7 @@ class EngineImportWorker(QThread):
             self.fail.emit(str(e))
         finally:
             if temp_root and temp_root.exists():
-                shutil.rmtree(temp_root, ignore_errors=True)
+                shutil.rmtree(str(temp_root), ignore_errors=True)
 
 
 # ============================================================
@@ -5450,9 +5795,9 @@ def import_games_scan(files: list, engines_json: dict) -> tuple:
 
 
 class GameImportWorker(QThread):
-    progress = Signal(str)
-    done = Signal(list, int)
-    fail = Signal(str)
+    progress = pyqtSignal(str)
+    done = pyqtSignal(list, int)
+    fail = pyqtSignal(str)
 
     def __init__(self, source: Path, engines_json: dict, is_archive: bool):
         super().__init__()
@@ -5492,7 +5837,7 @@ class GameImportWorker(QThread):
                         dst = platform_dir / f"{base}_{idx}{suffix}"
                         idx += 1
                 try:
-                    shutil.copy2(src, dst)
+                    shutil.copy2(str(src), str(dst))
                     g.path = str(dst)
                     g.size = dst.stat().st_size
                     final_games.append(g)
@@ -5504,18 +5849,63 @@ class GameImportWorker(QThread):
             self.fail.emit(str(e))
         finally:
             if temp_root and temp_root.exists():
-                shutil.rmtree(temp_root, ignore_errors=True)
+                shutil.rmtree(str(temp_root), ignore_errors=True)
+
+
+# ★ P1-11：拖拽导入走 QThread，不卡 UI
+class _DropImportWorker(QThread):
+    done = pyqtSignal(list, int)
+    fail = pyqtSignal(str)
+
+    def __init__(self, paths: list, engines_json: dict):
+        super().__init__()
+        self._paths = paths
+        self._engines_json = engines_json
+
+    def run(self):
+        new_games = []
+        skipped = 0
+        try:
+            for src in self._paths:
+                platform = guess_platform_by_ext(src, self._engines_json)
+                if not platform:
+                    skipped += 1
+                    continue
+                try:
+                    platform_dir = ROM_DIR / platform
+                    platform_dir.mkdir(parents=True, exist_ok=True)
+                    dst = platform_dir / src.name
+                    if dst.exists():
+                        idx = 2
+                        while dst.exists():
+                            dst = platform_dir / f"{src.stem}_{idx}{src.suffix}"
+                            idx += 1
+                    shutil.copy2(str(src), str(dst))
+                    new_games.append(GameEntry(
+                        name=clean_game_name(dst),
+                        path=str(dst),
+                        platform=platform,
+                        size=dst.stat().st_size,
+                        added_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                    ))
+                except Exception as e:
+                    logger.exception(f"复制游戏失败: {src}")
+                    skipped += 1
+            self.done.emit(new_games, skipped)
+        except Exception as e:
+            logger.exception("拖拽导入失败")
+            self.fail.emit(str(e))
 
 
 # ============================================================
-# 12. Worker: 多线程下载
+# 12. Worker: 多线程下载（★ 接入 MirrorRouter）
 # ============================================================
 class DownloadWorker(QThread):
-    progress = Signal(int, int)
-    speed = Signal(float, float)
-    status = Signal(str)
-    done = Signal(str)
-    fail = Signal(str)
+    progress = pyqtSignal(int, int)
+    speed = pyqtSignal(float, float)
+    status = pyqtSignal(str)
+    done = pyqtSignal(str)
+    fail = pyqtSignal(str)
 
     def __init__(self, url: str, target: Path, threads: int = 8):
         super().__init__()
@@ -5535,25 +5925,29 @@ class DownloadWorker(QThread):
         return HttpSession.get().request(method, url, **kwargs)
 
     def _try_mirrors(self):
-        mirrors = get_mirror_list()
-        if "github.com/" in self._url or "githubusercontent.com/" in self._url:
-            for m in mirrors:
-                test_url = m + self._url if m else self._url
-                try:
-                    self.status.emit(tr("download_trying_mirror", url=test_url))
-                    r = self._request("HEAD", test_url, allow_redirects=True)
-                    if r.status_code < 400:
-                        return test_url, r
-                except Exception as e:
-                    logger.debug(f"镜像 {test_url} 失败: {e}")
-                    continue
-            return None, None
-        else:
+        """★ v1.7.0：用 MirrorRouter 自动选路。"""
+        if ("github.com/" not in self._url
+                and "githubusercontent.com/" not in self._url):
             try:
                 r = self._request("HEAD", self._url, allow_redirects=True)
                 return self._url, r
             except Exception:
                 return None, None
+
+        test_url = "https://github.com/robots.txt"
+        ordered = MirrorRouter.order_mirrors(test_url, use_api=False)
+        for m in ordered:
+            prefix = m.get("url", "")
+            full = prefix + self._url if prefix else self._url
+            try:
+                self.status.emit(tr("download_trying_mirror", url=full))
+                r = self._request("HEAD", full, allow_redirects=True)
+                if r.status_code < 400:
+                    return full, r
+            except Exception as e:
+                logger.debug(f"镜像 {full} 失败: {e}")
+                continue
+        return None, None
 
     def run(self):
         try:
@@ -5585,7 +5979,7 @@ class DownloadWorker(QThread):
         self._start_time = time.time()
         downloaded = 0
         last_emit = 0.0
-        with open(self._target, "wb") as f:
+        with open(str(self._target), "wb") as f:
             for chunk in r.iter_content(chunk_size=1 << 16):
                 if self._cancel:
                     self.status.emit("已取消")
@@ -5621,7 +6015,7 @@ class DownloadWorker(QThread):
                     errors.append((idx, RuntimeError("SERVER_IGNORED_RANGE")))
                     return
                 r.raise_for_status()
-                with open(path, "wb") as f:
+                with open(str(path), "wb") as f:
                     for chunk in r.iter_content(chunk_size=1 << 16):
                         if self._cancel:
                             return
@@ -5664,10 +6058,10 @@ class DownloadWorker(QThread):
                 return
             raise RuntimeError(f"部分线程失败: {errors[0][1]}")
 
-        with open(self._target, "wb") as out:
+        with open(str(self._target), "wb") as out:
             for _, _, p in parts:
                 if p.exists():
-                    with open(p, "rb") as f:
+                    with open(str(p), "rb") as f:
                         shutil.copyfileobj(f, out)
                     p.unlink()
 
@@ -5687,8 +6081,8 @@ class DownloadWorker(QThread):
 # 13. Worker: 镜像测试 / 更新检查
 # ============================================================
 class MirrorTestWorker(QThread):
-    one = Signal(str, bool, float)
-    done = Signal(int, int)
+    one = pyqtSignal(str, bool, float)
+    done = pyqtSignal(int, int)
 
     def __init__(self, test_url: str, use_api: bool = False):
         super().__init__()
@@ -5702,7 +6096,8 @@ class MirrorTestWorker(QThread):
         http = HttpSession.get()
 
         for m in mirrors:
-            url = m + self._test_url if m else self._test_url
+            prefix = m.get("url", "") if isinstance(m, dict) else m
+            url = prefix + self._test_url if prefix else self._test_url
             t0 = time.time()
             ok = False
             try:
@@ -5718,7 +6113,7 @@ class MirrorTestWorker(QThread):
                 except Exception:
                     ok = False
             ms = (time.time() - t0) * 1000
-            display = m if m else "（直连）"
+            display = prefix if prefix else "（直连）"
             self.one.emit(display, ok, ms)
             if ok:
                 ok_count += 1
@@ -5728,8 +6123,8 @@ class MirrorTestWorker(QThread):
 
 
 class UpdateCheckWorker(QThread):
-    one = Signal(str, str, str, str)
-    done = Signal()
+    one = pyqtSignal(str, str, str, str)
+    done = pyqtSignal()
 
     def __init__(self, installed: list, engines_json: dict):
         super().__init__()
@@ -5739,9 +6134,10 @@ class UpdateCheckWorker(QThread):
     def _api_get(self, url: str, timeout: int = 10):
         headers = {"Accept": "application/vnd.github+json"}
         for m in get_api_mirror_list():
-            test_url = m + url if m else url
+            prefix = m.get("url", "") if isinstance(m, dict) else m
+            full = prefix + url if prefix else url
             try:
-                r = HttpSession.get().http_get(test_url, headers=headers, timeout=timeout)
+                r = HttpSession.get().http_get(full, headers=headers, timeout=timeout)
                 if r.status_code < 400:
                     return r.json()
             except Exception:
@@ -5781,7 +6177,7 @@ class UpdateCheckWorker(QThread):
 
 
 # ============================================================
-# 14. 启动 / 存档 / BIOS
+# 14. 启动 / 存档 / BIOS（★ P0-3：cwd 参数）
 # ============================================================
 class LaunchError(RuntimeError):
     def __init__(self, message: str, original=None, args=None):
@@ -5798,43 +6194,50 @@ def find_retroarch() -> Optional[EmulatorConfig]:
 
 
 def _split_cmd(cmd_str: str) -> list:
-    args = []
-    buf = ""
-    in_quote = False
-    quote_char = ""
-    i = 0
-    n = len(cmd_str)
-    while i < n:
-        ch = cmd_str[i]
-        if ch == "\\" and i + 1 < n:
-            nxt = cmd_str[i + 1]
-            if nxt in ('"', "'"):
-                buf += nxt
-                i += 2
+    """★ P1-9：用 shlex 解析，失败回退到简单解析。"""
+    try:
+        if sys.platform == "win32":
+            return shlex.split(cmd_str, posix=False)
+        return shlex.split(cmd_str, posix=True)
+    except ValueError as e:
+        logger.warning(f"shlex 解析失败，回退: {e}")
+        args = []
+        buf = ""
+        in_quote = False
+        quote_char = ""
+        i = 0
+        n = len(cmd_str)
+        while i < n:
+            ch = cmd_str[i]
+            if ch == "\\" and i + 1 < n:
+                nxt = cmd_str[i + 1]
+                if nxt in ('"', "'"):
+                    buf += nxt
+                    i += 2
+                    continue
+                buf += ch
+                i += 1
                 continue
-            buf += ch
+            if in_quote:
+                if ch == quote_char:
+                    in_quote = False
+                    quote_char = ""
+                else:
+                    buf += ch
+            else:
+                if ch in ('"', "'"):
+                    in_quote = True
+                    quote_char = ch
+                elif ch.isspace():
+                    if buf:
+                        args.append(buf)
+                        buf = ""
+                else:
+                    buf += ch
             i += 1
-            continue
-        if in_quote:
-            if ch == quote_char:
-                in_quote = False
-                quote_char = ""
-            else:
-                buf += ch
-        else:
-            if ch in ('"', "'"):
-                in_quote = True
-                quote_char = ch
-            elif ch.isspace():
-                if buf:
-                    args.append(buf)
-                    buf = ""
-            else:
-                buf += ch
-        i += 1
-    if buf:
-        args.append(buf)
-    return args
+        if buf:
+            args.append(buf)
+        return args
 
 
 def resolve_launch_args(engine: EmulatorConfig, game: GameEntry,
@@ -5929,7 +6332,7 @@ def copy_bios_for_game(engine: EmulatorConfig, game: GameEntry) -> Optional[str]
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
         dst = target_dir / src.name
-        shutil.copy2(src, dst)
+        shutil.copy2(str(src), str(dst))
         logger.info(f"BIOS 复制: {src} -> {dst}")
         return str(dst)
     except Exception as e:
@@ -5968,8 +6371,7 @@ def diagnose_launch_failure(engine: EmulatorConfig, game: GameEntry,
             bios_dir_rel = resolve_engine_field(engine, "bios_dir", "") or ""
             bios_dir = Path(engine.engine_dir) / bios_dir_rel
             for bf in bios_files:
-                if (not (bios_dir / bf).exists()
-                        and not (get_active_bios_dir() / bf).exists()):
+                if not (bios_dir / bf).exists() and not (get_active_bios_dir() / bf).exists():
                     issues.append(f"⚠️ 可能缺少 BIOS: {bf}")
 
     if exe.exists():
@@ -6043,6 +6445,7 @@ def _apply_priority_to_pid(pid: int, level: str,
 
 
 def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
+    """★ P0-3：用 Popen(cwd=...) 替代 os.chdir，修多线程竞态。"""
     actual_rom, switched = resolve_rom_for_launch(game.path, game.platform)
 
     bios_msg = ""
@@ -6062,37 +6465,22 @@ def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
         if ra:
             exe_dir = str(Path(ra.engine_path).parent)
 
-    old_cwd = os.getcwd()
-    try:
-        os.chdir(exe_dir)
-    except Exception as e:
-        logger.warning(f"chdir 失败: {e}")
-
     logger.info(f"[launch] args={args!r}")
-    logger.info(f"[launch] cwd={os.getcwd()!r}")
+    logger.info(f"[launch] cwd={exe_dir!r}")
 
     try:
         env = os.environ.copy()
         for k in ("_MEIPASS", "_MEIPASS2", "_MEIPASS_ORIG"):
             env.pop(k, None)
         proc = sp.Popen(
-            args, env=env,
+            args, env=env, cwd=exe_dir,
             creationflags=sp.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0)
     except Exception as e:
-        try:
-            os.chdir(old_cwd)
-        except Exception:
-            pass
         raise LaunchError(
             diagnose_launch_failure(engine, game, args, e),
             original=e,
             args=args,
         )
-    finally:
-        try:
-            os.chdir(old_cwd)
-        except Exception:
-            pass
 
     logger.info(f"已启动: {' '.join(args)}" + (" (auto .cue)" if switched else ""))
 
@@ -6135,14 +6523,9 @@ def launch_game(engine: EmulatorConfig, game: GameEntry) -> tuple:
 
 
 def open_engine_settings(engine: EmulatorConfig) -> tuple:
+    """★ P0-3：同样用 cwd 参数。"""
     args = resolve_settings_args(engine)
     exe_dir = str(Path(engine.engine_path).parent)
-
-    old_cwd = os.getcwd()
-    try:
-        os.chdir(exe_dir)
-    except Exception as e:
-        logger.warning(f"chdir 失败: {e}")
 
     logger.info(f"[settings] args={args!r}")
 
@@ -6151,23 +6534,14 @@ def open_engine_settings(engine: EmulatorConfig) -> tuple:
         for k in ("_MEIPASS", "_MEIPASS2", "_MEIPASS_ORIG"):
             env.pop(k, None)
         proc = sp.Popen(
-            args, env=env,
+            args, env=env, cwd=exe_dir,
             creationflags=sp.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0)
     except Exception as e:
-        try:
-            os.chdir(old_cwd)
-        except Exception:
-            pass
         raise LaunchError(
             diagnose_launch_failure(engine, None, args, e),
             original=e,
             args=args,
         )
-    finally:
-        try:
-            os.chdir(old_cwd)
-        except Exception:
-            pass
 
     logger.info(f"已打开设置: {' '.join(args)}")
     return proc
@@ -6254,8 +6628,8 @@ def backup_all_saves() -> list:
         dst = SAVE_BACKUP_DIR / f"{engine_name}_{ts}"
         try:
             if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(src, dst)
+                shutil.rmtree(str(dst))
+            shutil.copytree(str(src), str(dst))
             results.append(dst.name)
             logger.info(f"存档备份: {src} -> {dst}")
         except Exception as e:
@@ -6285,17 +6659,17 @@ def restore_save_backup(backup_dir: Path) -> bool:
     pre_backup = SAVE_BACKUP_DIR / f"{engine_name}_pre_restore_{ts}"
     try:
         if target_path.exists() and any(target_path.iterdir()):
-            shutil.copytree(target_path, pre_backup)
+            shutil.copytree(str(target_path), str(pre_backup))
     except Exception:
         pass
     for item in backup_dir.iterdir():
         dst = target_path / item.name
         if item.is_dir():
             if dst.exists():
-                shutil.rmtree(dst)
-            shutil.copytree(item, dst)
+                shutil.rmtree(str(dst))
+            shutil.copytree(str(item), str(dst))
         else:
-            shutil.copy2(item, dst)
+            shutil.copy2(str(item), str(dst))
     logger.info(f"存档还原: {backup_dir} -> {target_path}")
     return True
 
@@ -6304,8 +6678,8 @@ def restore_save_backup(backup_dir: Path) -> bool:
 # 15. Worker: 进程监控
 # ============================================================
 class ProcessMonitorWorker(QThread):
-    elapsed = Signal(int)
-    finished = Signal(int)
+    elapsed = pyqtSignal(int)
+    finished = pyqtSignal(int)
 
     def __init__(self, pid: int):
         super().__init__()
@@ -6359,6 +6733,7 @@ class PerfMonitorWindow(QWidget):
         self.setWindowTitle(f"{tr('perf_win_title')} - {game_name}")
         self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setFixedSize(300, 230)
+        # Qt5：WindowStaysOnTopHint
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
         if HAS_PSUTIL:
@@ -6495,7 +6870,7 @@ class PerfMonitorWindow(QWidget):
 
 
 # ============================================================
-# 16.5 局域网核心（mikan_lan v1.2.x 协议）
+# 16.5 局域网核心（★ P2-18：口令哈希不再截断）
 # ============================================================
 LAN_MAGIC = "mikan_lan"
 LAN_DISCOVERY_PORT = 41234
@@ -6510,16 +6885,35 @@ LAN_PORT_MAX_TRY = 20
 
 LAN_BROADCAST_ID = "__broadcast__"
 
+# ★ P2-18：固定盐（同机一致，跨机不同）
+_LAN_SALT_FILE = LAN_DIR / "salt.bin"
+
+
+def _lan_get_salt() -> bytes:
+    try:
+        if _LAN_SALT_FILE.exists():
+            return _LAN_SALT_FILE.read_bytes()
+    except Exception:
+        pass
+    salt = os.urandom(16)
+    try:
+        _LAN_SALT_FILE.write_bytes(salt)
+    except Exception:
+        pass
+    return salt
+
 
 def _pwd_hash(pwd: str) -> str:
+    """★ P2-18：完整 SHA-256 + 随机盐，不再截断到 16 位。"""
     if not pwd:
         return ""
-    return hashlib.sha256(("mikan_lan::" + pwd).encode("utf-8")).hexdigest()[:16]
+    salt = _lan_get_salt()
+    return hashlib.sha256(salt + pwd.encode("utf-8")).hexdigest()
 
 
 def _file_sha256(path: Path) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as f:
+    with open(str(path), "rb") as f:
         while True:
             chunk = f.read(1 << 20)
             if not chunk:
@@ -6590,7 +6984,7 @@ class LanIdentity:
         data = {}
         if LAN_IDENTITY_FILE.exists():
             try:
-                with open(LAN_IDENTITY_FILE, "r", encoding="utf-8") as f:
+                with open(str(LAN_IDENTITY_FILE), "r", encoding="utf-8") as f:
                     data = json.load(f) or {}
             except Exception:
                 data = {}
@@ -6602,7 +6996,7 @@ class LanIdentity:
 
     def _save(self):
         try:
-            with open(LAN_IDENTITY_FILE, "w", encoding="utf-8") as f:
+            with open(str(LAN_IDENTITY_FILE), "w", encoding="utf-8") as f:
                 json.dump({"id": self.id, "name": self.name},
                           f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -6630,9 +7024,9 @@ class LanPeer:
 
 
 class LanDiscoveryWorker(QThread):
-    peer_found = Signal(object)
-    peer_lost = Signal(str)
-    error = Signal(str)
+    peer_found = pyqtSignal(object)
+    peer_lost = pyqtSignal(str)
+    error = pyqtSignal(str)
 
     def __init__(self, identity: LanIdentity, tcp_port: int, pwd_hash: str):
         super().__init__()
@@ -6721,549 +7115,12 @@ class LanDiscoveryWorker(QThread):
                 self._peers.pop(pid, None)
                 self.peer_lost.emit(pid)
 
-
-class LanChatServer(QThread):
-    message_received = Signal(str, str, str, bool)
-    file_offer = Signal(str, str, str, int)
-    file_progress = Signal(str, int, int)
-    file_received = Signal(str, str, bool)
-    error = Signal(str)
-
-    def __init__(self, identity: LanIdentity, port: int, pwd_hash: str):
-        super().__init__()
-        self._identity = identity
-        self._port = port
-        self._pwd_hash = pwd_hash
-        self._stop = False
-        self._sock = None
-
-    def stop(self):
-        self._stop = True
-        try:
-            if self._sock:
-                self._sock.close()
-        except Exception:
-            pass
-
-    def run(self):
-        try:
-            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            if sys.platform == "win32":
-                self._sock.setsockopt(socket.SOL_SOCKET,
-                                      socket.SO_EXCLUSIVEADDRUSE, 1)
-            else:
-                self._sock.setsockopt(socket.SOL_SOCKET,
-                                      socket.SO_REUSEADDR, 1)
-            self._sock.bind(("", self._port))
-            self._sock.listen(16)
-            self._sock.settimeout(0.5)
-        except Exception as e:
-            self.error.emit(f"TCP 绑定失败: {e}")
-            return
-
-        while not self._stop:
-            try:
-                conn, addr = self._sock.accept()
-            except socket.timeout:
-                continue
-            except Exception:
-                if self._stop:
-                    break
-                continue
-            threading.Thread(target=self._handle, args=(conn, addr),
-                             daemon=True).start()
-
-    @staticmethod
-    def _read_line(conn, max_len: int = 8192) -> bytes:
-        buf = bytearray()
-        conn.settimeout(LAN_RECV_HEAD_TIMEOUT)
-        while len(buf) < max_len:
-            try:
-                chunk = conn.recv(min(256, max_len - len(buf)))
-            except Exception:
-                return b""
-            if not chunk:
-                break
-            nl = chunk.find(b"\n")
-            if nl >= 0:
-                buf += chunk[:nl]
-                break
-            buf += chunk
-        return bytes(buf)
-
-    def _handle(self, conn, addr):
-        try:
-            header = self._read_line(conn)
-            if not header:
-                conn.close()
-                return
-            try:
-                obj = json.loads(header.decode("utf-8", errors="ignore"))
-            except Exception:
-                conn.close()
-                return
-            if not isinstance(obj, dict) or obj.get("magic") != LAN_MAGIC:
-                conn.close()
-                return
-            if self._pwd_hash and obj.get("pwd", "") != self._pwd_hash:
-                try:
-                    conn.sendall(b'{"ok":false,"reason":"bad_pwd"}\n')
-                except Exception:
-                    pass
-                conn.close()
-                return
-
-            peer_id = str(obj.get("id", ""))[:64]
-            peer_name = str(obj.get("name", ""))[:32] or f"mikan_{peer_id[:4]}"
-            mtype = obj.get("type", "")
-
-            if peer_id == self._identity.id:
-                logger.debug("忽略自环消息")
-                try:
-                    conn.sendall(b'{"ok":true,"self":true}\n')
-                except Exception:
-                    pass
-                conn.close()
-                return
-
-            if mtype == "msg":
-                self._handle_msg(conn, peer_id, peer_name, obj)
-            elif mtype == "file":
-                self._handle_file_in(conn, peer_id, peer_name, obj)
-            elif mtype == "share_query":
-                self._handle_share_query(conn)
-            elif mtype == "share_download":
-                self._handle_share_download(conn, obj)
-            else:
-                conn.close()
-        except Exception as e:
-            logger.debug(f"处理连接失败: {e}")
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-    def _handle_msg(self, conn, pid, pname, obj):
-        text = str(obj.get("text", ""))[:LAN_MAX_TEXT]
-        is_broadcast = bool(obj.get("broadcast", False))
-        try:
-            conn.sendall(b'{"ok":true}\n')
-        except Exception:
-            pass
-        if text:
-            self.message_received.emit(pid, pname, text, is_broadcast)
-        conn.close()
-
-    def _handle_file_in(self, conn, pid, pname, obj):
-        fname = _lan_safe_filename(str(obj.get("fname", "file")))
-        try:
-            fsize = int(obj.get("size", 0))
-        except Exception:
-            fsize = 0
-        sha_expect = str(obj.get("sha256", "")).lower()[:64]
-        try:
-            max_mb = int(SETTINGS.get("lan_max_file_mb", 512))
-        except Exception:
-            max_mb = 512
-        if fsize <= 0 or fsize > max(1, max_mb) * 1024 * 1024:
-            try:
-                conn.sendall(b'{"ok":false,"reason":"size"}\n')
-            except Exception:
-                pass
-            conn.close()
-            return
-        if not SETTINGS.get("lan_receive_files", True):
-            try:
-                conn.sendall(b'{"ok":false,"reason":"disabled"}\n')
-            except Exception:
-                pass
-            conn.close()
-            return
-        try:
-            conn.sendall(b'{"ok":true}\n')
-        except Exception:
-            conn.close()
-            return
-
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        tmp = LAN_FILES_DIR / f".part_{pid[:8]}_{ts}_{fname}"
-        final = LAN_FILES_DIR / f"{ts}_{fname}"
-
-        self.file_offer.emit(pid, pname, fname, fsize)
-        conn.settimeout(LAN_RECV_HEAD_TIMEOUT)
-
-        try:
-            fh = open(tmp, "wb")
-        except Exception as e:
-            logger.warning(f"无法创建临时文件 {tmp}: {e}")
-            try:
-                conn.sendall(b'{"ok":false,"reason":"io"}\n')
-            except Exception:
-                pass
-            self.file_received.emit(pid, fname, False)
-            conn.close()
-            return
-
-        done = 0
-        ok = False
-        try:
-            with fh:
-                while done < fsize:
-                    chunk = conn.recv(min(LAN_FILE_CHUNK, fsize - done))
-                    if not chunk:
-                        break
-                    fh.write(chunk)
-                    done += len(chunk)
-                    self.file_progress.emit(pid, done, fsize)
-            ok = (done == fsize)
-        except Exception as e:
-            logger.warning(f"接收文件中断: {e}")
-            ok = False
-
-        hash_ok = False
-        if ok:
-            if SETTINGS.get("lan_verify_hash", True) and sha_expect:
-                try:
-                    hash_ok = (_file_sha256(tmp) == sha_expect)
-                except Exception:
-                    hash_ok = False
-            else:
-                hash_ok = True
-            if hash_ok:
-                try:
-                    tmp.rename(final)
-                    self.file_received.emit(pid, str(final), True)
-                except Exception as e:
-                    logger.exception(f"重命名失败: {e}")
-                    hash_ok = False
-        if not hash_ok:
-            try:
-                tmp.unlink(missing_ok=True)
-            except Exception:
-                pass
-            self.file_received.emit(pid, fname, False)
-
-        try:
-            resp = {"ok": bool(hash_ok), "hash": "ok" if hash_ok else "bad"}
-            conn.sendall((json.dumps(resp) + "\n").encode("utf-8"))
-        except Exception:
-            pass
-        conn.close()
-
-    def _handle_share_query(self, conn):
-        if not SETTINGS.get("lan_share_enabled", True):
-            try:
-                conn.sendall(b'{"ok":false,"reason":"disabled"}\n')
-            except Exception:
-                pass
-            conn.close()
-            return
-        files = _scan_shared_dir()
-        try:
-            resp = {"ok": True, "files": files}
-            conn.sendall((json.dumps(resp, ensure_ascii=False) + "\n").encode("utf-8"))
-        except Exception:
-            pass
-        conn.close()
-
-    def _handle_share_download(self, conn, obj):
-        if not SETTINGS.get("lan_share_enabled", True):
-            try:
-                conn.sendall(b'{"ok":false,"reason":"disabled"}\n')
-            except Exception:
-                pass
-            conn.close()
-            return
-        fname = _lan_safe_filename(str(obj.get("fname", "")))
-        path = LAN_SHARED_DIR / fname
-        if not path.exists() or not path.is_file():
-            try:
-                conn.sendall(b'{"ok":false,"reason":"notfound"}\n')
-            except Exception:
-                pass
-            conn.close()
-            return
-        try:
-            size = path.stat().st_size
-        except Exception:
-            try:
-                conn.sendall(b'{"ok":false,"reason":"err"}\n')
-            except Exception:
-                pass
-            conn.close()
-            return
-        try:
-            sha = _file_sha256(path)
-        except Exception:
-            sha = ""
-        try:
-            header = {"ok": True, "size": size, "sha256": sha, "fname": fname}
-            conn.sendall((json.dumps(header, ensure_ascii=False) + "\n").encode("utf-8"))
-        except Exception:
-            conn.close()
-            return
-        try:
-            conn.settimeout(120.0)
-            with open(path, "rb") as f:
-                while True:
-                    chunk = f.read(LAN_FILE_CHUNK)
-                    if not chunk:
-                        break
-                    conn.sendall(chunk)
-        except Exception as e:
-            logger.debug(f"发送共享文件失败: {e}")
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-
-class LanChatClient:
-    @staticmethod
-    def _connect(peer: LanPeer, timeout: float = 5.0):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(timeout)
-        s.connect((peer.ip, peer.port))
-        return s
-
-    @staticmethod
-    def _read_line(sock, max_len: int = 8192) -> bytes:
-        buf = bytearray()
-        sock.settimeout(LAN_ACK_TIMEOUT)
-        while len(buf) < max_len:
-            try:
-                chunk = sock.recv(min(256, max_len - len(buf)))
-            except Exception:
-                return b""
-            if not chunk:
-                break
-            nl = chunk.find(b"\n")
-            if nl >= 0:
-                buf += chunk[:nl]
-                break
-            buf += chunk
-        return bytes(buf)
-
-    @staticmethod
-    def send_message(peer: LanPeer, identity: LanIdentity, text: str,
-                     pwd_hash: str, is_broadcast: bool = False) -> bool:
-        obj = {
-            "magic": LAN_MAGIC, "type": "msg",
-            "id": identity.id, "name": identity.name,
-            "text": text[:LAN_MAX_TEXT], "pwd": pwd_hash,
-            "broadcast": bool(is_broadcast),
-        }
-        for attempt in range(LAN_TEXT_RETRY + 1):
-            try:
-                s = LanChatClient._connect(peer, timeout=LAN_ACK_TIMEOUT)
-                s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
-                line = LanChatClient._read_line(s)
-                s.close()
-                if not line:
-                    continue
-                try:
-                    resp = json.loads(line.decode("utf-8", errors="ignore"))
-                except Exception:
-                    continue
-                if resp.get("ok"):
-                    return True
-            except Exception as e:
-                logger.debug(f"send_message 第 {attempt+1} 次失败: {e}")
-        return False
-
-    @staticmethod
-    def send_file(peer: LanPeer, identity: LanIdentity, file_path: Path,
-                  pwd_hash: str, want_hash: bool = True,
-                  progress_cb=None) -> tuple:
-        try:
-            fsize = file_path.stat().st_size
-        except Exception:
-            return False, "err"
-        try:
-            max_mb = int(SETTINGS.get("lan_max_file_mb", 512))
-        except Exception:
-            max_mb = 512
-        if fsize <= 0 or fsize > max(1, max_mb) * 1024 * 1024:
-            return False, "size"
-
-        sha = ""
-        if want_hash:
-            try:
-                sha = _file_sha256(file_path)
-            except Exception:
-                sha = ""
-
-        header = {
-            "magic": LAN_MAGIC, "type": "file",
-            "id": identity.id, "name": identity.name,
-            "fname": file_path.name, "size": fsize, "sha256": sha,
-            "pwd": pwd_hash,
-        }
-        try:
-            s = LanChatClient._connect(peer, timeout=10.0)
-            s.sendall((json.dumps(header, ensure_ascii=False) + "\n").encode("utf-8"))
-            line = LanChatClient._read_line(s)
-            try:
-                resp = json.loads(line.decode("utf-8", errors="ignore"))
-            except Exception:
-                resp = {}
-            if not resp.get("ok"):
-                reason = resp.get("reason", "rejected")
-                try:
-                    s.close()
-                except Exception:
-                    pass
-                return False, reason
-
-            s.settimeout(120.0)
-            sent = 0
-            with open(file_path, "rb") as f:
-                while True:
-                    chunk = f.read(LAN_FILE_CHUNK)
-                    if not chunk:
-                        break
-                    s.sendall(chunk)
-                    sent += len(chunk)
-                    if progress_cb:
-                        try:
-                            progress_cb(sent, fsize)
-                        except Exception:
-                            pass
-
-            try:
-                s.settimeout(120.0)
-                line2 = LanChatClient._read_line(s, max_len=8192)
-            except Exception:
-                line2 = b""
-            try:
-                s.close()
-            except Exception:
-                pass
-
-            if not line2:
-                return False, "no_ack"
-            try:
-                resp2 = json.loads(line2.decode("utf-8", errors="ignore"))
-            except Exception:
-                return False, "no_ack"
-            if resp2.get("ok"):
-                return True, ""
-            if resp2.get("reason") == "io":
-                return False, "io"
-            return False, "hash"
-        except Exception as e:
-            logger.debug(f"send_file 失败: {e}")
-            return False, "err"
-
-    @staticmethod
-    def query_share(peer: LanPeer, identity: LanIdentity, pwd_hash: str) -> Optional[list]:
-        obj = {"magic": LAN_MAGIC, "type": "share_query",
-               "id": identity.id, "name": identity.name, "pwd": pwd_hash}
-        try:
-            s = LanChatClient._connect(peer, LAN_ACK_TIMEOUT)
-            s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
-            line = LanChatClient._read_line(s, max_len=1024 * 1024)
-            s.close()
-            if not line:
-                return None
-            try:
-                resp = json.loads(line.decode("utf-8", errors="ignore"))
-            except Exception:
-                return None
-            if resp.get("ok"):
-                return resp.get("files", [])
-            return None
-        except Exception as e:
-            logger.debug(f"query_share 失败: {e}")
-            return None
-
-    @staticmethod
-    def download_share(peer: LanPeer, identity: LanIdentity, fname: str,
-                       pwd_hash: str, save_dir: Path,
-                       progress_cb=None) -> tuple:
-        obj = {"magic": LAN_MAGIC, "type": "share_download",
-               "id": identity.id, "name": identity.name,
-               "fname": fname, "pwd": pwd_hash}
-        try:
-            s = LanChatClient._connect(peer, 10.0)
-            s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
-            line = LanChatClient._read_line(s)
-            try:
-                resp = json.loads(line.decode("utf-8", errors="ignore"))
-            except Exception:
-                resp = {}
-            if not resp.get("ok"):
-                try:
-                    s.close()
-                except Exception:
-                    pass
-                return False, resp.get("reason", "rejected"), ""
-            fsize = int(resp.get("size", 0))
-            sha_expect = str(resp.get("sha256", "")).lower()[:64]
-            real_name = _lan_safe_filename(resp.get("fname", fname))
-            ts = time.strftime("%Y%m%d_%H%M%S")
-            tmp = save_dir / f".part_{ts}_{real_name}"
-            final = save_dir / real_name
-            if final.exists():
-                idx = 2
-                while final.exists():
-                    final = save_dir / f"{final.stem}_{idx}{final.suffix}"
-                    idx += 1
-            s.settimeout(120.0)
-            done = 0
-            with open(tmp, "wb") as f:
-                while done < fsize:
-                    chunk = s.recv(min(LAN_FILE_CHUNK, fsize - done))
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    done += len(chunk)
-                    if progress_cb:
-                        try:
-                            progress_cb(done, fsize)
-                        except Exception:
-                            pass
-            try:
-                s.close()
-            except Exception:
-                pass
-            if done != fsize:
-                try:
-                    tmp.unlink(missing_ok=True)
-                except Exception:
-                    pass
-                return False, "incomplete", ""
-            if SETTINGS.get("lan_verify_hash", True) and sha_expect:
-                try:
-                    if _file_sha256(tmp) != sha_expect:
-                        try:
-                            tmp.unlink(missing_ok=True)
-                        except Exception:
-                            pass
-                        return False, "hash", ""
-                except Exception:
-                    pass
-            tmp.rename(final)
-            return True, "", str(final)
-        except Exception as e:
-            logger.debug(f"download_share 失败: {e}")
-            return False, "err", ""
-
-
-LAN_EMOJIS = [
-    "😀", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔",
-    "😅", "😭", "😡", "🥺", "😴", "🤯", "🥳", "😇",
-    "👍", "👎", "👌", "🙏", "👏", "🤝", "💪", "✌️",
-    "❤️", "💔", "🔥", "⭐", "🎉", "🎁", "✅", "❌",
-    "🐱", "🐶", "🍕", "🍺", "☕", "🌸", "🌙", "☀️",
-]
-
 # ============================================================
-# 17. QSS
+# 17. QSS 样式（Win11 风格，Win7 上也能看）
 # ============================================================
 WIN11_QSS = """
 * {
-    font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "SimSun", "Segoe UI", sans-serif;
     font-size: 13px;
     color: #1c1c1c;
 }
@@ -7300,7 +7157,7 @@ QLineEdit, QComboBox, QSpinBox {
     background-color: #fbfbfb; border: 1px solid #d9d9d9;
     border-bottom: 2px solid #d9d9d9; border-radius: 5px;
     padding: 5px 10px;
-    min-height: 26px;
+    min-height: 22px;
     selection-background-color: #0067c0; selection-color: white;
 }
 QLineEdit:hover, QComboBox:hover, QSpinBox:hover { background-color: #ffffff; }
@@ -7323,7 +7180,7 @@ QComboBox QAbstractItemView {
     selection-color: #1c1c1c; outline: none; padding: 4px;
 }
 QComboBox QAbstractItemView::item {
-    min-height: 28px;
+    min-height: 22px;
     padding: 6px 10px;
 }
 QComboBox QAbstractItemView::item:hover {
@@ -7410,7 +7267,6 @@ QListWidget#PeerList::item:selected {
 QTextEdit#ChatView {
     background-color: #ffffff; border: 1px solid #e5e5e5;
     border-radius: 6px; padding: 8px;
-    font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
 }
 QStatusBar {
     background-color: #fafafa; color: #5c5c5c;
@@ -7451,17 +7307,17 @@ QScrollBar::handle:horizontal {
 QScrollBar::handle:horizontal:hover { background: #a8a8a8; }
 QCheckBox, QRadioButton { color: #1c1c1c; spacing: 8px; padding: 4px 0; }
 QCheckBox::indicator, QRadioButton::indicator {
-    width: 18px; height: 18px; border-radius: 4px;
+    width: 16px; height: 16px; border-radius: 4px;
     border: 1px solid #8a8a8a; background-color: #fbfbfb;
 }
 QCheckBox::indicator:checked, QRadioButton::indicator:checked {
     background-color: #0067c0; border: 1px solid #0067c0;
 }
-QRadioButton::indicator { border-radius: 9px; }
+QRadioButton::indicator { border-radius: 8px; }
 QTextEdit {
     background-color: #ffffff; border: 1px solid #d9d9d9;
     border-radius: 5px; padding: 8px;
-    font-family: "Cascadia Mono", "Consolas", monospace;
+    font-family: "Consolas", "Courier New", monospace;
     selection-background-color: #0067c0; selection-color: white;
 }
 QMenu {
@@ -7500,6 +7356,7 @@ QToolButton {
 QToolButton:hover { background-color: #f5f5f5; }
 """
 
+
 DARK_QSS_OVERLAY = """
 * { color: #e8e8e8; }
 QMainWindow, QWidget { background-color: #1f1f1f; }
@@ -7510,10 +7367,14 @@ QLabel#SectionTitle { color: #e8e8e8; }
 QLabel#Hint { color: #a0a0a0; }
 QLabel#AdminOk { color: #6dbf6d; background-color: #1e3a1e; }
 QLabel#AdminNo { color: #ff6b5e; background-color: #3a1e1e; }
+
 QListWidget#NavList { background-color: #1f1f1f; }
 QListWidget#NavList::item { color: #e8e8e8; }
 QListWidget#NavList::item:hover { background-color: #333333; }
-QListWidget#NavList::item:selected { background-color: #3a3a3a; color: #4cc2ff; }
+QListWidget#NavList::item:selected {
+    background-color: #3a3a3a; color: #4cc2ff;
+}
+
 QLineEdit, QComboBox, QSpinBox {
     background-color: #2a2a2a; color: #e8e8e8;
     border: 1px solid #454545; border-bottom: 2px solid #454545;
@@ -7528,6 +7389,7 @@ QComboBox QAbstractItemView {
     selection-background-color: #3a3a3a; selection-color: #4cc2ff;
 }
 QComboBox QAbstractItemView::item:hover { background-color: #333333; }
+
 QPushButton {
     background-color: #2b2b2b; color: #e8e8e8;
     border: 1px solid #454545; border-bottom: 2px solid #454545;
@@ -7535,67 +7397,112 @@ QPushButton {
 QPushButton:hover { background-color: #333333; }
 QPushButton:pressed { background-color: #3a3a3a; }
 QPushButton:disabled { background-color: #252525; color: #666666; border-color: #333333; }
-QPushButton#PrimaryBtn { background-color: #0067c0; border-color: #0067c0; color: #ffffff; }
+QPushButton#PrimaryBtn {
+    background-color: #0067c0; border-color: #0067c0; color: #ffffff;
+}
 QPushButton#PrimaryBtn:hover { background-color: #1975c5; }
 QPushButton#PrimaryBtn:pressed { background-color: #005ba8; }
-QPushButton#DangerBtn { background-color: #c42b1c; border-color: #c42b1c; color: #ffffff; }
+QPushButton#DangerBtn {
+    background-color: #c42b1c; border-color: #c42b1c; color: #ffffff;
+}
 QPushButton#DangerBtn:hover { background-color: #d13a2b; }
+
 QTableView, QTableWidget {
     background-color: #2b2b2b; alternate-background-color: #262626;
-    gridline-color: #3a3a3a; border: 1px solid #3a3a3a; color: #e8e8e8;
+    gridline-color: #3a3a3a; border: 1px solid #3a3a3a;
+    color: #e8e8e8;
     selection-background-color: #1e3a52; selection-color: #4cc2ff;
 }
 QHeaderView::section {
     background-color: #252525; color: #a0a0a0;
     border-bottom: 1px solid #3a3a3a; border-right: 1px solid #3a3a3a;
 }
+
 QListWidget#GameGrid { background-color: #1f1f1f; }
 QListWidget#GameGrid::item {
     background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8;
 }
-QListWidget#GameGrid::item:hover { background-color: #333333; border: 1px solid #4cc2ff; }
-QListWidget#GameGrid::item:selected { background-color: #1e3a52; border: 1px solid #4cc2ff; }
+QListWidget#GameGrid::item:hover {
+    background-color: #333333; border: 1px solid #4cc2ff;
+}
+QListWidget#GameGrid::item:selected {
+    background-color: #1e3a52; border: 1px solid #4cc2ff;
+}
+
 QListWidget#TimelineList { background-color: #1f1f1f; }
 QListWidget#TimelineList::item {
     background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8;
 }
 QListWidget#TimelineList::item:hover { border: 1px solid #4cc2ff; }
-QListWidget#TimelineList::item:selected { background-color: #1e3a52; border: 1px solid #4cc2ff; }
-QListWidget#TimelineList::item:disabled { background-color: #252525; color: #808080; border: none; }
-QListWidget#PeerList { background-color: #262626; border: 1px solid #3a3a3a; }
+QListWidget#TimelineList::item:selected {
+    background-color: #1e3a52; border: 1px solid #4cc2ff;
+}
+QListWidget#TimelineList::item:disabled {
+    background-color: #252525; color: #808080; border: none;
+}
+
+QListWidget#PeerList {
+    background-color: #262626; border: 1px solid #3a3a3a;
+}
 QListWidget#PeerList::item { color: #e8e8e8; }
 QListWidget#PeerList::item:hover { background-color: #333333; }
 QListWidget#PeerList::item:selected { background-color: #1e3a52; color: #4cc2ff; }
-QTextEdit#ChatView { background-color: #232323; border: 1px solid #3a3a3a; color: #e8e8e8; }
-QTextEdit { background-color: #232323; color: #e8e8e8; border: 1px solid #454545; }
-QStatusBar { background-color: #252525; color: #a0a0a0; border-top: 1px solid #3a3a3a; }
+
+QTextEdit#ChatView {
+    background-color: #232323; border: 1px solid #3a3a3a; color: #e8e8e8;
+}
+QTextEdit {
+    background-color: #232323; color: #e8e8e8;
+    border: 1px solid #454545;
+}
+
+QStatusBar {
+    background-color: #252525; color: #a0a0a0; border-top: 1px solid #3a3a3a;
+}
 QSplitter::handle { background-color: #3a3a3a; }
 QSplitter::handle:hover { background-color: #4cc2ff; }
+
 QProgressBar { background-color: #3a3a3a; color: transparent; }
 QProgressBar::chunk { background-color: #4cc2ff; }
-QGroupBox { background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8; }
+
+QGroupBox {
+    background-color: #2b2b2b; border: 1px solid #3a3a3a; color: #e8e8e8;
+}
 QGroupBox::title { color: #e8e8e8; background-color: #2b2b2b; }
+
 QScrollBar:vertical { background: transparent; }
 QScrollBar::handle:vertical { background: #4a4a4a; }
 QScrollBar::handle:vertical:hover { background: #5a5a5a; }
 QScrollBar:horizontal { background: transparent; }
 QScrollBar::handle:horizontal { background: #4a4a4a; }
 QScrollBar::handle:horizontal:hover { background: #5a5a5a; }
+
 QCheckBox, QRadioButton { color: #e8e8e8; }
-QCheckBox::indicator, QRadioButton::indicator { border: 1px solid #808080; background-color: #2a2a2a; }
-QCheckBox::indicator:checked, QRadioButton::indicator:checked { background-color: #4cc2ff; border: 1px solid #4cc2ff; }
+QCheckBox::indicator, QRadioButton::indicator {
+    border: 1px solid #808080; background-color: #2a2a2a;
+}
+QCheckBox::indicator:checked, QRadioButton::indicator:checked {
+    background-color: #4cc2ff; border: 1px solid #4cc2ff;
+}
+
 QMenu { background-color: #2b2b2b; border: 1px solid #454545; color: #e8e8e8; }
 QMenu::item { color: #e8e8e8; }
 QMenu::item:selected { background-color: #3a3a3a; color: #4cc2ff; }
 QMenu::separator { background: #3a3a3a; }
+
 QTabWidget::pane { background-color: #2b2b2b; border: 1px solid #3a3a3a; }
 QTabBar::tab { color: #a0a0a0; }
 QTabBar::tab:selected { color: #4cc2ff; border-bottom: 2px solid #4cc2ff; }
 QTabBar::tab:hover:!selected { background-color: #333333; }
+
 QDialog { background-color: #1f1f1f; }
-QFrame#ResourceCard { background-color: #2b2b2b; border: 1px solid #3a3a3a; }
+QFrame#ResourceCard {
+    background-color: #2b2b2b; border: 1px solid #3a3a3a;
+}
 QFrame#ResourceCard:hover { border: 1px solid #4cc2ff; }
-QToolButton { background-color: #2b2b2b; border: 1px solid #454545; color: #e8e8e8; }
+QToolButton {
+    background-color: #2b2b2b; border: 1px solid #454545; color: #e8e8e8;
+}
 QToolButton:hover { background-color: #333333; }
 """
 
@@ -7872,7 +7779,7 @@ class BiosTableModel(QAbstractTableModel):
         col = index.column()
         if role in (Qt.DisplayRole, Qt.EditRole):
             return [row.name, format_size(row.size), row.md5,
-                    row.known_as or "未知"][col]
+                    row.known_as or tr("bios_unknown")][col]
         if role == Qt.ForegroundRole and col == 3:
             return QColor("#0f7b0f") if row.known_as else QColor("#767676")
         return None
@@ -7889,29 +7796,20 @@ def find_cover(name: str) -> Optional[Path]:
 # ============================================================
 # 20. 配置包导出 / 导入
 # ============================================================
-def export_config_pack(
-    out_path: Path,
-    include_covers: bool = True,
-    include_saves: bool = True,
-    include_stats: bool = True,
-) -> Path:
+def export_config_pack(out_path: Path, include_covers: bool = True,
+                       include_saves: bool = True,
+                       include_stats: bool = True) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-
     manifest = {
-        "app": APP_NAME,
-        "version": APP_VERSION,
-        "format": 1,
+        "app": APP_NAME, "version": APP_VERSION, "format": 1,
         "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "include": {
-            "covers": include_covers,
-            "saves": include_saves,
-            "stats": include_stats,
-        },
+        "include": {"covers": include_covers, "saves": include_saves,
+                    "stats": include_stats},
     }
 
     def _add_file(zf, src: Path, arcname: str):
         if src.exists() and src.is_file():
-            zf.write(src, arcname)
+            zf.write(str(src), arcname)
 
     def _add_dir(zf, src: Path, arcprefix: str):
         if not src.exists() or not src.is_dir():
@@ -7919,12 +7817,11 @@ def export_config_pack(
         for f in src.rglob("*"):
             if f.is_file():
                 rel = f.relative_to(src)
-                zf.write(f, f"{arcprefix}/{rel.as_posix()}")
+                zf.write(str(f), f"{arcprefix}/{rel.as_posix()}")
 
-    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(str(out_path), "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("manifest.json",
                     json.dumps(manifest, ensure_ascii=False, indent=2))
-
         for name, path in [
             ("folders.json", FOLDERS_FILE),
             ("settings.json", SETTINGS_FILE),
@@ -7936,27 +7833,21 @@ def export_config_pack(
             ("update_ignore.json", UPDATE_IGNORE_FILE),
         ]:
             _add_file(zf, path, f"config/{name}")
-
         if include_stats:
             _add_file(zf, STATS_FILE, "config/stats.json")
-
         _add_file(zf, ENGINES_JSON, "engines/engines.json")
         _add_file(zf, INSTALLED_FILE, "engines/installed.json")
         _add_file(zf, ROMS_FILE, "roms/roms.json")
-
         if include_covers:
             _add_dir(zf, COVER_DIR, "covers")
         if include_saves:
             _add_dir(zf, SAVE_BACKUP_DIR, "saves_backup")
-
     logger.info(f"配置包导出: {out_path}")
     return out_path
 
 
-def import_config_pack(pack_path: Path,
-                       import_covers: bool = True,
-                       import_saves: bool = True,
-                       import_stats: bool = True,
+def import_config_pack(pack_path: Path, import_covers: bool = True,
+                       import_saves: bool = True, import_stats: bool = True,
                        merge: bool = True) -> dict:
     if not pack_path.exists():
         raise RuntimeError(tr("pack_file_missing", path=str(pack_path)))
@@ -7971,22 +7862,12 @@ def import_config_pack(pack_path: Path,
               MIRRORS_FILE, RESOURCES_FILE, STATS_FILE):
         if f.exists():
             try:
-                shutil.copy2(f, backup_dir / f.name)
+                shutil.copy2(str(f), str(backup_dir / f.name))
             except Exception:
                 pass
-    logger.info(f"导入前配置备份: {backup_dir}")
 
-    with zipfile.ZipFile(pack_path, "r") as zf:
+    with zipfile.ZipFile(str(pack_path), "r") as zf:
         names = zf.namelist()
-
-        if "manifest.json" in names:
-            try:
-                mf = json.loads(zf.read("manifest.json"))
-                if mf.get("app") != APP_NAME:
-                    logger.warning(f"包来自其他应用: {mf.get('app')}")
-            except Exception:
-                pass
-
         config_map = {
             "config/settings.json": SETTINGS_FILE,
             "config/folders.json": FOLDERS_FILE,
@@ -7999,7 +7880,6 @@ def import_config_pack(pack_path: Path,
         }
         if import_stats:
             config_map["config/stats.json"] = STATS_FILE
-
         for arc, dst in config_map.items():
             if arc not in names:
                 continue
@@ -8013,9 +7893,8 @@ def import_config_pack(pack_path: Path,
                             data = old
                     except Exception:
                         pass
-                dst.write_text(
-                    json.dumps(data, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
+                dst.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                               encoding="utf-8")
                 result["config"] += 1
             except Exception as e:
                 logger.exception(f"导入 {arc} 失败: {e}")
@@ -8037,9 +7916,8 @@ def import_config_pack(pack_path: Path,
                         new_e = old_e
                     except Exception:
                         pass
-                ENGINES_JSON.write_text(
-                    json.dumps(new_e, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
+                ENGINES_JSON.write_text(json.dumps(new_e, ensure_ascii=False, indent=2),
+                                        encoding="utf-8")
                 result["engines"] += 1
             except Exception as e:
                 logger.exception(f"导入 engines.json 失败: {e}")
@@ -8063,9 +7941,8 @@ def import_config_pack(pack_path: Path,
                         new_i["engines"] = old_list
                     except Exception:
                         pass
-                INSTALLED_FILE.write_text(
-                    json.dumps(new_i, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
+                INSTALLED_FILE.write_text(json.dumps(new_i, ensure_ascii=False, indent=2),
+                                          encoding="utf-8")
                 result["engines"] += 1
             except Exception as e:
                 logger.exception(f"导入 installed.json 失败: {e}")
@@ -8085,9 +7962,8 @@ def import_config_pack(pack_path: Path,
                         new_r["games"] = old_games
                     except Exception:
                         pass
-                ROMS_FILE.write_text(
-                    json.dumps(new_r, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
+                ROMS_FILE.write_text(json.dumps(new_r, ensure_ascii=False, indent=2),
+                                     encoding="utf-8")
                 result["roms"] = len(new_r.get("games", []))
             except Exception as e:
                 logger.exception(f"导入 roms.json 失败: {e}")
@@ -8103,7 +7979,7 @@ def import_config_pack(pack_path: Path,
                 dst = COVER_DIR / rel
                 try:
                     dst.parent.mkdir(parents=True, exist_ok=True)
-                    with zf.open(name) as src, open(dst, "wb") as out:
+                    with zf.open(name) as src, open(str(dst), "wb") as out:
                         shutil.copyfileobj(src, out)
                     result["covers"] += 1
                 except Exception as e:
@@ -8119,7 +7995,7 @@ def import_config_pack(pack_path: Path,
                 dst = SAVE_BACKUP_DIR / rel
                 try:
                     dst.parent.mkdir(parents=True, exist_ok=True)
-                    with zf.open(name) as src, open(dst, "wb") as out:
+                    with zf.open(name) as src, open(str(dst), "wb") as out:
                         shutil.copyfileobj(src, out)
                     result["saves"] += 1
                 except Exception as e:
@@ -8133,13 +8009,12 @@ def import_config_pack(pack_path: Path,
     load_resources()
     load_stats()
     load_update_ignore()
-
     logger.info(f"配置包导入完成: {result}")
     return result
 
 
 # ============================================================
-# 20.5 封面刮削
+# 20.5 封面刮削（Libretro Thumbnails）
 # ============================================================
 LIBRETRO_BASE = "https://thumbnails.libretro.com/"
 
@@ -8216,9 +8091,9 @@ def _libretro_url(platform: str, img_type: str, name: str) -> Optional[str]:
 
 
 class LibretroScraperWorker(QThread):
-    one_done = Signal(str, bool, str)
-    progress = Signal(int, int)
-    done = Signal(int, int, list)
+    one_done = pyqtSignal(str, bool, str)
+    progress = pyqtSignal(int, int)
+    done = pyqtSignal(int, int, list)
 
     def __init__(self, games: list, img_type: str = "boxart",
                  overwrite: bool = False):
@@ -8298,9 +8173,9 @@ class LibretroScraperWorker(QThread):
 
 
 class SteamGridDBScraperWorker(QThread):
-    one_done = Signal(str, bool, str)
-    progress = Signal(int, int)
-    done = Signal(int, int, list)
+    one_done = pyqtSignal(str, bool, str)
+    progress = pyqtSignal(int, int)
+    done = pyqtSignal(int, int, list)
 
     SGDB_BASE = "https://www.steamgriddb.com/api/v2"
 
@@ -8420,7 +8295,7 @@ class SteamGridDBScraperWorker(QThread):
 
 
 # ============================================================
-# 21. 基础对话框
+# 21. 基础对话框（★ 全部用 exec_()）
 # ============================================================
 class LaunchConfigDialog(QDialog):
     def __init__(self, game, parent=None):
@@ -8675,16 +8550,16 @@ class CreditsDialog(QDialog):
         g1 = QGroupBox(tr("credits_deps"))
         f1 = QVBoxLayout(g1)
         deps_text = (
-            "<b>PyQt5</b> — Qt for Python, GPL v3 / Commercial<br>"
-            "<b>requests</b> — Apache 2.0<br>"
-            "<b>loguru</b> — MIT<br>"
-            "<b>py7zr</b> — LGPL v2.1+<br>"
-            "<b>rarfile</b> — ISC<br>"
-            "<b>certifi</b> — MPL 2.0<br>"
-            "<b>psutil</b> — BSD-3-Clause<br>"
-            "<b>packaging</b> — Apache 2.0 / BSD<br>"
-            "<b>PySocks</b> — BSD<br>"
-            "<b>PyQtWebEngine</b>（可选）— GPL v3<br>"
+            "<b>PyQt5 5.15.4</b> — Qt for Python, GPL v3 / 商业<br>"
+            "<b>requests 2.25.1</b> — Apache 2.0<br>"
+            "<b>loguru 0.5.3</b> — MIT<br>"
+            "<b>py7zr 0.16.1</b> — LGPL v2.1+<br>"
+            "<b>rarfile 4.0</b> — ISC<br>"
+            "<b>certifi 2020.12.5</b> — MPL 2.0<br>"
+            "<b>psutil 5.8.0</b> — BSD-3-Clause<br>"
+            "<b>packaging 20.9</b> — Apache 2.0 / BSD<br>"
+            "<b>PySocks 1.7.1</b> — BSD<br>"
+            "<b>PyQtWebEngine 5.15.4</b>（可选）— GPL v3<br>"
             "<b>LocalSend</b>（Web 版）— MIT"
         )
         lbl1 = QLabel(deps_text)
@@ -8755,27 +8630,20 @@ class CreditsDialog(QDialog):
 
 
 class LogViewerDialog(QDialog):
-    """实时日志查看器。"""
-
     LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("log_viewer_title"))
         self.setMinimumSize(820, 560)
-
         self._keyword = ""
-        self._level_floor_idx = 2
         self._auto_scroll = True
         self._last_rendered_count = 0
-
         self._build_ui()
-
         self._timer = QTimer(self)
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._tick)
         self._timer.start()
-
         self._tick()
 
     def _build_ui(self):
@@ -8783,7 +8651,7 @@ class LogViewerDialog(QDialog):
         v.setSpacing(8)
 
         top = QHBoxLayout()
-        top.addWidget(QLabel("级别:"))
+        top.addWidget(QLabel(tr("log_viewer_level")))
         self.combo_level = QComboBox()
         self.combo_level.addItem(tr("log_level_all"), "ALL")
         for lv in self.LEVELS:
@@ -8792,9 +8660,9 @@ class LogViewerDialog(QDialog):
         self.combo_level.currentIndexChanged.connect(self._on_level_changed)
         top.addWidget(self.combo_level)
 
-        top.addWidget(QLabel("过滤:"))
+        top.addWidget(QLabel(tr("log_viewer_filter")))
         self.edit_kw = QLineEdit()
-        self.edit_kw.setPlaceholderText("关键词（例如 plugin / download）")
+        self.edit_kw.setPlaceholderText(tr("log_filter_ph"))
         self.edit_kw.setClearButtonEnabled(True)
         top.addWidget(self.edit_kw, 1)
 
@@ -8832,7 +8700,7 @@ class LogViewerDialog(QDialog):
         self.view.setReadOnly(True)
         self.view.setLineWrapMode(QTextEdit.NoWrap)
         self.view.setStyleSheet(
-            "font-family: 'Cascadia Mono', 'Consolas', monospace; "
+            "font-family: 'Consolas', 'Courier New', monospace; "
             "font-size: 12px;")
         v.addWidget(self.view, 1)
 
@@ -8845,7 +8713,6 @@ class LogViewerDialog(QDialog):
         btn_close.setObjectName("PrimaryBtn")
         btn_close.clicked.connect(self.accept)
         bottom.addWidget(btn_close)
-
         v.addLayout(bottom)
 
     def _on_level_changed(self, _idx):
@@ -8941,7 +8808,6 @@ class LogViewerDialog(QDialog):
             self._last_rendered_count = shown
 
         self.lbl_count.setText(tr("log_count", shown=shown, total=total))
-
         if self._auto_scroll:
             sb = self.view.verticalScrollBar()
             sb.setValue(sb.maximum())
@@ -8990,7 +8856,7 @@ class ManualEngineDialog(QDialog):
             if p.startswith("_"):
                 continue
             self.combo_platform.addItem(pcfg.get("platform_name", p), p)
-        self.combo_platform.addItem("未知/自定义", "unknown")
+        self.combo_platform.addItem(tr("import_game_custom"), "unknown")
         form.addRow(tr("import_manual_platform"), self.combo_platform)
         ph = QLabel(tr("import_manual_platform_hint"))
         ph.setObjectName("Hint")
@@ -9167,7 +9033,7 @@ class PlatformConfirmDialog(QDialog):
                     g.platform = "unknown"
                 else:
                     g.platform = "unknown"
-                    g.custom_platform = "未知"
+                    g.custom_platform = tr("bios_unknown")
             else:
                 g.platform = p
         return self._games
@@ -9253,14 +9119,12 @@ class PatchToolDialog(QDialog):
 
     def _build_ui(self):
         v = QVBoxLayout(self)
-
         info = QLabel(tr("patch_hint"))
         info.setObjectName("Hint")
         info.setWordWrap(True)
         v.addWidget(info)
 
         form = QFormLayout()
-
         self.edit_rom = QLineEdit(str(self._rom) if self._rom else "")
         b_rom = QPushButton(tr("patch_tool_browse"))
         b_rom.clicked.connect(self._pick_rom)
@@ -9369,7 +9233,6 @@ class ConfigPackDialog(QDialog):
 
     def _build_ui(self):
         v = QVBoxLayout(self)
-
         hint_text = tr("pack_export_hint") if self._mode == "export" else tr("pack_import_hint")
         hint = QLabel(hint_text)
         hint.setObjectName("Hint")
@@ -9496,7 +9359,6 @@ class CoverScrapeDialog(QDialog):
     def _build_ui(self):
         v = QVBoxLayout(self)
         v.setSpacing(10)
-
         note = QLabel(tr("scrape_source_note"))
         note.setObjectName("Hint")
         note.setWordWrap(True)
@@ -9622,7 +9484,6 @@ class CoverScrapeDialog(QDialog):
 
     def _on_done(self, ok, fail, failed):
         self._failed = list(failed or [])
-
         if (self._auto_mode
                 and self._failed
                 and SETTINGS.get("steamgriddb_api_key", "").strip()):
@@ -9688,15 +9549,15 @@ class CoverScrapeDialog(QDialog):
 # 22. 页面：游戏库
 # ============================================================
 class LibraryPage(QWidget):
-    launch_requested = Signal(object)
-    open_folder_requested = Signal(object)
-    remove_requested = Signal(object)
-    favorite_toggled = Signal(object)
-    config_requested = Signal(object)
-    controls_requested = Signal(object)
-    scrape_requested = Signal(object)
-    settings_requested = Signal(object)
-    status_msg = Signal(str)
+    launch_requested = pyqtSignal(object)
+    open_folder_requested = pyqtSignal(object)
+    remove_requested = pyqtSignal(object)
+    favorite_toggled = pyqtSignal(object)
+    config_requested = pyqtSignal(object)
+    controls_requested = pyqtSignal(object)
+    scrape_requested = pyqtSignal(object)
+    settings_requested = pyqtSignal(object)
+    status_msg = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -10048,15 +9909,13 @@ class LibraryPage(QWidget):
             self.launch_requested.emit(g)
 
     def _on_random(self):
-        import random as _r
         rows = self._filtered_games()
         if not rows:
             QMessageBox.information(self, tr("msg_info"),
                                     tr("library_select_hint"))
             return
-        g = _r.choice(rows)
+        g = _random.choice(rows)
         self.status_msg.emit(f"🎲 随机选中: {g.name}")
-
         if self._view_mode == "list":
             for i in range(self._proxy.rowCount()):
                 idx = self._proxy.index(i, 0)
@@ -10079,7 +9938,6 @@ class LibraryPage(QWidget):
                     self.timeline.setCurrentItem(it)
                     self.timeline.scrollToItem(it)
                     break
-
         self.launch_requested.emit(g)
 
     def _on_batch_scrape(self):
@@ -10092,26 +9950,22 @@ class LibraryPage(QWidget):
 
     def _show_menu(self, g, global_pos):
         menu = QMenu(self)
-
         a_launch = menu.addAction(tr("ctx_launch"))
         menu.addSeparator()
-
         a_folder = menu.addAction(tr("ctx_open_folder"))
         if g.favorite:
             a_fav = menu.addAction(tr("ctx_fav_remove"))
         else:
             a_fav = menu.addAction(tr("ctx_fav_add"))
-
         menu.addSeparator()
-
         a_scrape = menu.addAction(tr("ctx_scrape_cover"))
         a_config = menu.addAction(tr("ctx_more_config"))
         a_controls = menu.addAction(tr("ctx_controls"))
         a_settings = menu.addAction(tr("ctx_open_engine_settings"))
-
         menu.addSeparator()
         a_remove = menu.addAction(tr("ctx_remove"))
 
+        # PyQt5：exec_()
         act = menu.exec_(global_pos)
 
         if act == a_launch:
@@ -10170,9 +10024,9 @@ class LibraryPage(QWidget):
 # 22.5 统一配置中心对话框
 # ============================================================
 class GameConfigCenterDialog(QDialog):
-    launch_requested = Signal(object)
-    open_folder_requested = Signal(object)
-    engine_settings_requested = Signal(object)
+    launch_requested = pyqtSignal(object)
+    open_folder_requested = pyqtSignal(object)
+    engine_settings_requested = pyqtSignal(object)
 
     def __init__(self, game: GameEntry, parent=None):
         super().__init__(parent)
@@ -10442,6 +10296,7 @@ class GameConfigCenterDialog(QDialog):
         if engine:
             self.engine_settings_requested.emit(engine)
 
+    # ---------- 补丁 Tab ----------
     def _build_patch_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -10649,6 +10504,7 @@ class GameConfigCenterDialog(QDialog):
         btns.rejected.connect(dlg.reject)
         dv.addWidget(btns)
 
+        # PyQt5：exec_()
         if dlg.exec_() != QDialog.Accepted:
             return
 
@@ -10723,6 +10579,7 @@ class GameConfigCenterDialog(QDialog):
         self._refresh_patch_state()
         self._scan_patches()
 
+    # ---------- 封面 Tab ----------
     def _build_cover_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -10787,7 +10644,7 @@ class GameConfigCenterDialog(QDialog):
         src = Path(fp)
         dst = COVER_DIR / f"{self._game.name}{src.suffix.lower()}"
         try:
-            shutil.copy2(src, dst)
+            shutil.copy2(str(src), str(dst))
             for e in (".png", ".jpg", ".jpeg", ".webp"):
                 old = COVER_DIR / f"{self._game.name}{e}"
                 if old.exists() and old != dst:
@@ -10812,6 +10669,7 @@ class GameConfigCenterDialog(QDialog):
 
     def _scrape_this_cover(self):
         dlg = CoverScrapeDialog([self._game], self)
+        # PyQt5：exec_()
         dlg.exec_()
         self._refresh_cover_preview()
         self._update_tab_badges()
@@ -10822,6 +10680,7 @@ class GameConfigCenterDialog(QDialog):
         url = f"https://www.google.com/search?tbm=isch&q={q}"
         webbrowser.open(url)
 
+    # ---------- BIOS Tab ----------
     def _build_bios_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -10885,7 +10744,7 @@ class GameConfigCenterDialog(QDialog):
         count = 0
         for fp in fps:
             try:
-                shutil.copy2(fp, BIOS_DIR / Path(fp).name)
+                shutil.copy2(fp, str(BIOS_DIR / Path(fp).name))
                 count += 1
             except Exception as e:
                 logger.exception(f"复制 BIOS 失败: {e}")
@@ -10898,6 +10757,7 @@ class GameConfigCenterDialog(QDialog):
                                 tr("game_config_tab_bios"))
             self.tabs.setCurrentIndex(idx)
 
+    # ---------- 金手指 Tab ----------
     def _build_cheat_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -11032,7 +10892,7 @@ class GameConfigCenterDialog(QDialog):
         count = 0
         for fp in fps:
             try:
-                shutil.copy2(fp, d / Path(fp).name)
+                shutil.copy2(fp, str(d / Path(fp).name))
                 count += 1
             except Exception as e:
                 logger.exception(f"复制金手指失败: {e}")
@@ -11041,6 +10901,7 @@ class GameConfigCenterDialog(QDialog):
                                     f"已导入 {count} 个金手指文件")
             self._scan_cheats()
 
+    # ---------- 存档 Tab ----------
     def _build_save_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -11052,9 +10913,7 @@ class GameConfigCenterDialog(QDialog):
         if save_path:
             info = QLabel(f"<b>存档目录:</b> {save_path}")
         else:
-            info = QLabel(
-                "未配置存档路径。\n"
-                "去「设置 → 存档路径配置」里为当前引擎指定目录。")
+            info = QLabel(tr("game_config_no_save_path"))
         info.setTextFormat(Qt.RichText)
         info.setWordWrap(True)
         v.addWidget(info)
@@ -11128,6 +10987,7 @@ class GameConfigCenterDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"), str(e))
 
+    # ---------- 信息 Tab ----------
     def _build_info_tab(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -11189,7 +11049,7 @@ class GameConfigCenterDialog(QDialog):
             f"启动: {g.launch_count}\n"
         )
         QApplication.clipboard().setText(text)
-        QMessageBox.information(self, tr("msg_info"), "已复制")
+        QMessageBox.information(self, tr("msg_info"), tr("copy_info_done"))
 
     def _toggle_cleared(self):
         self._game.cleared = not getattr(self._game, "cleared", False)
@@ -11205,12 +11065,12 @@ class GameConfigCenterDialog(QDialog):
 # 23. 页面：模拟器 / BIOS / 统计 / 资源
 # ============================================================
 class EnginePage(QWidget):
-    import_requested = Signal()
-    download_requested = Signal()
-    update_requested = Signal(str, str, str)
-    ignore_requested = Signal(str, str, str)
-    settings_requested = Signal(object)
-    status_message = Signal(str)
+    import_requested = pyqtSignal()
+    download_requested = pyqtSignal()
+    update_requested = pyqtSignal(str, str, str)
+    ignore_requested = pyqtSignal(str, str, str)
+    settings_requested = pyqtSignal(object)
+    status_message = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -11307,6 +11167,7 @@ class EnginePage(QWidget):
             return
 
         dlg = BatchUpdateDialog(pending, self)
+        # PyQt5：exec_()
         dlg.exec_()
         self.refresh()
 
@@ -11330,6 +11191,7 @@ class EnginePage(QWidget):
         menu.addSeparator()
         a_open = menu.addAction(tr("engines_open_dir"))
         a_del = menu.addAction(tr("engines_delete_btn"))
+        # PyQt5：exec_()
         act = menu.exec_(self.table.viewport().mapToGlobal(pos))
         if act == a_update and url:
             self.update_requested.emit(e.platform, e.engine, url)
@@ -11371,6 +11233,7 @@ class EnginePage(QWidget):
         box.button(QMessageBox.Yes).setText("删除")
         box.button(QMessageBox.Yes).setObjectName("DangerBtn")
         box.button(QMessageBox.No).setText(tr("msg_cancel"))
+        # PyQt5：exec_()
         if box.exec_() != QMessageBox.Yes:
             return
 
@@ -11384,7 +11247,7 @@ class EnginePage(QWidget):
             try:
                 if d.exists() and d.is_dir():
                     d.resolve().relative_to(ENGINE_DOWNLOAD_DIR.resolve())
-                    shutil.rmtree(d, ignore_errors=True)
+                    shutil.rmtree(str(d), ignore_errors=True)
                     logger.info(f"已删除引擎目录: {d}")
             except ValueError:
                 logger.warning(f"拒绝删除非引擎目录: {d}")
@@ -11414,7 +11277,7 @@ class BiosPage(QWidget):
 
         bar = QHBoxLayout()
         btn_refresh = QPushButton(tr("toolbar_refresh"))
-        btn_refresh.clicked.connect(self.refresh)
+        btn_refresh.clicked.connect(self._refresh_with_cache_clear)
         bar.addWidget(btn_refresh)
         btn_open = QPushButton("打开 bios 目录")
         btn_open.clicked.connect(lambda: os.startfile(str(BIOS_DIR)))
@@ -11452,6 +11315,10 @@ class BiosPage(QWidget):
     def refresh(self):
         self._model.set_rows(scan_bios())
 
+    def _refresh_with_cache_clear(self):
+        clear_bios_check_cache()
+        self.refresh()
+
     def _auto_organize(self):
         if not BIOS_DB:
             QMessageBox.warning(self, tr("msg_warning"),
@@ -11473,6 +11340,7 @@ class BiosPage(QWidget):
         total = sum(result.values())
         QMessageBox.information(self, tr("msg_info"),
                                 f"已归类 {total} 个文件")
+        clear_bios_check_cache()
         self.refresh()
 
     def _import_pcem_rom(self):
@@ -11505,7 +11373,7 @@ class BiosPage(QWidget):
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if dst.exists():
                     dst = dst.with_name(f"{dst.stem}_{ts_suffix}{dst.suffix}")
-                shutil.copy2(f, dst)
+                shutil.copy2(str(f), str(dst))
                 copied += 1
             except Exception as e:
                 logger.exception(f"复制 {f} 失败: {e}")
@@ -11514,6 +11382,7 @@ class BiosPage(QWidget):
         logger.info(f"PCem/86Box ROM 导入: {copied} 成功, {skipped} 失败")
         QMessageBox.information(self, tr("msg_info"),
                                 tr("bios_import_pcem_done", n=copied))
+        clear_bios_check_cache()
         self.refresh()
 
 
@@ -11931,7 +11800,8 @@ class ResourcesPage(QWidget):
             webbrowser.open(url)
             logger.info(f"打开资源: {url}")
         except Exception as e:
-            QMessageBox.warning(self, tr("msg_warning"), f"打开失败: {e}")
+            QMessageBox.warning(self, tr("msg_warning"),
+                                tr("open_failed", e=str(e)))
 
     def _reset(self):
         reply = QMessageBox.question(self, tr("msg_confirm"),
@@ -11951,7 +11821,7 @@ class ResourcesPage(QWidget):
             os.startfile(str(RESOURCES_FILE))
             return
         try:
-            with open(fp, "r", encoding="utf-8") as f:
+            with open(str(fp), "r", encoding="utf-8") as f:
                 data = json.load(f)
             if "groups" in data:
                 global RESOURCES_CONFIG
@@ -11964,12 +11834,7 @@ class ResourcesPage(QWidget):
             QMessageBox.critical(self, tr("msg_error"), str(e))
 
 
-# ============================================================
-# ★ v1.6.3 新增：老游戏资料站页面
-# ============================================================
 class RetroDocsPage(QWidget):
-    """老游戏资料站。用 QtWebEngine 内嵌，没装时降级为外部浏览器打开。"""
-
     def __init__(self):
         super().__init__()
         self._view = None
@@ -12011,8 +11876,8 @@ class RetroDocsPage(QWidget):
 
     def _setup_webengine(self):
         try:
-            # ★ PyQt5：没有 QWebEngineProfile(name, parent)，用 defaultProfile
-            profile = QWebEngineProfile.defaultProfile()
+            # PyQt5：QWebEngineProfile(name, parent) 也支持
+            profile = QWebEngineProfile("mikan_emu_retro_docs", self)
             try:
                 cache_dir = WEBENGINE_DIR / "retro_cache"
                 storage_dir = WEBENGINE_DIR / "retro_storage"
@@ -12027,7 +11892,12 @@ class RetroDocsPage(QWidget):
                 pass
 
             self._view = QWebEngineView()
-            # 不再 setProfile（defaultProfile 已经是 page 的 profile）
+            try:
+                page = self._view.page()
+                if page:
+                    page.setProfile(profile)
+            except Exception:
+                pass
 
             try:
                 s = self._view.settings()
@@ -12079,14 +11949,832 @@ class RetroDocsPage(QWidget):
             url = tr("retro_docs_url") or RETRO_DOCS_URL
             webbrowser.open(url)
         except Exception as e:
-            QMessageBox.warning(self, tr("msg_warning"), f"打开失败: {e}")
+            QMessageBox.warning(self, tr("msg_warning"),
+                                tr("open_failed", e=str(e)))
+
+# ============================================================
+# 16.6 局域网聊天服务端（PyQt5 版）
+# ============================================================
+class LanChatServer(QThread):
+    message_received = pyqtSignal(str, str, str, bool)
+    file_offer = pyqtSignal(str, str, str, int)
+    file_progress = pyqtSignal(str, int, int)
+    file_received = pyqtSignal(str, str, bool)
+    error = pyqtSignal(str)
+    share_updated = pyqtSignal(str, str)
+    share_list_received = pyqtSignal(str, str, list)
+    peer_seen = pyqtSignal(str, str, str, int)  # (peer_id, ip, port, name)
+
+    def __init__(self, identity: LanIdentity, port: int, pwd_hash: str):
+        super().__init__()
+        self._identity = identity
+        self._port = port
+        self._pwd_hash = pwd_hash
+        self._stop = False
+        self._sock = None
+
+    def stop(self):
+        self._stop = True
+        try:
+            if self._sock:
+                self._sock.close()
+        except Exception:
+            pass
+
+    def run(self):
+        try:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if sys.platform == "win32":
+                self._sock.setsockopt(socket.SOL_SOCKET,
+                                      socket.SO_EXCLUSIVEADDRUSE, 1)
+            else:
+                self._sock.setsockopt(socket.SOL_SOCKET,
+                                      socket.SO_REUSEADDR, 1)
+            self._sock.bind(("", self._port))
+            self._sock.listen(16)
+            self._sock.settimeout(0.5)
+        except Exception as e:
+            self.error.emit(f"TCP 绑定失败: {e}")
+            return
+
+        while not self._stop:
+            try:
+                conn, addr = self._sock.accept()
+            except socket.timeout:
+                continue
+            except Exception:
+                if self._stop:
+                    break
+                continue
+            threading.Thread(target=self._handle, args=(conn, addr),
+                             daemon=True).start()
+
+    @staticmethod
+    def _read_line(conn, max_len: int = 8192) -> bytes:
+        buf = bytearray()
+        conn.settimeout(LAN_RECV_HEAD_TIMEOUT)
+        while len(buf) < max_len:
+            try:
+                chunk = conn.recv(min(256, max_len - len(buf)))
+            except Exception:
+                return b""
+            if not chunk:
+                break
+            nl = chunk.find(b"\n")
+            if nl >= 0:
+                buf += chunk[:nl]
+                break
+            buf += chunk
+        return bytes(buf)
+
+    def _handle(self, conn, addr):
+        try:
+            header = self._read_line(conn)
+            if not header:
+                conn.close()
+                return
+            try:
+                obj = json.loads(header.decode("utf-8", errors="ignore"))
+            except Exception:
+                conn.close()
+                return
+            if not isinstance(obj, dict) or obj.get("magic") != LAN_MAGIC:
+                conn.close()
+                return
+            if self._pwd_hash and obj.get("pwd", "") != self._pwd_hash:
+                try:
+                    conn.sendall(b'{"ok":false,"reason":"bad_pwd"}\n')
+                except Exception:
+                    pass
+                conn.close()
+                return
+
+            peer_id = str(obj.get("id", ""))[:64]
+            peer_name = str(obj.get("name", ""))[:32] or f"mikan_{peer_id[:4]}"
+            mtype = obj.get("type", "")
+
+            try:
+                peer_port = int(obj.get("port", 0) or 0)
+            except Exception:
+                peer_port = 0
+            if peer_id and peer_port <= 0:
+                peer_port = 0
+            self.peer_seen.emit(peer_id, addr[0], peer_port, peer_name)
+
+            if peer_id == self._identity.id:
+                logger.debug("忽略自环消息")
+                try:
+                    conn.sendall(b'{"ok":true,"self":true}\n')
+                except Exception:
+                    pass
+                conn.close()
+                return
+
+            if mtype == "msg":
+                self._handle_msg(conn, peer_id, peer_name, obj)
+            elif mtype == "file":
+                self._handle_file_in(conn, peer_id, peer_name, obj)
+            elif mtype == "share_update":
+                self.share_updated.emit(peer_id, peer_name)
+                try:
+                    conn.sendall(b'{"ok":true}\n')
+                except Exception:
+                    pass
+                conn.close()
+            elif mtype == "share_list":
+                files = obj.get("files") or []
+                if not isinstance(files, list):
+                    files = []
+                clean = []
+                for it in files:
+                    if isinstance(it, dict) and it.get("name"):
+                        clean.append({
+                            "name": str(it.get("name", ""))[:200],
+                            "size": int(it.get("size", 0) or 0),
+                            "mtime": float(it.get("mtime", 0) or 0),
+                        })
+                self.share_list_received.emit(peer_id, peer_name, clean)
+                try:
+                    conn.sendall(b'{"ok":true}\n')
+                except Exception:
+                    pass
+                conn.close()
+            elif mtype == "share_query":
+                self._handle_share_query(conn)
+            elif mtype == "share_download":
+                self._handle_share_download(conn, obj)
+            elif mtype == "request_file":
+                self._handle_request_file(conn, obj)
+            elif mtype == "hello":
+                # 握手：回填对方端口
+                try:
+                    conn.sendall(b'{"ok":true}\n')
+                except Exception:
+                    pass
+                conn.close()
+            else:
+                conn.close()
+        except Exception as e:
+            logger.debug(f"处理连接失败: {e}")
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _handle_msg(self, conn, pid, pname, obj):
+        text = str(obj.get("text", ""))[:LAN_MAX_TEXT]
+        is_broadcast = bool(obj.get("broadcast", False))
+        try:
+            conn.sendall(b'{"ok":true}\n')
+        except Exception:
+            pass
+        if text:
+            self.message_received.emit(pid, pname, text, is_broadcast)
+        conn.close()
+
+    def _handle_file_in(self, conn, pid, pname, obj):
+        fname = _lan_safe_filename(str(obj.get("fname", "file")))
+        try:
+            fsize = int(obj.get("size", 0))
+        except Exception:
+            fsize = 0
+        sha_expect = str(obj.get("sha256", "")).lower()[:64]
+        try:
+            max_mb = int(SETTINGS.get("lan_max_file_mb", 512))
+        except Exception:
+            max_mb = 512
+        if fsize <= 0 or fsize > max(1, max_mb) * 1024 * 1024:
+            try:
+                conn.sendall(b'{"ok":false,"reason":"size"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        if not SETTINGS.get("lan_receive_files", True):
+            try:
+                conn.sendall(b'{"ok":false,"reason":"disabled"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        try:
+            conn.sendall(b'{"ok":true}\n')
+        except Exception:
+            conn.close()
+            return
+
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        tmp = LAN_FILES_DIR / f".part_{pid[:8]}_{ts}_{fname}"
+        final = LAN_FILES_DIR / f"{ts}_{fname}"
+
+        self.file_offer.emit(pid, pname, fname, fsize)
+        conn.settimeout(LAN_RECV_HEAD_TIMEOUT)
+
+        try:
+            fh = open(str(tmp), "wb")
+        except Exception as e:
+            logger.warning(f"无法创建临时文件 {tmp}: {e}")
+            try:
+                conn.sendall(b'{"ok":false,"reason":"io"}\n')
+            except Exception:
+                pass
+            self.file_received.emit(pid, fname, False)
+            conn.close()
+            return
+
+        done = 0
+        ok = False
+        try:
+            with fh:
+                while done < fsize:
+                    chunk = conn.recv(min(LAN_FILE_CHUNK, fsize - done))
+                    if not chunk:
+                        break
+                    fh.write(chunk)
+                    done += len(chunk)
+                    self.file_progress.emit(pid, done, fsize)
+            ok = (done == fsize)
+        except Exception as e:
+            logger.warning(f"接收文件中断: {e}")
+            ok = False
+
+        hash_ok = False
+        if ok:
+            if SETTINGS.get("lan_verify_hash", True) and sha_expect:
+                try:
+                    hash_ok = (_file_sha256(tmp) == sha_expect)
+                except Exception:
+                    hash_ok = False
+            else:
+                hash_ok = True
+            if hash_ok:
+                try:
+                    tmp.rename(final)
+                    self.file_received.emit(pid, str(final), True)
+                except Exception as e:
+                    logger.exception(f"重命名失败: {e}")
+                    hash_ok = False
+        if not hash_ok:
+            try:
+                tmp.unlink()
+            except Exception:
+                pass
+            self.file_received.emit(pid, fname, False)
+
+        try:
+            resp = {"ok": bool(hash_ok), "hash": "ok" if hash_ok else "bad"}
+            conn.sendall((json.dumps(resp) + "\n").encode("utf-8"))
+        except Exception:
+            pass
+        conn.close()
+
+    def _handle_share_query(self, conn):
+        if not SETTINGS.get("lan_share_enabled", True):
+            try:
+                conn.sendall(b'{"ok":false,"reason":"disabled"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        files = _scan_shared_dir()
+        try:
+            resp = {"ok": True, "files": files}
+            conn.sendall((json.dumps(resp, ensure_ascii=False) + "\n").encode("utf-8"))
+        except Exception:
+            pass
+        conn.close()
+
+    def _handle_share_download(self, conn, obj):
+        if not SETTINGS.get("lan_share_enabled", True):
+            try:
+                conn.sendall(b'{"ok":false,"reason":"disabled"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        fname = _lan_safe_filename(str(obj.get("fname", "")))
+        path = LAN_SHARED_DIR / fname
+        if not path.exists() or not path.is_file():
+            try:
+                conn.sendall(b'{"ok":false,"reason":"notfound"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        try:
+            size = path.stat().st_size
+        except Exception:
+            try:
+                conn.sendall(b'{"ok":false,"reason":"err"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        try:
+            sha = _file_sha256(path)
+        except Exception:
+            sha = ""
+        try:
+            header = {"ok": True, "size": size, "sha256": sha, "fname": fname}
+            conn.sendall((json.dumps(header, ensure_ascii=False) + "\n").encode("utf-8"))
+        except Exception:
+            conn.close()
+            return
+        try:
+            conn.settimeout(120.0)
+            with open(str(path), "rb") as f:
+                while True:
+                    chunk = f.read(LAN_FILE_CHUNK)
+                    if not chunk:
+                        break
+                    conn.sendall(chunk)
+        except Exception as e:
+            logger.debug(f"发送共享文件失败: {e}")
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    def _handle_request_file(self, conn, obj):
+        if not SETTINGS.get("lan_share_enabled", True):
+            try:
+                conn.sendall(b'{"ok":false,"reason":"disabled"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        fname = _lan_safe_filename(str(obj.get("fname", "")))
+        path = LAN_SHARED_DIR / fname
+        if not path.exists() or not path.is_file():
+            try:
+                conn.sendall(b'{"ok":false,"reason":"notfound"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        try:
+            size = path.stat().st_size
+        except Exception:
+            try:
+                conn.sendall(b'{"ok":false,"reason":"err"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        if size <= 0:
+            try:
+                conn.sendall(b'{"ok":false,"reason":"empty"}\n')
+            except Exception:
+                pass
+            conn.close()
+            return
+        try:
+            sha = _file_sha256(path)
+        except Exception:
+            sha = ""
+        try:
+            header = {"ok": True, "size": size, "sha256": sha, "fname": fname}
+            conn.sendall((json.dumps(header, ensure_ascii=False) + "\n").encode("utf-8"))
+        except Exception:
+            conn.close()
+            return
+        try:
+            conn.settimeout(120.0)
+            with open(str(path), "rb") as f:
+                while True:
+                    chunk = f.read(LAN_FILE_CHUNK)
+                    if not chunk:
+                        break
+                    conn.sendall(chunk)
+            logger.info(f"已发送请求文件给对端: {fname} ({size} 字节)")
+        except Exception as e:
+            logger.debug(f"发送请求文件失败: {e}")
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # ============================================================
-# 23.5 局域网页面
+# 16.7 局域网客户端（发消息 / 发文件 / 拉共享）
 # ============================================================
+class LanChatClient:
+    @staticmethod
+    def _connect(peer: LanPeer, timeout: float = 5.0):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((peer.ip, peer.port))
+        return s
+
+    @staticmethod
+    def _read_line(sock, max_len: int = 8192) -> bytes:
+        buf = bytearray()
+        sock.settimeout(LAN_ACK_TIMEOUT)
+        while len(buf) < max_len:
+            try:
+                chunk = sock.recv(min(256, max_len - len(buf)))
+            except Exception:
+                return b""
+            if not chunk:
+                break
+            nl = chunk.find(b"\n")
+            if nl >= 0:
+                buf += chunk[:nl]
+                break
+            buf += chunk
+        return bytes(buf)
+
+    @staticmethod
+    def hello(peer: LanPeer, identity: LanIdentity,
+              pwd_hash: str, my_port: int) -> bool:
+        obj = {
+            "magic": LAN_MAGIC, "type": "hello",
+            "id": identity.id, "name": identity.name,
+            "port": int(my_port), "pwd": pwd_hash,
+        }
+        try:
+            s = LanChatClient._connect(peer, LAN_ACK_TIMEOUT)
+            s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+            line = LanChatClient._read_line(s)
+            try:
+                s.close()
+            except Exception:
+                pass
+            if not line:
+                return False
+            try:
+                resp = json.loads(line.decode("utf-8", errors="ignore"))
+            except Exception:
+                return False
+            return bool(resp.get("ok"))
+        except Exception as e:
+            logger.debug(f"hello 失败: {e}")
+            return False
+
+    @staticmethod
+    def send_message(peer: LanPeer, identity: LanIdentity, text: str,
+                     pwd_hash: str, is_broadcast: bool = False) -> bool:
+        obj = {
+            "magic": LAN_MAGIC, "type": "msg",
+            "id": identity.id, "name": identity.name,
+            "text": text[:LAN_MAX_TEXT], "pwd": pwd_hash,
+            "broadcast": bool(is_broadcast),
+        }
+        for attempt in range(LAN_TEXT_RETRY + 1):
+            try:
+                s = LanChatClient._connect(peer, timeout=LAN_ACK_TIMEOUT)
+                s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+                line = LanChatClient._read_line(s)
+                s.close()
+                if not line:
+                    continue
+                try:
+                    resp = json.loads(line.decode("utf-8", errors="ignore"))
+                except Exception:
+                    continue
+                if resp.get("ok"):
+                    return True
+            except Exception as e:
+                logger.debug(f"send_message 第 {attempt+1} 次失败: {e}")
+        return False
+
+    @staticmethod
+    def send_file(peer: LanPeer, identity: LanIdentity, file_path: Path,
+                  pwd_hash: str, want_hash: bool = True,
+                  progress_cb=None, force: bool = False) -> tuple:
+        """force=True 时，对方明确拒收（size/disabled）也算已投递。
+
+        返回 (ok, reason)。
+        """
+        try:
+            fsize = file_path.stat().st_size
+        except Exception:
+            return False, "err"
+        try:
+            max_mb = int(SETTINGS.get("lan_max_file_mb", 512))
+        except Exception:
+            max_mb = 512
+        if fsize <= 0 or fsize > max(1, max_mb) * 1024 * 1024:
+            return (True, "size") if force else (False, "size")
+
+        sha = ""
+        if want_hash:
+            try:
+                sha = _file_sha256(file_path)
+            except Exception:
+                sha = ""
+
+        header = {
+            "magic": LAN_MAGIC, "type": "file",
+            "id": identity.id, "name": identity.name,
+            "fname": file_path.name, "size": fsize, "sha256": sha,
+            "pwd": pwd_hash,
+        }
+        try:
+            s = LanChatClient._connect(peer, timeout=10.0)
+            s.sendall((json.dumps(header, ensure_ascii=False) + "\n").encode("utf-8"))
+            line = LanChatClient._read_line(s)
+            try:
+                resp = json.loads(line.decode("utf-8", errors="ignore"))
+            except Exception:
+                resp = {}
+            if not resp.get("ok"):
+                reason = resp.get("reason", "rejected")
+                try:
+                    s.close()
+                except Exception:
+                    pass
+                return (True, reason) if force else (False, reason)
+
+            s.settimeout(120.0)
+            sent = 0
+            with open(str(file_path), "rb") as f:
+                while True:
+                    chunk = f.read(LAN_FILE_CHUNK)
+                    if not chunk:
+                        break
+                    s.sendall(chunk)
+                    sent += len(chunk)
+                    if progress_cb:
+                        try:
+                            progress_cb(sent, fsize)
+                        except Exception:
+                            pass
+
+            try:
+                s.settimeout(120.0)
+                line2 = LanChatClient._read_line(s, max_len=8192)
+            except Exception:
+                line2 = b""
+            try:
+                s.close()
+            except Exception:
+                pass
+
+            if not line2:
+                return (True, "no_ack") if force else (False, "no_ack")
+            try:
+                resp2 = json.loads(line2.decode("utf-8", errors="ignore"))
+            except Exception:
+                return (True, "no_ack") if force else (False, "no_ack")
+            if resp2.get("ok"):
+                return True, ""
+            if resp2.get("reason") == "io":
+                return (True, "io") if force else (False, "io")
+            return (True, "hash") if force else (False, "hash")
+        except Exception as e:
+            logger.debug(f"send_file 失败: {e}")
+            return False, "err"
+
+    @staticmethod
+    def query_share(peer: LanPeer, identity: LanIdentity, pwd_hash: str) -> Optional[list]:
+        obj = {"magic": LAN_MAGIC, "type": "share_query",
+               "id": identity.id, "name": identity.name, "pwd": pwd_hash}
+        try:
+            s = LanChatClient._connect(peer, LAN_ACK_TIMEOUT)
+            s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+            line = LanChatClient._read_line(s, max_len=1024 * 1024)
+            s.close()
+            if not line:
+                return None
+            try:
+                resp = json.loads(line.decode("utf-8", errors="ignore"))
+            except Exception:
+                return None
+            if resp.get("ok"):
+                return resp.get("files", [])
+            return None
+        except Exception as e:
+            logger.debug(f"query_share 失败: {e}")
+            return None
+
+    @staticmethod
+    def download_share(peer: LanPeer, identity: LanIdentity, fname: str,
+                       pwd_hash: str, save_dir: Path,
+                       progress_cb=None) -> tuple:
+        obj = {"magic": LAN_MAGIC, "type": "share_download",
+               "id": identity.id, "name": identity.name,
+               "fname": fname, "pwd": pwd_hash}
+        try:
+            s = LanChatClient._connect(peer, 10.0)
+            s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+            line = LanChatClient._read_line(s)
+            try:
+                resp = json.loads(line.decode("utf-8", errors="ignore"))
+            except Exception:
+                resp = {}
+            if not resp.get("ok"):
+                try:
+                    s.close()
+                except Exception:
+                    pass
+                return False, resp.get("reason", "rejected"), ""
+            fsize = int(resp.get("size", 0))
+            sha_expect = str(resp.get("sha256", "")).lower()[:64]
+            real_name = _lan_safe_filename(resp.get("fname", fname))
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            tmp = save_dir / f".part_{ts}_{real_name}"
+            final = save_dir / real_name
+            if final.exists():
+                idx = 2
+                while final.exists():
+                    final = save_dir / f"{final.stem}_{idx}{final.suffix}"
+                    idx += 1
+            s.settimeout(120.0)
+            done = 0
+            with open(str(tmp), "wb") as f:
+                while done < fsize:
+                    chunk = s.recv(min(LAN_FILE_CHUNK, fsize - done))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    done += len(chunk)
+                    if progress_cb:
+                        try:
+                            progress_cb(done, fsize)
+                        except Exception:
+                            pass
+            try:
+                s.close()
+            except Exception:
+                pass
+            if done != fsize:
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
+                return False, "incomplete", ""
+            if SETTINGS.get("lan_verify_hash", True) and sha_expect:
+                try:
+                    if _file_sha256(tmp) != sha_expect:
+                        try:
+                            tmp.unlink()
+                        except Exception:
+                            pass
+                        return False, "hash", ""
+                except Exception:
+                    pass
+            tmp.rename(final)
+            return True, "", str(final)
+        except Exception as e:
+            logger.debug(f"download_share 失败: {e}")
+            return False, "err", ""
+
+    @staticmethod
+    def notify_share_update(peer: LanPeer, identity: LanIdentity,
+                            pwd_hash: str) -> bool:
+        obj = {
+            "magic": LAN_MAGIC, "type": "share_update",
+            "id": identity.id, "name": identity.name,
+            "pwd": pwd_hash,
+        }
+        try:
+            s = LanChatClient._connect(peer, LAN_ACK_TIMEOUT)
+            s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+            try:
+                LanChatClient._read_line(s)
+            except Exception:
+                pass
+            try:
+                s.close()
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            logger.debug(f"notify_share_update 失败: {e}")
+            return False
+
+    @staticmethod
+    def push_share_list(peer: LanPeer, identity: LanIdentity,
+                        pwd_hash: str, files: list) -> bool:
+        obj = {
+            "magic": LAN_MAGIC, "type": "share_list",
+            "id": identity.id, "name": identity.name,
+            "pwd": pwd_hash,
+            "files": files or [],
+        }
+        try:
+            s = LanChatClient._connect(peer, LAN_ACK_TIMEOUT)
+            s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+            try:
+                LanChatClient._read_line(s)
+            except Exception:
+                pass
+            try:
+                s.close()
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            logger.debug(f"push_share_list 失败: {e}")
+            return False
+
+    @staticmethod
+    def fetch_file_from_peer(peer: LanPeer, identity: LanIdentity,
+                              fname: str, pwd_hash: str,
+                              save_dir: Path,
+                              progress_cb=None) -> tuple:
+        obj = {
+            "magic": LAN_MAGIC, "type": "request_file",
+            "id": identity.id, "name": identity.name,
+            "fname": fname, "pwd": pwd_hash,
+        }
+        try:
+            s = LanChatClient._connect(peer, 10.0)
+            s.sendall((json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8"))
+            line = LanChatClient._read_line(s)
+            try:
+                resp = json.loads(line.decode("utf-8", errors="ignore"))
+            except Exception:
+                resp = {}
+            if not resp.get("ok"):
+                try:
+                    s.close()
+                except Exception:
+                    pass
+                return False, resp.get("reason", "rejected"), ""
+
+            fsize = int(resp.get("size", 0))
+            sha_expect = str(resp.get("sha256", "")).lower()[:64]
+            real_name = _lan_safe_filename(resp.get("fname", fname))
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            tmp = save_dir / f".part_{ts}_{real_name}"
+            final = save_dir / real_name
+            if final.exists():
+                idx = 2
+                while final.exists():
+                    final = save_dir / f"{final.stem}_{idx}{final.suffix}"
+                    idx += 1
+
+            s.settimeout(120.0)
+            done = 0
+            with open(str(tmp), "wb") as f:
+                while done < fsize:
+                    chunk = s.recv(min(LAN_FILE_CHUNK, fsize - done))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    done += len(chunk)
+                    if progress_cb:
+                        try:
+                            progress_cb(done, fsize)
+                        except Exception:
+                            pass
+            try:
+                s.close()
+            except Exception:
+                pass
+
+            if done != fsize:
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
+                return False, "incomplete", ""
+
+            if SETTINGS.get("lan_verify_hash", True) and sha_expect:
+                try:
+                    if _file_sha256(tmp) != sha_expect:
+                        try:
+                            tmp.unlink()
+                        except Exception:
+                            pass
+                        return False, "hash", ""
+                except Exception:
+                    pass
+
+            tmp.rename(final)
+            return True, "", str(final)
+        except Exception as e:
+            logger.debug(f"fetch_file_from_peer 失败: {e}")
+            return False, "err", ""
+
+
+# ============================================================
+# 16.8 局域网表情 & 工具
+# ============================================================
+LAN_EMOJIS = [
+    "😀", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔",
+    "😅", "😭", "😡", "🥺", "😴", "🤯", "🥳", "😇",
+    "👍", "👎", "👌", "🙏", "👏", "🤝", "💪", "✌️",
+    "❤️", "💔", "🔥", "⭐", "🎉", "🎁", "✅", "❌",
+    "🐱", "🐶", "🍕", "🍺", "☕", "🌸", "🌙", "☀️",
+]
+
+
+def _dir_size(p: Path) -> int:
+    total = 0
+    try:
+        for f in p.rglob("*"):
+            if f.is_file():
+                total += f.stat().st_size
+    except Exception:
+        pass
+    return total
+
+
 class EmojiPanel(QDialog):
-    emoji_picked = Signal(str)
+    emoji_picked = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Popup)
@@ -12109,8 +12797,11 @@ class EmojiPanel(QDialog):
         self.accept()
 
 
+# ============================================================
+# 23.5 局域网页面（聊天 + 强制广播发文件）
+# ============================================================
 class LanPage(QWidget):
-    settings_requested = Signal()
+    settings_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -12124,11 +12815,13 @@ class LanPage(QWidget):
         self._seen_peer_ids: set = set()
         self._file_send_busy = False
         self._actual_port = 0
-        self._remote_files: dict = {}
         self._build_ui()
         self._load_history_index()
         self._rebuild_peer_list()
 
+    # ------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
@@ -12188,10 +12881,8 @@ class LanPage(QWidget):
         left.addWidget(self.lbl_empty)
         body.addLayout(left)
 
-        self.tabs = QTabWidget()
-
-        chat_tab = QWidget()
-        chat_layout = QVBoxLayout(chat_tab)
+        chat_box = QWidget()
+        chat_layout = QVBoxLayout(chat_box)
         chat_layout.setContentsMargins(0, 0, 0, 0)
         chat_layout.setSpacing(8)
 
@@ -12225,7 +12916,8 @@ class LanPage(QWidget):
         self.btn_send.clicked.connect(self._on_send_msg)
         input_row.addWidget(self.btn_send)
 
-        self.btn_file = QPushButton(tr("lan_send_file"))
+        self.btn_file = QPushButton("📤 " + tr("lan_send_file"))
+        self.btn_file.setToolTip("选中文件后强制发给所有在线用户")
         self.btn_file.clicked.connect(self._on_send_file)
         input_row.addWidget(self.btn_file)
 
@@ -12234,98 +12926,15 @@ class LanPage(QWidget):
         input_row.addWidget(self.btn_clear)
         chat_layout.addLayout(input_row)
 
-        self.tabs.addTab(chat_tab, tr("lan_tab_chat"))
-
-        share_tab = QWidget()
-        share_layout = QVBoxLayout(share_tab)
-        share_layout.setContentsMargins(0, 0, 0, 0)
-        share_layout.setSpacing(8)
-
-        share_title = QLabel(tr("lan_share_title"))
-        share_title.setObjectName("SectionTitle")
-        share_layout.addWidget(share_title)
-
-        share_hint = QLabel(tr("lan_share_hint"))
-        share_hint.setObjectName("Hint")
-        share_hint.setWordWrap(True)
-        share_layout.addWidget(share_hint)
-
-        split = QSplitter(Qt.Horizontal)
-
-        left_box = QWidget()
-        lv = QVBoxLayout(left_box)
-        lv.setContentsMargins(0, 0, 0, 0)
-        lv.addWidget(QLabel(tr("lan_share_my")))
-        self.table_local = QTableWidget(0, 3)
-        self.table_local.setHorizontalHeaderLabels([
-            tr("lan_share_col_file"), tr("lan_share_col_size"),
-            tr("lan_share_col_op")])
-        self.table_local.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.table_local.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table_local.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.table_local.verticalHeader().setVisible(False)
-        self.table_local.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table_local.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table_local.setAlternatingRowColors(True)
-        lv.addWidget(self.table_local, 1)
-
-        lrow = QHBoxLayout()
-        b_add = QPushButton(tr("lan_share_add"))
-        b_add.clicked.connect(self._share_add_files)
-        lrow.addWidget(b_add)
-        b_open = QPushButton(tr("lan_open_shared"))
-        b_open.clicked.connect(lambda: os.startfile(str(LAN_SHARED_DIR)))
-        lrow.addWidget(b_open)
-        lrow.addStretch(1)
-        lv.addLayout(lrow)
-        split.addWidget(left_box)
-
-        right_box = QWidget()
-        rv = QVBoxLayout(right_box)
-        rv.setContentsMargins(0, 0, 0, 0)
-        head = QHBoxLayout()
-        head.addWidget(QLabel(tr("lan_share_others")))
-        head.addStretch(1)
-        b_refresh = QPushButton(tr("lan_share_refresh"))
-        b_refresh.clicked.connect(self._share_refresh_remote)
-        head.addWidget(b_refresh)
-        b_open_dl = QPushButton(tr("lan_open_shared_download"))
-        b_open_dl.clicked.connect(lambda: os.startfile(str(LAN_SHARED_DOWNLOAD_DIR)))
-        head.addWidget(b_open_dl)
-        rv.addLayout(head)
-
-        self.table_remote = QTableWidget(0, 4)
-        self.table_remote.setHorizontalHeaderLabels([
-            tr("lan_share_col_source"), tr("lan_share_col_file"),
-            tr("lan_share_col_size"), tr("lan_share_col_op")])
-        self.table_remote.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table_remote.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table_remote.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.table_remote.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.table_remote.verticalHeader().setVisible(False)
-        self.table_remote.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table_remote.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table_remote.setAlternatingRowColors(True)
-        rv.addWidget(self.table_remote, 1)
-        split.addWidget(right_box)
-
-        split.setSizes([400, 600])
-        share_layout.addWidget(split, 1)
-
-        self.share_progress = QProgressBar()
-        self.share_progress.setVisible(False)
-        share_layout.addWidget(self.share_progress)
-
-        self.tabs.addTab(share_tab, tr("lan_tab_share"))
-
-        body.addWidget(self.tabs, 1)
+        body.addWidget(chat_box, 1)
         root.addLayout(body, 1)
 
         self.setAcceptDrops(True)
-
         self._refresh_input_state()
-        self._share_refresh_local()
 
+    # ------------------------------------------------------------
+    # 拖拽
+    # ------------------------------------------------------------
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -12338,34 +12947,23 @@ class LanPage(QWidget):
         files = [p for p in paths if p.is_file()]
         if not files:
             return
-        if self._current_is_broadcast:
-            reply = QMessageBox.question(
-                self, tr("lan_drop_title"),
-                tr("lan_drop_ask_share", n=len(files)),
-                QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                self._share_add_paths(files)
-                self.tabs.setCurrentIndex(1)
-            event.acceptProposedAction()
-            return
-        if not self._current_peer:
+        if not self._peers:
             QMessageBox.information(self, tr("msg_info"),
-                                    tr("lan_drop_no_target"))
+                                    tr("lan_broadcast_no_peers"))
             return
-        if len(files) == 1:
-            self._send_file_path(files[0])
-        else:
-            reply = QMessageBox.question(
-                self, tr("lan_drop_title"),
-                tr("lan_drop_to_peer", n=len(files),
-                   peer=self._current_peer.name),
-                QMessageBox.Yes | QMessageBox.No)
-            if reply != QMessageBox.Yes:
-                return
-            for f in files:
-                self._send_file_path(f)
+        reply = QMessageBox.question(
+            self, tr("lan_drop_title"),
+            f"把 {len(files)} 个文件强制广播给全部 {len(self._peers)} 个在线用户？",
+            QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        for f in files:
+            self._force_broadcast_file(f)
         event.acceptProposedAction()
 
+    # ------------------------------------------------------------
+    # 服务启停
+    # ------------------------------------------------------------
     def start_service(self):
         if self._discovery is not None and self._discovery.isRunning():
             return
@@ -12389,6 +12987,7 @@ class LanPage(QWidget):
             self._server.file_offer.connect(self._on_file_offer)
             self._server.file_progress.connect(self._on_file_progress)
             self._server.file_received.connect(self._on_file_received)
+            self._server.peer_seen.connect(self._on_peer_seen)
             self._server.error.connect(
                 lambda e: logger.warning(f"LAN server: {e}"))
             self._server.start()
@@ -12442,6 +13041,9 @@ class LanPage(QWidget):
     def shutdown(self):
         self.stop_service()
 
+    # ------------------------------------------------------------
+    # 昵称 / Peer 生命周期
+    # ------------------------------------------------------------
     def _on_nickname_changed(self):
         name = self.edit_nick.text().strip()
         if not name or name == self._identity.name:
@@ -12453,10 +13055,39 @@ class LanPage(QWidget):
         self._seen_peer_ids.add(peer.id)
         self._peers[peer.id] = peer
         self._rebuild_peer_list()
+        self._refresh_input_state()
         if is_new:
             self._append_system(peer.id, tr("lan_peer_joined", name=peer.name))
             if not self._current_peer and not self._current_is_broadcast:
                 self._select_peer(peer.id)
+
+    def _on_peer_seen(self, info):
+        try:
+            peer_id, ip, port, name = info
+        except Exception:
+            return
+        if not peer_id:
+            return
+        try:
+            port = int(port or 0)
+        except Exception:
+            port = 0
+        peer = self._peers.get(peer_id)
+        if peer is None:
+            peer = LanPeer(peer_id, name or f"mikan_{peer_id[:4]}",
+                           ip or "", port, time.time())
+            self._peers[peer_id] = peer
+            self._seen_peer_ids.add(peer_id)
+            self._rebuild_peer_list()
+        else:
+            if ip and not peer.ip:
+                peer.ip = ip
+            if port > 0:
+                peer.port = port
+            if name:
+                peer.name = name
+            peer.last_seen = time.time()
+        self._refresh_input_state()
 
     def _on_peer_lost(self, peer_id: str):
         peer = self._peers.pop(peer_id, None)
@@ -12472,6 +13103,7 @@ class LanPage(QWidget):
                     self.lbl_chat_title.setText("—")
                     self.chat_view.clear()
                     self._refresh_input_state()
+        self._refresh_input_state()
 
     def _rebuild_peer_list(self):
         cur_kind = "broadcast" if self._current_is_broadcast else (
@@ -12529,11 +13161,13 @@ class LanPage(QWidget):
         has = self._current_peer is not None or self._current_is_broadcast
         self.edit_msg.setEnabled(has)
         self.btn_send.setEnabled(has)
-        self.btn_file.setEnabled(has and not self._file_send_busy
-                                 and not self._current_is_broadcast)
+        self.btn_file.setEnabled(bool(self._peers) and not self._file_send_busy)
         self.btn_emoji.setEnabled(has)
         self.btn_clear.setEnabled(has)
 
+    # ------------------------------------------------------------
+    # 历史
+    # ------------------------------------------------------------
     def _load_history_index(self):
         if not LAN_HISTORY_DIR.exists():
             return
@@ -12541,7 +13175,7 @@ class LanPage(QWidget):
             pid = fp.stem
             try:
                 items = []
-                with open(fp, "r", encoding="utf-8") as f:
+                with open(str(fp), "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -12567,7 +13201,7 @@ class LanPage(QWidget):
         if not SETTINGS.get("lan_keep_history", True):
             return
         try:
-            with open(self._history_file(peer_id), "a", encoding="utf-8") as f:
+            with open(str(self._history_file(peer_id)), "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         except Exception as e:
             logger.debug(f"写历史失败: {e}")
@@ -12627,11 +13261,15 @@ class LanPage(QWidget):
             return False
         return self._current_peer.id == key
 
+    # ------------------------------------------------------------
+    # 接收事件
+    # ------------------------------------------------------------
     def _on_message_received(self, pid, pname, text, is_broadcast):
         if pid not in self._peers:
             self._peers[pid] = LanPeer(pid, pname, "", 0, time.time())
             self._seen_peer_ids.add(pid)
             self._rebuild_peer_list()
+            self._refresh_input_state()
         else:
             self._peers[pid].last_seen = time.time()
 
@@ -12679,18 +13317,25 @@ class LanPage(QWidget):
                     self, tr("msg_warning"),
                     f"来自 {peer_name} 的文件未能接收/校验失败。")
 
+    # ------------------------------------------------------------
+    # Emoji
+    # ------------------------------------------------------------
     def _popup_emoji(self):
         panel = EmojiPanel(self)
         pos = self.btn_emoji.mapToGlobal(
             QPoint(0, -panel.sizeHint().height() - 4))
         panel.move(pos)
         panel.emoji_picked.connect(self._insert_emoji)
+        # PyQt5：exec_()
         panel.exec_()
 
     def _insert_emoji(self, ch: str):
         self.edit_msg.insert(ch)
         self.edit_msg.setFocus()
 
+    # ------------------------------------------------------------
+    # 发文本
+    # ------------------------------------------------------------
     def _on_send_msg(self):
         text = self.edit_msg.text().strip()
         if not text:
@@ -12724,7 +13369,7 @@ class LanPage(QWidget):
         peer = self._current_peer
         if peer.port == 0:
             QMessageBox.warning(self, tr("msg_warning"),
-                                "暂时不知道对方端口，请等 1~2 秒。")
+                                tr("lan_port_unknown"))
             return
         self.btn_send.setEnabled(False)
         QApplication.processEvents()
@@ -12739,39 +13384,55 @@ class LanPage(QWidget):
         else:
             QMessageBox.warning(self, tr("msg_warning"), tr("lan_msg_failed"))
 
+    # ------------------------------------------------------------
+    # 发文件（强制广播给所有在线用户）
+    # ------------------------------------------------------------
     def _on_send_file(self):
-        if not self._current_peer:
+        if not self._peers:
+            QMessageBox.information(self, tr("msg_info"),
+                                    tr("lan_broadcast_no_peers"))
             return
-        fp, _ = QFileDialog.getOpenFileName(
+        fps, _ = QFileDialog.getOpenFileNames(
             self, tr("lan_send_file"), str(Path.home()), "所有文件 (*)")
-        if not fp:
+        if not fps:
             return
-        self._send_file_path(Path(fp))
+        for fp in fps:
+            self._force_broadcast_file(Path(fp))
 
-    def _send_file_path(self, path: Path):
-        if not self._current_peer:
-            return
-        peer = self._current_peer
-        if peer.port == 0:
-            QMessageBox.warning(self, tr("msg_warning"),
-                                "暂时不知道对方端口，请等 1~2 秒。")
-            return
+    def _force_broadcast_file(self, path: Path):
         try:
             size = path.stat().st_size
         except Exception:
             return
-        reply = QMessageBox.question(
-            self, tr("msg_confirm"),
-            f"发送 {path.name} ({human_size(size)}) 给 {peer.name}？",
-            QMessageBox.Yes | QMessageBox.No)
-        if reply != QMessageBox.Yes:
+
+        peers = list(self._peers.values())
+        if not peers:
+            QMessageBox.information(self, tr("msg_info"),
+                                    tr("lan_broadcast_no_peers"))
             return
+
+        default_port = int(SETTINGS.get("lan_port", 54322))
+        for p in peers:
+            if p.port <= 0 and p.ip:
+                p.port = default_port
+
         pwd_hash = _pwd_hash(SETTINGS.get("lan_password", ""))
         want_hash = bool(SETTINGS.get("lan_verify_hash", True))
         offer = tr("lan_file_offer", name=path.name, size=human_size(size))
-        self._append_history(peer.id, "me", offer, {"kind": "file"})
-        if self._is_viewing(peer.id):
-            self._append_line("me", offer, time.time(), kind="file", peer_id=peer.id)
+
+        self._append_history(
+            LAN_BROADCAST_ID, "me",
+            f"{offer}  → 强制发给 {len(peers)} 个在线用户",
+            {"kind": "file"})
+        if self._current_is_broadcast:
+            self._append_line(
+                "me",
+                f"{offer}  → 强制发给 {len(peers)} 个在线用户",
+                time.time(), kind="file", peer_id=LAN_BROADCAST_ID)
+
+        total = len(peers)
+        counter = {"done": 0, "ok": 0, "fail": 0}
+        lock = threading.Lock()
 
         self._file_send_busy = True
         self._refresh_input_state()
@@ -12779,45 +13440,62 @@ class LanPage(QWidget):
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
 
-        def progress_cb(sent, total):
-            if total > 0:
-                pct = int(sent * 100 / total)
-                QTimer.singleShot(0, lambda p=pct: self.progress.setValue(p))
-
-        def worker():
+        def one_send(peer):
             ok, reason = LanChatClient.send_file(
-                peer, self._identity, path, pwd_hash, want_hash, progress_cb)
-            QTimer.singleShot(0, lambda: self._on_send_file_done(
-                peer, path, size, ok, reason))
+                peer, self._identity, path, pwd_hash, want_hash,
+                None, force=True)
+            with lock:
+                counter["done"] += 1
+                if ok:
+                    counter["ok"] += 1
+                else:
+                    counter["fail"] += 1
+                cur = counter["done"]
+            QTimer.singleShot(
+                0, lambda c=cur, o=ok, r=reason, p=peer:
+                self._on_broadcast_one(path, p, c, total, o, r))
 
-        threading.Thread(target=worker, daemon=True).start()
-        QTimer.singleShot(120000, self._restore_file_btn)
+        for p in peers:
+            threading.Thread(target=one_send, args=(p,),
+                             daemon=True).start()
 
-    def _on_send_file_done(self, peer, path, size, ok, reason):
-        self._restore_file_btn()
-        if ok:
-            msg = tr("lan_file_sent", name=path.name, size=human_size(size))
-        else:
-            tag = {
-                "size": "❌ 文件超过对方设置的大小上限",
-                "disabled": "❌ 对方关闭了文件接收",
-                "no_ack": "❌ " + tr("lan_no_ack"),
-                "io": "❌ " + tr("lan_file_io_fail"),
-                "rejected": "❌ " + tr("lan_file_rejected"),
-                "bad_pwd": "❌ 口令不匹配",
-                "hash": "❌ " + tr("lan_file_hash_bad"),
-                "err": "❌ 网络错误",
-            }.get(reason, "❌ 发送失败")
-            msg = tag
-        self._append_system(peer.id, msg)
+        def watcher():
+            while True:
+                with lock:
+                    if counter["done"] >= total:
+                        break
+                time.sleep(0.2)
+            with lock:
+                ok_n = counter["ok"]
+                fail_n = counter["fail"]
+            QTimer.singleShot(
+                0, lambda: self._on_force_broadcast_done(
+                    path, ok_n, fail_n, total))
 
-    def _restore_file_btn(self):
-        if not self._file_send_busy:
-            return
+        threading.Thread(target=watcher, daemon=True).start()
+
+    def _on_force_broadcast_done(self, path, ok_n, fail_n, total):
         self._file_send_busy = False
         self._refresh_input_state()
         self.progress.setVisible(False)
+        self._append_system(
+            LAN_BROADCAST_ID,
+            f"强制广播完成: {path.name}  成功 {ok_n}/{total}  失败 {fail_n}")
 
+    def _on_broadcast_one(self, path, peer, done, total, ok, reason):
+        pct = int(done * 100 / total)
+        self.progress.setValue(pct)
+        if ok:
+            self._append_system(LAN_BROADCAST_ID,
+                                tr("lan_broadcast_one_ok", peer=peer.name))
+        else:
+            self._append_system(
+                LAN_BROADCAST_ID,
+                tr("lan_broadcast_one_fail", peer=peer.name, reason=reason))
+
+    # ------------------------------------------------------------
+    # 清空历史
+    # ------------------------------------------------------------
     def _on_clear_history(self):
         if self._current_is_broadcast:
             key = LAN_BROADCAST_ID
@@ -12840,6 +13518,9 @@ class LanPage(QWidget):
             pass
         self.chat_view.clear()
 
+    # ------------------------------------------------------------
+    # 右键菜单
+    # ------------------------------------------------------------
     def _on_peer_menu(self, pos):
         it = self.list_peers.itemAt(pos)
         if not it:
@@ -12855,14 +13536,14 @@ class LanPage(QWidget):
 
         if kind == "broadcast":
             a_send_file = menu.addAction(tr("lan_ctx_send_file_all"))
-            a_ping = menu.addAction(tr("lan_ctx_ping"))
         else:
             a_send_file = menu.addAction(tr("lan_ctx_send_file"))
-            a_ping = menu.addAction(tr("lan_ctx_ping"))
+        a_ping = menu.addAction(tr("lan_ctx_ping"))
 
         menu.addSeparator()
         a_clear = menu.addAction(tr("lan_ctx_clear"))
 
+        # PyQt5：exec_()
         act = menu.exec_(self.list_peers.viewport().mapToGlobal(pos))
 
         if act == a_open:
@@ -12871,26 +13552,18 @@ class LanPage(QWidget):
             self.list_peers.setCurrentItem(it)
             self._do_send_text("ping")
         elif act == a_send_file:
-            if kind == "broadcast":
-                self.list_peers.setCurrentItem(it)
-                self._broadcast_file_dialog()
-            else:
-                peer = self._peers.get(key)
-                if peer is None:
-                    QMessageBox.warning(self, tr("msg_warning"),
-                                        "该用户已离线。")
-                    return
-                if peer.port == 0:
-                    QMessageBox.warning(self, tr("msg_warning"),
-                                        "还没拿到该用户的端口，请等 1~2 秒后再试。")
-                    return
-                fp, _ = QFileDialog.getOpenFileName(
-                    self, tr("lan_ctx_send_file") + f" - {peer.name}",
-                    str(Path.home()), "所有文件 (*)")
-                if not fp:
-                    return
-                self._select_peer(peer.id)
-                self._send_file_path(Path(fp))
+            if not self._peers:
+                QMessageBox.information(self, tr("msg_info"),
+                                        tr("lan_broadcast_no_peers"))
+                return
+            fp, _ = QFileDialog.getOpenFileName(
+                self,
+                tr("lan_ctx_send_file_all") if kind == "broadcast"
+                else tr("lan_ctx_send_file"),
+                str(Path.home()), "所有文件 (*)")
+            if not fp:
+                return
+            self._force_broadcast_file(Path(fp))
         elif act == a_clear:
             target_key = LAN_BROADCAST_ID if kind == "broadcast" else key
             self._history[target_key] = []
@@ -12905,238 +13578,6 @@ class LanPage(QWidget):
             elif (kind == "peer" and self._current_peer
                   and self._current_peer.id == key):
                 self.chat_view.clear()
-
-    def _broadcast_file_dialog(self):
-        peers = [p for p in self._peers.values() if p.port > 0]
-        if not peers:
-            QMessageBox.information(self, tr("msg_info"),
-                                    tr("lan_broadcast_no_peers"))
-            return
-        fp, _ = QFileDialog.getOpenFileName(
-            self, tr("lan_ctx_send_file_all"),
-            str(Path.home()), "所有文件 (*)")
-        if not fp:
-            return
-        path = Path(fp)
-        try:
-            size = path.stat().st_size
-        except Exception:
-            return
-        reply = QMessageBox.question(
-            self, tr("msg_confirm"),
-            tr("lan_broadcast_confirm", name=path.name,
-               size=human_size(size), n=len(peers)),
-            QMessageBox.Yes | QMessageBox.No)
-        if reply != QMessageBox.Yes:
-            return
-
-        pwd_hash = _pwd_hash(SETTINGS.get("lan_password", ""))
-        want_hash = bool(SETTINGS.get("lan_verify_hash", True))
-        self._append_history(
-            LAN_BROADCAST_ID, "me",
-            f"[文件] {path.name}  ({human_size(size)}) → {len(peers)} 人",
-            {"kind": "file"})
-        if self._current_is_broadcast:
-            self._append_line(
-                "me",
-                f"[文件] {path.name}  ({human_size(size)}) → {len(peers)} 人",
-                time.time(), kind="file", peer_id=LAN_BROADCAST_ID)
-
-        total = len(peers)
-        counter = {"done": 0, "ok": 0}
-        lock = threading.Lock()
-
-        self._file_send_busy = True
-        self._refresh_input_state()
-        self.progress.setVisible(True)
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
-
-        def one_send(peer):
-            ok, reason = LanChatClient.send_file(
-                peer, self._identity, path, pwd_hash, want_hash, None)
-            with lock:
-                counter["done"] += 1
-                if ok:
-                    counter["ok"] += 1
-                cur = counter["done"]
-            QTimer.singleShot(0, lambda c=cur, o=ok, r=reason, p=peer:
-                              self._on_broadcast_one(path, p, c, total, o, r))
-
-        for p in peers:
-            threading.Thread(target=one_send, args=(p,), daemon=True).start()
-
-        def watcher():
-            while True:
-                with lock:
-                    if counter["done"] >= total:
-                        break
-                time.sleep(0.2)
-            with lock:
-                ok_n = counter["ok"]
-            QTimer.singleShot(0, lambda: self._on_broadcast_done(
-                path, ok_n, total))
-
-        threading.Thread(target=watcher, daemon=True).start()
-
-    def _on_broadcast_one(self, path, peer, done, total, ok, reason):
-        pct = int(done * 100 / total)
-        self.progress.setValue(pct)
-        if ok:
-            self._append_system(LAN_BROADCAST_ID,
-                                tr("lan_broadcast_one_ok", peer=peer.name))
-        else:
-            self._append_system(
-                LAN_BROADCAST_ID,
-                tr("lan_broadcast_one_fail", peer=peer.name, reason=reason))
-
-    def _on_broadcast_done(self, path, ok_n, total):
-        self._file_send_busy = False
-        self._refresh_input_state()
-        self.progress.setVisible(False)
-        self._append_system(
-            LAN_BROADCAST_ID,
-            tr("lan_broadcast_done", name=path.name, ok=ok_n, total=total))
-
-    def _share_refresh_local(self):
-        files = _scan_shared_dir()
-        self.table_local.setRowCount(len(files))
-        for i, f in enumerate(files):
-            self.table_local.setItem(i, 0, QTableWidgetItem(f["name"]))
-            self.table_local.setItem(i, 1, QTableWidgetItem(human_size(f["size"])))
-            btn = QPushButton(tr("lan_share_remove"))
-            btn.setFixedWidth(70)
-            btn.clicked.connect(
-                lambda _=False, n=f["name"]: self._share_remove(n))
-            self.table_local.setCellWidget(i, 2, btn)
-
-    def _share_add_files(self):
-        fps, _ = QFileDialog.getOpenFileNames(
-            self, tr("lan_share_add"), str(Path.home()), "所有文件 (*)")
-        if not fps:
-            return
-        self._share_add_paths([Path(fp) for fp in fps])
-
-    def _share_add_paths(self, paths):
-        count = 0
-        for src in paths:
-            try:
-                dst = LAN_SHARED_DIR / src.name
-                if dst.exists():
-                    base = dst.stem
-                    suf = dst.suffix
-                    idx = 2
-                    while dst.exists():
-                        dst = LAN_SHARED_DIR / f"{base}_{idx}{suf}"
-                        idx += 1
-                shutil.copy2(src, dst)
-                count += 1
-            except Exception as e:
-                logger.exception(f"添加共享失败 {src}: {e}")
-        if count:
-            self._share_refresh_local()
-
-    def _share_remove(self, name: str):
-        reply = QMessageBox.question(
-            self, tr("msg_confirm"),
-            tr("lan_share_remove_confirm", name=name),
-            QMessageBox.Yes | QMessageBox.No)
-        if reply != QMessageBox.Yes:
-            return
-        try:
-            (LAN_SHARED_DIR / name).unlink()
-        except Exception as e:
-            logger.exception(f"删除共享失败: {e}")
-        self._share_refresh_local()
-
-    def _share_refresh_remote(self):
-        peers = list(self._peers.values())
-        self.table_remote.setRowCount(0)
-        if not peers:
-            QMessageBox.information(self, tr("msg_info"),
-                                    tr("lan_share_no_peers"))
-            return
-        valid = [p for p in peers if p.port > 0]
-        if not valid:
-            QMessageBox.warning(self, tr("msg_warning"),
-                                tr("lan_share_no_port"))
-            return
-        pwd_hash = _pwd_hash(SETTINGS.get("lan_password", ""))
-
-        def worker():
-            result = {}
-            fail_count = 0
-            for p in valid:
-                files = LanChatClient.query_share(p, self._identity, pwd_hash)
-                if files is None:
-                    fail_count += 1
-                elif files:
-                    result[p.id] = (p, files)
-            QTimer.singleShot(0, lambda: self._share_apply_remote(result, fail_count))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _share_apply_remote(self, result, fail_count=0):
-        rows = []
-        for pid, (peer, files) in result.items():
-            for f in files:
-                rows.append((peer, f))
-        self.table_remote.setRowCount(len(rows))
-        for i, (peer, f) in enumerate(rows):
-            self.table_remote.setItem(i, 0, QTableWidgetItem(peer.name))
-            self.table_remote.setItem(i, 1, QTableWidgetItem(f.get("name", "?")))
-            self.table_remote.setItem(i, 2, QTableWidgetItem(human_size(f.get("size", 0))))
-            btn = QPushButton(tr("lan_share_download"))
-            btn.setObjectName("PrimaryBtn")
-            btn.setFixedWidth(80)
-            btn.clicked.connect(
-                lambda _=False, pp=peer, ff=f: self._share_download(pp, ff))
-            self.table_remote.setCellWidget(i, 3, btn)
-        if not rows and fail_count > 0:
-            QMessageBox.warning(self, tr("msg_warning"),
-                                tr("lan_share_all_fail", n=fail_count))
-
-    def _share_download(self, peer, f):
-        fname = f.get("name", "")
-        if not fname:
-            return
-        pwd_hash = _pwd_hash(SETTINGS.get("lan_password", ""))
-        self.share_progress.setVisible(True)
-        self.share_progress.setRange(0, 100)
-        self.share_progress.setValue(0)
-
-        def progress_cb(done, total):
-            if total > 0:
-                pct = int(done * 100 / total)
-                QTimer.singleShot(0, lambda p=pct: self.share_progress.setValue(p))
-
-        def worker():
-            ok, reason, path = LanChatClient.download_share(
-                peer, self._identity, fname, pwd_hash,
-                LAN_SHARED_DOWNLOAD_DIR, progress_cb)
-            QTimer.singleShot(0, lambda: self._share_download_done(
-                peer, fname, ok, reason, path))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _share_download_done(self, peer, fname, ok, reason, path):
-        self.share_progress.setVisible(False)
-        if ok:
-            QMessageBox.information(
-                self, tr("msg_info"),
-                tr("lan_share_download_done",
-                   peer=peer.name, name=fname, path=path))
-        else:
-            msg_map = {
-                "notfound": "对方删除了该文件",
-                "incomplete": "传输中断",
-                "hash": "哈希校验失败",
-                "disabled": "对方关闭了共享",
-                "err": "网络错误",
-            }
-            QMessageBox.warning(self, tr("msg_warning"),
-                                tr("lan_share_download_fail", name=fname,
-                                   reason=msg_map.get(reason, reason)))
 
 
 # ============================================================
@@ -13184,8 +13625,7 @@ class WebTransferPage(QWidget):
 
     def _setup_webengine(self):
         try:
-            # ★ PyQt5：没有 QWebEngineProfile(name, parent)，用 defaultProfile
-            profile = QWebEngineProfile.defaultProfile()
+            profile = QWebEngineProfile("mikan_emu_webtransfer", self)
             try:
                 profile.setHttpCacheType(QWebEngineProfile.DiskHttpCache)
                 profile.setPersistentCookiesPolicy(
@@ -13211,6 +13651,7 @@ class WebTransferPage(QWidget):
             try:
                 page = self._view.page()
                 if page:
+                    page.setProfile(profile)
                     try:
                         page.downloadRequested.connect(self._on_download_requested)
                     except Exception:
@@ -13279,7 +13720,8 @@ class WebTransferPage(QWidget):
         try:
             webbrowser.open(tr("webtransfer_url"))
         except Exception as e:
-            QMessageBox.warning(self, tr("msg_warning"), f"打开失败: {e}")
+            QMessageBox.warning(self, tr("msg_warning"),
+                                tr("open_failed", e=str(e)))
 
     def _install_webengine(self):
         reply = QMessageBox.question(
@@ -13287,7 +13729,7 @@ class WebTransferPage(QWidget):
             QMessageBox.Yes | QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
-        ok = install_optional_package("PyQtWebEngine==5.15.6", self)
+        ok = install_optional_package("PyQtWebEngine", self)
         if ok:
             QMessageBox.information(self, tr("msg_info"),
                                     tr("webtransfer_install_started"))
@@ -13391,16 +13833,16 @@ class WebTransferPage(QWidget):
 # 24. 设置页
 # ============================================================
 class SettingsPage(QWidget):
-    lang_changed = Signal(str)
-    saves_changed = Signal()
-    retroarch_changed = Signal()
-    platforms_changed = Signal()
-    lan_changed = Signal()
-    theme_changed = Signal(str, str)
-    plugins_changed = Signal()
-    machine_tier_changed = Signal()
-    background_changed = Signal()
-    folders_changed = Signal()
+    lang_changed = pyqtSignal(str)
+    saves_changed = pyqtSignal()
+    retroarch_changed = pyqtSignal()
+    platforms_changed = pyqtSignal()
+    lan_changed = pyqtSignal()
+    theme_changed = pyqtSignal(str, str)
+    plugins_changed = pyqtSignal()
+    machine_tier_changed = pyqtSignal()
+    background_changed = pyqtSignal()
+    folders_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -13427,7 +13869,7 @@ class SettingsPage(QWidget):
         title.setObjectName("SectionTitle")
         v.addWidget(title)
 
-        # --- 外观 ---
+        # ---- 外观 ----
         box_theme = QGroupBox(tr("settings_theme"))
         ft = QVBoxLayout(box_theme)
 
@@ -13462,13 +13904,11 @@ class SettingsPage(QWidget):
                 f"background:{cur_accent};color:white;"
                 f"border-radius:4px;padding:4px 12px;")
             self.btn_accent.setText(cur_accent)
-
         v.addWidget(box_theme)
 
-        # ★ v1.6.3：全局背景
+        # ---- 全局背景 ----
         box_bg = QGroupBox(tr("settings_background"))
         fbg = QVBoxLayout(box_bg)
-
         h_bg = QLabel(tr("settings_background_hint"))
         h_bg.setObjectName("Hint")
         h_bg.setWordWrap(True)
@@ -13511,10 +13951,9 @@ class SettingsPage(QWidget):
 
         row_bg2.addStretch(1)
         fbg.addLayout(row_bg2)
-
         v.addWidget(box_bg)
 
-        # --- 网络代理 ---
+        # ---- 网络代理 ----
         box_proxy = QGroupBox("网络代理")
         fp = QVBoxLayout(box_proxy)
 
@@ -13577,10 +14016,9 @@ class SettingsPage(QWidget):
         self.lbl_proxy_test.setObjectName("Hint")
         row_p5.addWidget(self.lbl_proxy_test, 1)
         fp.addLayout(row_p5)
-
         v.addWidget(box_proxy)
 
-        # --- 语言 ---
+        # ---- 语言 ----
         box1 = QGroupBox(tr("settings_lang"))
         f1 = QVBoxLayout(box1)
         row1 = QHBoxLayout()
@@ -13597,7 +14035,7 @@ class SettingsPage(QWidget):
         f1.addWidget(h1)
         v.addWidget(box1)
 
-        # --- 系统优先级 ---
+        # ---- 系统优先级 ----
         box_prio = QGroupBox(tr("settings_priority"))
         fprio = QVBoxLayout(box_prio)
         h_prio = QLabel(tr("settings_priority_hint"))
@@ -13620,11 +14058,13 @@ class SettingsPage(QWidget):
             self.prio_group.addButton(rb)
             fprio.addWidget(rb)
         cur_prio = SETTINGS.get("process_priority", "normal")
+        matched = False
         for rb in self.prio_group.buttons():
             if rb.property("prio_level") == cur_prio:
                 rb.setChecked(True)
+                matched = True
                 break
-        else:
+        if not matched:
             self.rb_prio_normal.setChecked(True)
 
         self.prio_group.buttonToggled.connect(self._on_priority_toggled)
@@ -13642,10 +14082,9 @@ class SettingsPage(QWidget):
         self.check_prio_auto.toggled.connect(
             lambda val: self._set_setting("process_priority_auto", val))
         fprio.addWidget(self.check_prio_auto)
-
         v.addWidget(box_prio)
 
-        # --- 资源策略 ---
+        # ---- 资源策略 ----
         box_res = QGroupBox(tr("machine_tier_title"))
         fres = QVBoxLayout(box_res)
 
@@ -13716,7 +14155,7 @@ class SettingsPage(QWidget):
         self.spin_safety = QSpinBox()
         self.spin_safety.setRange(50, 100)
         self.spin_safety.setSuffix(" %")
-        self.spin_safety.setValue(int(SETTINGS.get("resource_safety_ratio", 70)))
+        self.spin_safety.setValue(int(SETTINGS.get("resource_safety_ratio", 85)))
         self.spin_safety.valueChanged.connect(self._on_safety_changed)
         row_rs.addWidget(self.spin_safety)
         row_rs.addStretch(1)
@@ -13724,15 +14163,14 @@ class SettingsPage(QWidget):
 
         self.check_force = QCheckBox(
             tr("resource_force_unlock",
-               ratio=int(SETTINGS.get("resource_safety_ratio", 70))))
+               ratio=int(SETTINGS.get("resource_safety_ratio", 85))))
         self.check_force.setChecked(
             bool(SETTINGS.get("resource_force_unlock", False)))
         self.check_force.toggled.connect(self._on_force_toggled)
         fres.addWidget(self.check_force)
-
         v.addWidget(box_res)
 
-        # ★ v1.6.3：拖拽识别
+        # ---- 拖拽识别 ----
         box_drag = QGroupBox(tr("settings_drag_drop"))
         fdrag = QVBoxLayout(box_drag)
         h_drag = QLabel(tr("settings_drag_drop_hint"))
@@ -13747,7 +14185,7 @@ class SettingsPage(QWidget):
         fdrag.addWidget(self.check_drag)
         v.addWidget(box_drag)
 
-        # --- 局域网 ---
+        # ---- 局域网 ----
         box_lan = QGroupBox(tr("settings_lan"))
         fl = QVBoxLayout(box_lan)
         h_lan = QLabel(tr("settings_lan_hint"))
@@ -13844,10 +14282,9 @@ class SettingsPage(QWidget):
         row_lan5.addWidget(btn_open_dl)
         row_lan5.addStretch(1)
         fl.addLayout(row_lan5)
-
         v.addWidget(box_lan)
 
-        # --- 刮削 ---
+        # ---- 刮削 ----
         box_scrape = QGroupBox(tr("scrape_title"))
         fs = QVBoxLayout(box_scrape)
         row_s1 = QHBoxLayout()
@@ -13886,10 +14323,9 @@ class SettingsPage(QWidget):
         btn_open_covers = QPushButton("📂 打开封面目录")
         btn_open_covers.clicked.connect(lambda: os.startfile(str(COVER_DIR)))
         fs.addWidget(btn_open_covers)
-
         v.addWidget(box_scrape)
 
-        # --- 版本探测 ---
+        # ---- 版本探测 ----
         box_ver = QGroupBox(tr("settings_version"))
         fver = QVBoxLayout(box_ver)
         h_ver = QLabel(tr("settings_version_hint"))
@@ -13904,7 +14340,7 @@ class SettingsPage(QWidget):
         fver.addWidget(self.check_ver_auto)
         v.addWidget(box_ver)
 
-        # --- 日志与诊断 ---
+        # ---- 日志与诊断 ----
         box_log = QGroupBox(tr("log_viewer_title"))
         flog = QVBoxLayout(box_log)
 
@@ -13949,10 +14385,9 @@ class SettingsPage(QWidget):
         row_log3.addWidget(btn_open_logdir)
         row_log3.addStretch(1)
         flog.addLayout(row_log3)
-
         v.addWidget(box_log)
 
-        # --- 插件 ---
+        # ---- 插件 ----
         box_plug = QGroupBox(tr("plugins_title"))
         fplug = QVBoxLayout(box_plug)
 
@@ -14004,10 +14439,9 @@ class SettingsPage(QWidget):
         b_restart.clicked.connect(self._restart_app)
         row_plug.addWidget(b_restart)
         fplug.addLayout(row_plug)
-
         v.addWidget(box_plug)
 
-        # --- 可选依赖 ---
+        # ---- 可选依赖 ----
         box_opt = QGroupBox("可选依赖")
         fopt = QVBoxLayout(box_opt)
         self.lbl_opt = QLabel()
@@ -14027,7 +14461,7 @@ class SettingsPage(QWidget):
         fopt.addLayout(row_opt)
         v.addWidget(box_opt)
 
-        # --- 配置包 ---
+        # ---- 配置包 ----
         box_pack = QGroupBox(tr("pack_title"))
         fpack = QVBoxLayout(box_pack)
         h_pack = QLabel(tr("pack_hint"))
@@ -14047,7 +14481,7 @@ class SettingsPage(QWidget):
         fpack.addLayout(row_pack)
         v.addWidget(box_pack)
 
-        # --- 平台管理 ---
+        # ---- 平台管理 ----
         box_plat = QGroupBox(tr("settings_platform_mgr"))
         fpl = QVBoxLayout(box_plat)
         hint_pl = QLabel(tr("settings_platform_mgr_hint"))
@@ -14081,10 +14515,9 @@ class SettingsPage(QWidget):
         row_pl.addWidget(b_save_pl)
         row_pl.addStretch(1)
         fpl.addLayout(row_pl)
-
         v.addWidget(box_plat)
 
-        # ★ v1.6.3：多文件夹管理
+        # ---- 多文件夹管理 ----
         box_folders = QGroupBox(tr("settings_folders"))
         ff = QVBoxLayout(box_folders)
         h_folders = QLabel(tr("settings_folders_hint"))
@@ -14118,10 +14551,11 @@ class SettingsPage(QWidget):
         row_folders.addWidget(b_save_folders)
         row_folders.addStretch(1)
         ff.addLayout(row_folders)
-
         v.addWidget(box_folders)
 
-        # --- 下载 + 镜像 ---
+        # ============================================================
+        # 镜像 UI（v2）
+        # ============================================================
         box_dl = QGroupBox(tr("settings_download"))
         fdl = QVBoxLayout(box_dl)
 
@@ -14140,17 +14574,50 @@ class SettingsPage(QWidget):
         self.check_mirror_enabled.toggled.connect(self._on_mirror_enabled)
         fdl.addWidget(self.check_mirror_enabled)
 
+        self.check_mirror_auto = QCheckBox(tr("settings_mirrors_auto"))
+        self.check_mirror_auto.setChecked(MIRRORS_CONFIG.get("auto", True))
+        self.check_mirror_auto.setToolTip(
+            "开启后会先测速，再按延迟从低到高尝试镜像。\n"
+            "关闭后按列表顺序尝试。")
+        self.check_mirror_auto.toggled.connect(self._on_mirror_auto)
+        fdl.addWidget(self.check_mirror_auto)
+
+        row_region = QHBoxLayout()
+        row_region.addWidget(QLabel(tr("settings_mirrors_region")))
+        self.combo_mirror_region = QComboBox()
+        self.combo_mirror_region.addItem(tr("settings_mirrors_region_auto"), "auto")
+        self.combo_mirror_region.addItem(tr("settings_mirrors_region_cn"), "cn")
+        self.combo_mirror_region.addItem(tr("settings_mirrors_region_overseas"), "overseas")
+        self.combo_mirror_region.addItem(tr("settings_mirrors_region_direct"), "direct")
+        idx = self.combo_mirror_region.findData(MIRRORS_CONFIG.get("region", "auto"))
+        if idx >= 0:
+            self.combo_mirror_region.setCurrentIndex(idx)
+        self.combo_mirror_region.currentIndexChanged.connect(self._on_mirror_region)
+        row_region.addWidget(self.combo_mirror_region)
+        row_region.addStretch(1)
+        fdl.addLayout(row_region)
+
         hint_mirror = QLabel(tr("settings_mirrors_hint"))
         hint_mirror.setObjectName("Hint")
         hint_mirror.setWordWrap(True)
         fdl.addWidget(hint_mirror)
 
         fdl.addWidget(QLabel(tr("settings_mirrors")))
-        self.list_mirrors = QListWidget()
-        self.list_mirrors.setMinimumHeight(120)
-        self.list_mirrors.itemChanged.connect(self._on_mirror_item_changed)
-        fdl.addWidget(self.list_mirrors)
-        self._refresh_mirror_list()
+        self.table_mirrors = QTableWidget(0, 4)
+        self.table_mirrors.setHorizontalHeaderLabels([
+            tr("settings_mirrors_col_enabled"),
+            tr("settings_mirrors_col_url"),
+            tr("settings_mirrors_col_region"),
+            tr("settings_mirrors_col_weight"),
+        ])
+        self.table_mirrors.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table_mirrors.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table_mirrors.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table_mirrors.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table_mirrors.verticalHeader().setVisible(False)
+        self.table_mirrors.setMinimumHeight(160)
+        self._reload_mirrors_table()
+        fdl.addWidget(self.table_mirrors)
 
         row_mir = QHBoxLayout()
         b_add = QPushButton(tr("settings_mirrors_add"))
@@ -14170,6 +14637,9 @@ class SettingsPage(QWidget):
         b_test.setObjectName("PrimaryBtn")
         b_test.clicked.connect(self._mirror_test)
         row_mir.addWidget(b_test)
+        b_clear_probe = QPushButton(tr("settings_mirrors_clear_probe"))
+        b_clear_probe.clicked.connect(self._clear_probe_cache)
+        row_mir.addWidget(b_clear_probe)
         b_reset = QPushButton(tr("settings_mirrors_reset"))
         b_reset.clicked.connect(self._mirror_reset)
         row_mir.addWidget(b_reset)
@@ -14204,10 +14674,9 @@ class SettingsPage(QWidget):
         self.lbl_api_result = QLabel("")
         self.lbl_api_result.setObjectName("Hint")
         fdl.addWidget(self.lbl_api_result)
-
         v.addWidget(box_dl)
 
-        # --- RetroArch ---
+        # ---- RetroArch ----
         box_ra = QGroupBox(tr("settings_retroarch"))
         fra = QVBoxLayout(box_ra)
         h_ra = QLabel(tr("settings_retroarch_hint"))
@@ -14226,7 +14695,7 @@ class SettingsPage(QWidget):
         fra.addLayout(row_ra)
         v.addWidget(box_ra)
 
-        # --- 启动模板 ---
+        # ---- 启动模板 ----
         box_prof = QGroupBox(tr("config_profile_group"))
         fprof = QVBoxLayout(box_prof)
         hint_prof = QLabel(tr("config_profile_hint"))
@@ -14263,7 +14732,7 @@ class SettingsPage(QWidget):
             for eng in pcfg.get("engines", {}):
                 all_engines.add(eng)
 
-        # --- 金手指 ---
+        # ---- 金手指 ----
         box_ch = QGroupBox(tr("settings_cheats"))
         fch = QVBoxLayout(box_ch)
         h_ch = QLabel(tr("settings_cheats_hint"))
@@ -14295,7 +14764,7 @@ class SettingsPage(QWidget):
         fch.addWidget(b_save_ch)
         v.addWidget(box_ch)
 
-        # --- 托盘 + 性能 ---
+        # ---- 托盘 + 性能 ----
         box_tray = QGroupBox(tr("settings_tray"))
         ftr = QVBoxLayout(box_tray)
         self.check_tray_min = QCheckBox(tr("settings_tray_minimize"))
@@ -14316,7 +14785,7 @@ class SettingsPage(QWidget):
         ftr.addWidget(self.check_perf)
         v.addWidget(box_tray)
 
-        # --- 工作区 ---
+        # ---- 工作区 ----
         box2 = QGroupBox(tr("settings_workspace"))
         f2 = QVBoxLayout(box2)
         desc = QLabel(tr("settings_workspace_desc"))
@@ -14332,7 +14801,7 @@ class SettingsPage(QWidget):
         f2.addWidget(QLabel(f"数据目录: {DATA_DIR}"))
         v.addWidget(box2)
 
-        # --- 存档 ---
+        # ---- 存档 ----
         box_sv = QGroupBox(tr("settings_saves"))
         fsv = QVBoxLayout(box_sv)
         hint_sv = QLabel(tr("settings_saves_hint"))
@@ -14380,7 +14849,7 @@ class SettingsPage(QWidget):
         fsv.addLayout(row_sv2)
         v.addWidget(box_sv)
 
-        # --- 管理员 + 系统版本 + 鸣谢 ---
+        # ---- 管理员 + 系统版本 + 鸣谢 ----
         box3 = QGroupBox(tr("settings_admin"))
         f3v = QVBoxLayout(box3)
 
@@ -14401,10 +14870,9 @@ class SettingsPage(QWidget):
         btn_credits.clicked.connect(self._show_credits)
         row_admin.addWidget(btn_credits)
         f3v.addLayout(row_admin)
-
         v.addWidget(box3)
 
-        # --- 目录 ---
+        # ---- 目录 ----
         box4 = QGroupBox("目录")
         f4 = QHBoxLayout(box4)
         b1 = QPushButton(tr("settings_open_data"))
@@ -14416,7 +14884,7 @@ class SettingsPage(QWidget):
         f4.addStretch(1)
         v.addWidget(box4)
 
-        # ★ v1.6.3：项目地址
+        # ---- 项目地址 ----
         box_proj = QGroupBox(tr("settings_project"))
         fproj = QVBoxLayout(box_proj)
         h_proj = QLabel(tr("settings_project_hint"))
@@ -14435,7 +14903,6 @@ class SettingsPage(QWidget):
         btn_open_repo.clicked.connect(self._open_project_repo)
         row_proj.addWidget(btn_open_repo)
         fproj.addLayout(row_proj)
-
         v.addWidget(box_proj)
 
         v.addStretch(1)
@@ -14444,14 +14911,234 @@ class SettingsPage(QWidget):
 
         QTimer.singleShot(0, self._reload_plugin_table)
 
-    # ---- ★ v1.6.3：项目地址 ----
+    # ============================================================
+    # 镜像 UI
+    # ============================================================
+    def _reload_mirrors_table(self):
+        self.table_mirrors.setRowCount(0)
+        mirrors = MIRRORS_CONFIG.get("mirrors", [])
+        for i, m in enumerate(mirrors):
+            if not isinstance(m, dict):
+                continue
+            row = self.table_mirrors.rowCount()
+            self.table_mirrors.insertRow(row)
+
+            cb = QCheckBox()
+            cb.setChecked(m.get("enabled", True))
+            cb.toggled.connect(
+                lambda checked, idx=i: self._on_mirror_row_enabled(idx, checked))
+            self.table_mirrors.setCellWidget(row, 0, cb)
+
+            url_item = QTableWidgetItem(m.get("url", ""))
+            url_item.setFlags(url_item.flags() | Qt.ItemIsEditable)
+            self.table_mirrors.setItem(row, 1, url_item)
+
+            combo = QComboBox()
+            combo.addItem(tr("settings_mirrors_region_cn"), "cn")
+            combo.addItem(tr("settings_mirrors_region_overseas"), "overseas")
+            combo.addItem(tr("settings_mirrors_region_direct"), "direct")
+            idx = combo.findData(m.get("region", "cn"))
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            combo.currentIndexChanged.connect(
+                lambda _idx, r=i, c=combo: self._on_mirror_row_region(r, c.currentData()))
+            self.table_mirrors.setCellWidget(row, 2, combo)
+
+            spin = QSpinBox()
+            spin.setRange(1, 100)
+            spin.setValue(int(m.get("weight", 5)))
+            spin.valueChanged.connect(
+                lambda val, idx=i: self._on_mirror_row_weight(idx, int(val)))
+            self.table_mirrors.setCellWidget(row, 3, spin)
+
+        try:
+            self.table_mirrors.itemChanged.disconnect()
+        except Exception:
+            pass
+        self.table_mirrors.itemChanged.connect(self._on_mirror_url_edited)
+
+    def _on_mirror_url_edited(self, item):
+        if item.column() != 1:
+            return
+        row = item.row()
+        mirrors = MIRRORS_CONFIG.get("mirrors", [])
+        if 0 <= row < len(mirrors):
+            mirrors[row]["url"] = item.text().strip()
+            save_mirrors()
+
+    def _on_mirror_row_enabled(self, idx: int, checked: bool):
+        mirrors = MIRRORS_CONFIG.get("mirrors", [])
+        if 0 <= idx < len(mirrors):
+            mirrors[idx]["enabled"] = bool(checked)
+            save_mirrors()
+
+    def _on_mirror_row_region(self, idx: int, region: str):
+        mirrors = MIRRORS_CONFIG.get("mirrors", [])
+        if 0 <= idx < len(mirrors):
+            mirrors[idx]["region"] = region or "cn"
+            save_mirrors()
+
+    def _on_mirror_row_weight(self, idx: int, weight: int):
+        mirrors = MIRRORS_CONFIG.get("mirrors", [])
+        if 0 <= idx < len(mirrors):
+            mirrors[idx]["weight"] = int(weight)
+            save_mirrors()
+
+    def _on_mirror_auto(self, checked: bool):
+        MIRRORS_CONFIG["auto"] = bool(checked)
+        save_mirrors()
+
+    def _on_mirror_region(self, _idx):
+        MIRRORS_CONFIG["region"] = self.combo_mirror_region.currentData() or "auto"
+        save_mirrors()
+
+    def _clear_probe_cache(self):
+        MirrorRouter.clear_probe_cache()
+        QMessageBox.information(self, tr("msg_info"),
+                                tr("settings_mirrors_probe_cleared"))
+
+    def _refresh_api_mirror_list(self):
+        self.list_api_mirrors.clear()
+        for m in MIRRORS_CONFIG.get("api_mirrors", []):
+            if isinstance(m, dict):
+                prefix = m.get("url", "")
+                region = m.get("region", "direct")
+                enabled = m.get("enabled", True)
+                label = f"{prefix or '（直连）'}   [{region}]" + ("" if enabled else "  (禁用)")
+            else:
+                label = m if m else "（直连）"
+            self.list_api_mirrors.addItem(label)
+
+    def _on_mirror_enabled(self, checked):
+        MIRRORS_CONFIG["enabled"] = bool(checked)
+        save_mirrors()
+
+    def _mirror_add(self):
+        text, ok = QInputDialog.getText(
+            self, tr("settings_mirrors_add"),
+            "输入镜像前缀（末尾带 /）:",
+            text="https://")
+        if ok and text.strip():
+            MIRRORS_CONFIG.setdefault("mirrors", []).append({
+                "url": text.strip(),
+                "enabled": True,
+                "region": "cn",
+                "weight": 5,
+            })
+            save_mirrors()
+            self._reload_mirrors_table()
+
+    def _mirror_del(self):
+        row = self.table_mirrors.currentRow()
+        if row < 0:
+            return
+        mirrors = MIRRORS_CONFIG.get("mirrors", [])
+        if 0 <= row < len(mirrors):
+            mirrors.pop(row)
+            save_mirrors()
+            self._reload_mirrors_table()
+
+    def _mirror_move(self, delta):
+        row = self.table_mirrors.currentRow()
+        if row < 0:
+            return
+        mirrors = MIRRORS_CONFIG.get("mirrors", [])
+        new_row = row + delta
+        if not (0 <= new_row < len(mirrors)):
+            return
+        mirrors[row], mirrors[new_row] = mirrors[new_row], mirrors[row]
+        save_mirrors()
+        self._reload_mirrors_table()
+        self.table_mirrors.selectRow(new_row)
+
+    def _mirror_reset(self):
+        reply = QMessageBox.question(self, tr("msg_confirm"),
+                                     "恢复默认镜像列表？",
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        MIRRORS_CONFIG["mirrors"] = json.loads(
+            json.dumps(DEFAULT_MIRRORS_JSON["mirrors"]))
+        MIRRORS_CONFIG["api_mirrors"] = json.loads(
+            json.dumps(DEFAULT_MIRRORS_JSON["api_mirrors"]))
+        MIRRORS_CONFIG["enabled"] = True
+        MIRRORS_CONFIG["auto"] = True
+        MIRRORS_CONFIG["region"] = "auto"
+        save_mirrors()
+        self._reload_mirrors_table()
+        self._refresh_api_mirror_list()
+        self.check_mirror_enabled.setChecked(True)
+        self.check_mirror_auto.setChecked(True)
+        idx = self.combo_mirror_region.findData("auto")
+        if idx >= 0:
+            self.combo_mirror_region.setCurrentIndex(idx)
+
+    def _mirror_test(self):
+        if self._mirror_test_worker is not None and self._mirror_test_worker.isRunning():
+            return
+        test_url = "https://github.com/robots.txt"
+        self.lbl_mirror_result.setText(tr("settings_mirrors_testing"))
+        self._mirror_test_worker = MirrorTestWorker(test_url, use_api=False)
+        self._mirror_test_worker.one.connect(self._on_mirror_test_one)
+        self._mirror_test_worker.done.connect(self._on_mirror_test_done)
+        self._mirror_test_worker.start()
+
+    def _on_mirror_test_one(self, mirror: str, ok: bool, ms: float):
+        status = f"✅ {ms:.0f} ms" if ok else "❌ 失败"
+        self.lbl_mirror_result.setText(f"{mirror}    {status}")
+
+    def _on_mirror_test_done(self, ok_count: int, fail_count: int):
+        self.lbl_mirror_result.setText(
+            tr("settings_mirrors_result", ok=ok_count, fail=fail_count))
+
+    def _api_mirror_test(self):
+        if self._api_test_worker is not None and self._api_test_worker.isRunning():
+            return
+        test_url = "https://api.github.com/rate_limit"
+        self.lbl_api_result.setText(tr("settings_mirrors_testing"))
+        self.list_api_mirrors.clear()
+        self._api_test_worker = MirrorTestWorker(test_url, use_api=True)
+        self._api_test_worker.one.connect(
+            lambda m, ok, ms: self.list_api_mirrors.addItem(
+                f"{m}    {'✅' if ok else '❌'} {ms:.0f}ms"))
+        self._api_test_worker.done.connect(
+            lambda ok, fail: self.lbl_api_result.setText(
+                tr("settings_mirrors_result", ok=ok, fail=fail)))
+        self._api_test_worker.start()
+
+    def _api_mirror_add(self):
+        text, ok = QInputDialog.getText(self, tr("settings_mirrors_add"),
+                                        "输入 API 镜像前缀（末尾带 /）:",
+                                        text="https://")
+        if ok and text.strip():
+            MIRRORS_CONFIG.setdefault("api_mirrors", []).append({
+                "url": text.strip(),
+                "enabled": True,
+                "region": "cn",
+                "weight": 5,
+            })
+            save_mirrors()
+            self._refresh_api_mirror_list()
+
+    def _api_mirror_del(self):
+        row = self.list_api_mirrors.currentRow()
+        if row < 0:
+            return
+        api_m = MIRRORS_CONFIG.get("api_mirrors", [])
+        if 0 <= row < len(api_m):
+            api_m.pop(row)
+            save_mirrors()
+            self._refresh_api_mirror_list()
+
+    # ---- 项目地址 ----
     def _open_project_repo(self):
         try:
             webbrowser.open(APP_REPO)
         except Exception as e:
-            QMessageBox.warning(self, tr("msg_warning"), f"打开失败: {e}")
+            QMessageBox.warning(self, tr("msg_warning"),
+                                tr("open_failed", e=str(e)))
 
-    # ---- ★ v1.6.3：全局背景 ----
+    # ---- 全局背景 ----
     def _pick_background(self):
         fp, _ = QFileDialog.getOpenFileName(
             self, tr("settings_background_pick"), str(BACKGROUND_DIR),
@@ -14462,7 +15149,7 @@ class SettingsPage(QWidget):
         try:
             dst = BACKGROUND_DIR / src.name
             if src.resolve() != dst.resolve():
-                shutil.copy2(src, dst)
+                shutil.copy2(str(src), str(dst))
             SETTINGS["background_image"] = str(dst)
             save_settings()
             self.edit_bg_path.setText(str(dst))
@@ -14490,7 +15177,7 @@ class SettingsPage(QWidget):
         save_settings()
         self.background_changed.emit()
 
-    # ---- ★ v1.6.3：多文件夹管理 ----
+    # ---- 多文件夹管理 ----
     def _reload_folders_table(self):
         self.table_folders.setRowCount(0)
         for i, folder in enumerate(FOLDERS_CONFIG.get("folders", [])):
@@ -14537,7 +15224,7 @@ class SettingsPage(QWidget):
     def _add_folder(self):
         row = self.table_folders.rowCount()
         self.table_folders.insertRow(row)
-        self.table_folders.setItem(row, 0, QTableWidgetItem("新工作区"))
+        self.table_folders.setItem(row, 0, QTableWidgetItem(tr("folder_new_workspace")))
         self.table_folders.setItem(row, 1, QTableWidgetItem(str(DATA_DIR)))
 
         combo = QComboBox()
@@ -14672,7 +15359,7 @@ class SettingsPage(QWidget):
                 return
         self._set_setting("process_priority", level)
 
-    # ---- 机器档次 / 资源策略 ----
+    # ---- 机器档次 ----
     def _refresh_hw_info(self):
         try:
             hw = probe_hardware(force=True)
@@ -14714,12 +15401,11 @@ class SettingsPage(QWidget):
         global _HW_CACHE
         _HW_CACHE = {}
         self._refresh_hw_info()
-        self.check_force.setText(
-            tr("resource_force_unlock", ratio=int(val)))
+        self.check_force.setText(tr("resource_force_unlock", ratio=int(val)))
 
     def _on_force_toggled(self, checked):
         if checked:
-            ratio = int(SETTINGS.get("resource_safety_ratio", 70))
+            ratio = int(SETTINGS.get("resource_safety_ratio", 85))
             reply = QMessageBox.question(
                 self, tr("msg_confirm"),
                 tr("resource_force_unlock_warn", ratio=ratio),
@@ -14744,6 +15430,7 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, tr("msg_warning"), str(e))
 
     def _open_log_viewer(self):
+        # PyQt5：exec_()
         LogViewerDialog(self).exec_()
 
     def _refresh_winver_label(self):
@@ -14752,7 +15439,14 @@ class SettingsPage(QWidget):
             if build == 0:
                 self.lbl_winver.setText("系统: 非 Windows")
                 return
-            name = get_windows_name(build)
+            if build >= 22000:
+                name = "Win11"
+            elif build >= 17763:
+                name = "Win10 1809+"
+            elif build >= 7601:
+                name = "Win7 SP1"
+            else:
+                name = "⚠ 版本过低"
             tier = SETTINGS.get("machine_tier", "?")
             self.lbl_winver.setText(
                 tr("win_version_label", name=name, build=build, tier=tier))
@@ -14762,7 +15456,7 @@ class SettingsPage(QWidget):
     # ---- 可选依赖 ----
     def _refresh_optional_label(self):
         lines = []
-        for mod, pkg in OPTIONAL.items():
+        for mod, (pkg, ver) in OPTIONAL.items():
             try:
                 importlib.import_module(mod)
                 lines.append(f"✅ {pkg}  已安装")
@@ -14772,7 +15466,7 @@ class SettingsPage(QWidget):
 
     def _install_missing_optional(self):
         missing = []
-        for mod, pkg in OPTIONAL.items():
+        for mod, (pkg, ver) in OPTIONAL.items():
             try:
                 importlib.import_module(mod)
             except ImportError:
@@ -14797,10 +15491,12 @@ class SettingsPage(QWidget):
     # ---- 配置包 ----
     def _export_pack(self):
         dlg = ConfigPackDialog("export", self)
+        # PyQt5：exec_()
         dlg.exec_()
 
     def _import_pack(self):
         dlg = ConfigPackDialog("import", self)
+        # PyQt5：exec_()
         if dlg.exec_() == QDialog.Accepted:
             self.platforms_changed.emit()
             self.saves_changed.emit()
@@ -14850,6 +15546,7 @@ class SettingsPage(QWidget):
         self._set_setting("lan_password", self.edit_lan_pwd.text())
 
     def _show_credits(self):
+        # PyQt5：exec_()
         CreditsDialog(self).exec_()
 
     # ---- 平台 ----
@@ -14922,141 +15619,7 @@ class SettingsPage(QWidget):
         self._reload_platform_table()
         self.platforms_changed.emit()
 
-    # ---- 镜像 ----
-    def _refresh_mirror_list(self):
-        self.list_mirrors.blockSignals(True)
-        self.list_mirrors.clear()
-        mirrors = MIRRORS_CONFIG.get("mirrors", [])
-        for m in mirrors:
-            display = m if m else "（直连）"
-            item = QListWidgetItem(display)
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
-            item.setData(Qt.UserRole, m)
-            self.list_mirrors.addItem(item)
-        self.list_mirrors.blockSignals(False)
-
-    def _refresh_api_mirror_list(self):
-        self.list_api_mirrors.clear()
-        for m in MIRRORS_CONFIG.get("api_mirrors", []):
-            self.list_api_mirrors.addItem(m if m else "（直连）")
-
-    def _on_mirror_item_changed(self, item):
-        idx = self.list_mirrors.row(item)
-        new_text = item.text().strip()
-        if new_text in ("（直连）", "(direct)", ""):
-            new_text = ""
-        mirrors = MIRRORS_CONFIG.setdefault("mirrors", [])
-        if 0 <= idx < len(mirrors):
-            mirrors[idx] = new_text
-            save_mirrors()
-
-    def _on_mirror_enabled(self, checked):
-        MIRRORS_CONFIG["enabled"] = checked
-        save_mirrors()
-
-    def _mirror_add(self):
-        text, ok = QInputDialog.getText(
-            self, tr("settings_mirrors_add"),
-            "输入镜像前缀（末尾带 /）:",
-            text="https://")
-        if ok and text.strip():
-            MIRRORS_CONFIG.setdefault("mirrors", []).append(text.strip())
-            save_mirrors()
-            self._refresh_mirror_list()
-
-    def _mirror_del(self):
-        row = self.list_mirrors.currentRow()
-        if row < 0:
-            return
-        mirrors = MIRRORS_CONFIG.get("mirrors", [])
-        if 0 <= row < len(mirrors):
-            mirrors.pop(row)
-            save_mirrors()
-            self._refresh_mirror_list()
-
-    def _mirror_move(self, delta):
-        row = self.list_mirrors.currentRow()
-        if row < 0:
-            return
-        mirrors = MIRRORS_CONFIG.get("mirrors", [])
-        new_row = row + delta
-        if not (0 <= new_row < len(mirrors)):
-            return
-        mirrors[row], mirrors[new_row] = mirrors[new_row], mirrors[row]
-        save_mirrors()
-        self._refresh_mirror_list()
-        self.list_mirrors.setCurrentRow(new_row)
-
-    def _mirror_reset(self):
-        reply = QMessageBox.question(self, tr("msg_confirm"),
-                                     "恢复默认镜像列表？",
-                                     QMessageBox.Yes | QMessageBox.No)
-        if reply != QMessageBox.Yes:
-            return
-        MIRRORS_CONFIG["mirrors"] = list(DEFAULT_MIRRORS_JSON["mirrors"])
-        MIRRORS_CONFIG["api_mirrors"] = list(DEFAULT_MIRRORS_JSON["api_mirrors"])
-        MIRRORS_CONFIG["enabled"] = True
-        save_mirrors()
-        self._refresh_mirror_list()
-        self._refresh_api_mirror_list()
-        self.check_mirror_enabled.setChecked(True)
-
-    def _mirror_test(self):
-        if self._mirror_test_worker is not None and self._mirror_test_worker.isRunning():
-            return
-        test_url = "https://github.com/robots.txt"
-        self.lbl_mirror_result.setText(tr("settings_mirrors_testing"))
-        self.list_mirrors.clear()
-        self._mirror_test_worker = MirrorTestWorker(test_url, use_api=False)
-        self._mirror_test_worker.one.connect(self._on_mirror_test_one)
-        self._mirror_test_worker.done.connect(self._on_mirror_test_done)
-        self._mirror_test_worker.start()
-
-    def _api_mirror_test(self):
-        if self._api_test_worker is not None and self._api_test_worker.isRunning():
-            return
-        test_url = "https://api.github.com/rate_limit"
-        self.lbl_api_result.setText(tr("settings_mirrors_testing"))
-        self.list_api_mirrors.clear()
-        self._api_test_worker = MirrorTestWorker(test_url, use_api=True)
-        self._api_test_worker.one.connect(
-            lambda m, ok, ms: self.list_api_mirrors.addItem(
-                f"{m}    {'✅' if ok else '❌'} {ms:.0f}ms"))
-        self._api_test_worker.done.connect(
-            lambda ok, fail: self.lbl_api_result.setText(
-                tr("settings_mirrors_result", ok=ok, fail=fail)))
-        self._api_test_worker.start()
-
-    def _on_mirror_test_one(self, mirror: str, ok: bool, ms: float):
-        status = f"✅ {ms:.0f} ms" if ok else "❌ 失败"
-        item = QListWidgetItem(f"{mirror}    {status}")
-        item.setForeground(QColor("#0f7b0f") if ok else QColor("#c42b1c"))
-        self.list_mirrors.addItem(item)
-
-    def _on_mirror_test_done(self, ok_count: int, fail_count: int):
-        self.lbl_mirror_result.setText(
-            tr("settings_mirrors_result", ok=ok_count, fail=fail_count))
-        QTimer.singleShot(1500, self._refresh_mirror_list)
-
-    def _api_mirror_add(self):
-        text, ok = QInputDialog.getText(self, tr("settings_mirrors_add"),
-                                        "输入 API 镜像前缀（末尾带 /）:",
-                                        text="https://")
-        if ok and text.strip():
-            MIRRORS_CONFIG.setdefault("api_mirrors", []).append(text.strip())
-            save_mirrors()
-            self._refresh_api_mirror_list()
-
-    def _api_mirror_del(self):
-        row = self.list_api_mirrors.currentRow()
-        if row < 0:
-            return
-        api_m = MIRRORS_CONFIG.get("api_mirrors", [])
-        if 0 <= row < len(api_m):
-            api_m.pop(row)
-            save_mirrors()
-            self._refresh_api_mirror_list()
-
+    # ---- RetroArch ----
     def _browse_ra_core(self):
         d = QFileDialog.getExistingDirectory(self, tr("settings_retroarch"), str(DATA_DIR))
         if d:
@@ -15165,10 +15728,11 @@ class SettingsPage(QWidget):
     def _restore_saves(self):
         backups = list_save_backups()
         if not backups:
-            QMessageBox.information(self, tr("msg_info"), "没有备份")
+            QMessageBox.information(self, tr("msg_info"), tr("save_no_backup"))
             return
         items = [b.name for b in backups]
-        choice, ok = QInputDialog.getItem(self, "还原存档", "选择备份:",
+        choice, ok = QInputDialog.getItem(self, tr("save_restore_title"),
+                                          tr("save_select_backup"),
                                           items, 0, False)
         if not ok:
             return
@@ -15208,8 +15772,7 @@ class SettingsPage(QWidget):
                 name += f"   ⚠ {info['error']}"
             self.table_plug.setItem(i, 2, QTableWidgetItem(name))
             self.table_plug.setItem(
-                i, 3,
-                QTableWidgetItem(str(meta.get("version", "?"))))
+                i, 3, QTableWidgetItem(str(meta.get("version", "?"))))
 
     def _toggle_plugin(self, pid: str, enabled: bool):
         pm = getattr(self.window(), "_plugin_manager", None)
@@ -15237,7 +15800,6 @@ class SettingsPage(QWidget):
             if not d:
                 return
             files = [d]
-
         self._do_batch_import(files, source="文件")
 
     def _do_batch_import(self, paths, source="文件"):
@@ -15444,6 +16006,7 @@ class ImportDialog(QDialog):
         if unmatched and all_exes:
             self.log_view.append(f"⚠️ {tr('import_not_found')}")
             dlg = ManualEngineDialog(all_exes, self._engines_json, self)
+            # PyQt5：exec_()
             if dlg.exec_() == QDialog.Accepted:
                 r = dlg.result_data()
                 if r:
@@ -15497,6 +16060,7 @@ class ImportDialog(QDialog):
 
         if dup:
             dlg = DupResolveDialog(dup, self)
+            # PyQt5：exec_()
             if dlg.exec_() == QDialog.Accepted:
                 keep, skip, overwrite = dlg.result_action()
                 if overwrite:
@@ -15509,6 +16073,7 @@ class ImportDialog(QDialog):
 
         if fresh:
             dlg = PlatformConfirmDialog(fresh, self._engines_json, self)
+            # PyQt5：exec_()
             if dlg.exec_() == QDialog.Accepted:
                 fresh = dlg.result_games()
             paths = {g.path for g in existing}
@@ -15632,7 +16197,8 @@ class DownloadDialog(QDialog):
         try:
             webbrowser.open(url)
         except Exception as e:
-            QMessageBox.warning(self, tr("msg_warning"), f"打开失败: {e}")
+            QMessageBox.warning(self, tr("msg_warning"),
+                                tr("open_failed", e=str(e)))
 
     def _test_mirrors(self):
         items = self.list_auto.selectedItems()
@@ -15741,7 +16307,7 @@ class DownloadDialog(QDialog):
             target_dir = ENGINE_DOWNLOAD_DIR / platform / engine_name
             target_dir.mkdir(parents=True, exist_ok=True)
             target_exe = target_dir / archive.name
-            shutil.copy2(archive, target_exe)
+            shutil.copy2(str(archive), str(target_exe))
             installed = EmulatorConfig(
                 platform=platform, engine=engine_name,
                 platform_name=cfg.get("platform_name", platform),
@@ -15775,8 +16341,8 @@ class DownloadDialog(QDialog):
                            creationflags=getattr(sp, "CREATE_NO_WINDOW", 0))
                 except Exception:
                     import py7zr
-                    with py7zr.SevenZipFile(archive, mode="r") as z:
-                        z.extractall(tmp_root)
+                    with py7zr.SevenZipFile(str(archive), mode="r") as z:
+                        z.extractall(str(tmp_root))
             else:
                 extract_archive(archive, tmp_root)
 
@@ -15793,7 +16359,7 @@ class DownloadDialog(QDialog):
             engines.append(installed)
             save_installed(engines)
         finally:
-            shutil.rmtree(tmp_root, ignore_errors=True)
+            shutil.rmtree(str(tmp_root), ignore_errors=True)
             try:
                 if archive.exists():
                     archive.unlink()
@@ -15917,7 +16483,7 @@ class BatchUpdateDialog(QDialog):
             target_dir = ENGINE_DOWNLOAD_DIR / engine.platform / engine.engine
             target_dir.mkdir(parents=True, exist_ok=True)
             target_exe = target_dir / archive.name
-            shutil.copy2(archive, target_exe)
+            shutil.copy2(str(archive), str(target_exe))
             engines = load_installed()
             for e in engines:
                 if e.platform == engine.platform and e.engine == engine.engine:
@@ -15942,8 +16508,8 @@ class BatchUpdateDialog(QDialog):
                            creationflags=getattr(sp, "CREATE_NO_WINDOW", 0))
                 except Exception:
                     import py7zr
-                    with py7zr.SevenZipFile(archive, mode="r") as z:
-                        z.extractall(tmp_root)
+                    with py7zr.SevenZipFile(str(archive), mode="r") as z:
+                        z.extractall(str(tmp_root))
             else:
                 extract_archive(archive, tmp_root)
 
@@ -15963,7 +16529,7 @@ class BatchUpdateDialog(QDialog):
             engines.append(new_cfg)
             save_installed(engines)
         finally:
-            shutil.rmtree(tmp_root, ignore_errors=True)
+            shutil.rmtree(str(tmp_root), ignore_errors=True)
             try:
                 archive.unlink()
             except Exception:
@@ -16034,7 +16600,7 @@ def export_library(games, fmt, scope, include_playtime, include_cover) -> Path:
 
     else:
         import csv
-        with open(out, "w", encoding="utf-8-sig", newline="") as f:
+        with open(str(out), "w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             header = ["名称", "平台", "大小", "路径"]
             if include_playtime:
@@ -16047,7 +16613,6 @@ def export_library(games, fmt, scope, include_playtime, include_cover) -> Path:
                 w.writerow(row)
 
     return out
-
 
 # ============================================================
 # 30. 插件系统
@@ -16117,11 +16682,8 @@ def _safe_plugin_id(raw: str) -> str:
     return raw[:64]
 
 
-def _validate_and_fill_plugin_meta(
-    meta: dict,
-    fallback_id: str = "",
-    fallback_name: str = "",
-) -> tuple:
+def _validate_and_fill_plugin_meta(meta: dict, fallback_id: str = "",
+                                    fallback_name: str = "") -> tuple:
     meta = dict(meta or {})
     filled = []
 
@@ -16209,7 +16771,7 @@ def _read_plugin_meta_safe(plugin_root: Path) -> tuple:
     if not meta_file.exists():
         return {}, "", False
     try:
-        with open(meta_file, "r", encoding="utf-8") as f:
+        with open(str(meta_file), "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
             return {}, "plugin.json 顶层必须是对象", True
@@ -16220,12 +16782,9 @@ def _read_plugin_meta_safe(plugin_root: Path) -> tuple:
         return {}, f"plugin.json 读取失败: {e}", True
 
 
-def _install_plugin_from_dir(
-    plugin_root: Path,
-    fallback_id: str = "",
-    fallback_name: str = "",
-    overwrite: bool = True,
-) -> tuple:
+def _install_plugin_from_dir(plugin_root: Path, fallback_id: str = "",
+                              fallback_name: str = "",
+                              overwrite: bool = True) -> tuple:
     meta, err, _ = _read_plugin_meta_safe(plugin_root)
     if err:
         return False, "", [], err
@@ -16253,10 +16812,10 @@ def _install_plugin_from_dir(
                         meta.setdefault(k, v)
         except Exception:
             pass
-        shutil.rmtree(dst, ignore_errors=True)
+        shutil.rmtree(str(dst), ignore_errors=True)
 
     try:
-        shutil.copytree(plugin_root, dst)
+        shutil.copytree(str(plugin_root), str(dst))
     except Exception as e:
         return False, pid, filled, f"复制失败: {e}"
 
@@ -16279,7 +16838,7 @@ def _install_plugin_from_dir(
             filled.append("main.py(生成骨架)")
 
     try:
-        with open(dst / "plugin.json", "w", encoding="utf-8") as f:
+        with open(str(dst / "plugin.json"), "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
     except Exception as e:
         return False, pid, filled, f"写入 plugin.json 失败: {e}"
@@ -16287,10 +16846,8 @@ def _install_plugin_from_dir(
     return True, pid, filled, ""
 
 
-def _install_plugin_from_json_file(
-    json_path: Path,
-    overwrite: bool = True,
-) -> tuple:
+def _install_plugin_from_json_file(json_path: Path,
+                                    overwrite: bool = True) -> tuple:
     try:
         data = json.loads(json_path.read_text("utf-8"))
         if not isinstance(data, dict):
@@ -16312,7 +16869,7 @@ def _install_plugin_from_json_file(
     if dst.exists():
         if not overwrite:
             return False, pid, filled, f"插件 {pid} 已存在"
-        shutil.rmtree(dst, ignore_errors=True)
+        shutil.rmtree(str(dst), ignore_errors=True)
 
     dst.mkdir(parents=True, exist_ok=True)
 
@@ -16326,16 +16883,13 @@ def _install_plugin_from_json_file(
     )
     filled.append(f"{entry_name}(生成骨架)")
 
-    with open(dst / "plugin.json", "w", encoding="utf-8") as f:
+    with open(str(dst / "plugin.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
 
     return True, pid, filled, ""
 
 
-def _import_plugin_any(
-    src: Path,
-    overwrite: bool = True,
-) -> tuple:
+def _import_plugin_any(src: Path, overwrite: bool = True) -> tuple:
     if not src.exists():
         return False, "", [], f"路径不存在: {src}"
 
@@ -16359,7 +16913,7 @@ def _import_plugin_any(
         except Exception as e:
             return False, "", [], f"解压失败: {e}"
         finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+            shutil.rmtree(str(tmp), ignore_errors=True)
 
     if src.is_dir():
         root = _find_plugin_root(src)
@@ -16378,15 +16932,15 @@ def _import_plugin_any(
         if dst.exists() and not overwrite:
             return False, pid, [], f"插件 {pid} 已存在"
         if dst.exists():
-            shutil.rmtree(dst, ignore_errors=True)
+            shutil.rmtree(str(dst), ignore_errors=True)
         dst.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst / "main.py")
+        shutil.copy2(str(src), str(dst / "main.py"))
         meta, filled = _validate_and_fill_plugin_meta(
             {},
             fallback_id=pid,
             fallback_name=src.stem,
         )
-        with open(dst / "plugin.json", "w", encoding="utf-8") as f:
+        with open(str(dst / "plugin.json"), "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
         filled.append("plugin.json(生成)")
         return True, pid, filled, ""
@@ -16397,7 +16951,7 @@ def _import_plugin_any(
 def load_plugin_enabled() -> dict:
     if PLUGINS_ENABLED_FILE.exists():
         try:
-            with open(PLUGINS_ENABLED_FILE, "r", encoding="utf-8") as f:
+            with open(str(PLUGINS_ENABLED_FILE), "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
@@ -16406,7 +16960,7 @@ def load_plugin_enabled() -> dict:
 
 def save_plugin_enabled(data: dict):
     try:
-        with open(PLUGINS_ENABLED_FILE, "w", encoding="utf-8") as f:
+        with open(str(PLUGINS_ENABLED_FILE), "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
         logger.exception(f"保存插件启用状态失败: {e}")
@@ -16436,14 +16990,9 @@ class PluginAPI:
 
     def get_paths(self) -> dict:
         return {
-            "data": DATA_DIR,
-            "covers": COVER_DIR,
-            "roms": ROM_DIR,
-            "bios": BIOS_DIR,
-            "saves": SAVE_DIR,
-            "logs": LOG_DIR,
-            "plugins": PLUGINS_DIR,
-            "config": CONFIG_DIR,
+            "data": DATA_DIR, "covers": COVER_DIR, "roms": ROM_DIR,
+            "bios": BIOS_DIR, "saves": SAVE_DIR, "logs": LOG_DIR,
+            "plugins": PLUGINS_DIR, "config": CONFIG_DIR,
             "crash_reports": CRASH_REPORT_DIR,
         }
 
@@ -16470,7 +17019,7 @@ class PluginAPI:
         if not g:
             return
         dst = COVER_DIR / f"{g.name}{image.suffix}"
-        shutil.copy2(image, dst)
+        shutil.copy2(str(image), str(dst))
         self.emit("covers_changed")
 
     def launch_game(self, game):
@@ -16503,6 +17052,7 @@ class PluginAPI:
                 menu.addAction(label, callback)
 
     def show_dialog(self, widget: QWidget):
+        # PyQt5：exec_()
         widget.exec_()
 
     def on(self, event: str, callback):
@@ -16564,7 +17114,7 @@ class PluginManager:
                 continue
             info = {"id": d.name, "path": str(d), "enabled": False, "error": ""}
             try:
-                with open(meta_file, "r", encoding="utf-8") as f:
+                with open(str(meta_file), "r", encoding="utf-8") as f:
                     meta = json.load(f)
                 info["meta"] = meta
                 info["id"] = meta.get("id", d.name)
@@ -16602,7 +17152,7 @@ class PluginManager:
 
         mod_name = f"mikan_plugin_{pid}"
         try:
-            spec = importlib.util.spec_from_file_location(mod_name, entry)
+            spec = importlib.util.spec_from_file_location(mod_name, str(entry))
             module = importlib.util.module_from_spec(spec)
             sys.modules[mod_name] = module
             spec.loader.exec_module(module)
@@ -16643,7 +17193,7 @@ class PluginManager:
 
 
 # ============================================================
-# 28. 主窗口
+# 28. 主窗口（★ _settle_stale_launches 已修复）
 # ============================================================
 class MainWindow(QMainWindow):
     NAV_LIBRARY = 0
@@ -16658,7 +17208,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} v{APP_VERSION} (Win7 兼容版)")
+        self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
         self.resize(1280, 800)
         self.setMinimumSize(960, 580)
 
@@ -16673,6 +17223,7 @@ class MainWindow(QMainWindow):
         self._plugin_manager = PluginManager(self)
         self._plugin_page_widgets: list = []
         self._bg_pixmap: Optional[QPixmap] = None
+        self._drop_import_workers: list = []
 
         self._settle_stale_launches()
 
@@ -16693,8 +17244,7 @@ class MainWindow(QMainWindow):
         for name in [tr("nav_library"), tr("nav_engines"),
                      tr("nav_bios"), tr("nav_stats"),
                      tr("nav_resources"), tr("nav_lan"),
-                     tr("nav_webtransfer"),
-                     tr("nav_retro_docs"),
+                     tr("nav_webtransfer"), tr("nav_retro_docs"),
                      tr("nav_settings")]:
             QListWidgetItem(name, self.nav)
         self.nav.setCurrentRow(0)
@@ -16789,6 +17339,28 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(300, self._check_win_version_startup)
 
+    # ---------- ★ P0-4：只归零不结算 ----------
+    def _settle_stale_launches(self):
+        """★ P0-4：启动时只归零 launch_start_ts，不结算。
+
+        避免把崩溃/强杀/断电的时间算成游玩时长。
+        正常退出由 ProcessMonitorWorker 结算。
+        """
+        try:
+            games = load_games()
+            changed = False
+            for g in games:
+                if g.launch_start_ts and g.launch_start_ts > 0:
+                    logger.info(
+                        f"清理残留启动标记: {g.name} "
+                        f"(ts={g.launch_start_ts})，不结算时长")
+                    g.launch_start_ts = 0.0
+                    changed = True
+            if changed:
+                save_games(games)
+        except Exception as e:
+            logger.exception(f"清理残留启动标记失败: {e}")
+
     def _check_win_version_startup(self):
         try:
             ok, msg = check_win10_1809_minimum()
@@ -16802,6 +17374,7 @@ class MainWindow(QMainWindow):
         self.status.showMessage(
             f"机器档次已更新为: {SETTINGS.get('machine_tier', '?')}")
 
+    # ---------- 全局背景 ----------
     def _load_background_pixmap(self) -> Optional[QPixmap]:
         path = (SETTINGS.get("background_image", "") or "").strip()
         if not path:
@@ -16822,7 +17395,8 @@ class MainWindow(QMainWindow):
             return
         try:
             palette = self.palette()
-            palette.setBrush(QPalette.Window, QBrush(self._bg_pixmap))
+            brush = QBrush(self._bg_pixmap)
+            palette.setBrush(QPalette.Window, brush)
             self.setPalette(palette)
             self.setAutoFillBackground(True)
         except Exception as e:
@@ -16873,7 +17447,7 @@ class MainWindow(QMainWindow):
         self._reload_games()
         self.status.showMessage("工作区已切换")
 
-    # ---------- ★ v1.6.3：拖拽识别 ----------
+    # ---------- 拖拽识别 ----------
     def dragEnterEvent(self, event):
         if not SETTINGS.get("drag_drop_enabled", True):
             return
@@ -16964,7 +17538,7 @@ class MainWindow(QMainWindow):
                     dst = BIOS_DIR / bf.name
                     if dst.exists():
                         dst = dst.with_name(f"{dst.stem}_{int(time.time())}{dst.suffix}")
-                    shutil.copy2(bf, dst)
+                    shutil.copy2(str(bf), str(dst))
                     ok += 1
                 except Exception as e:
                     logger.exception(f"复制 BIOS 失败: {e}")
@@ -16973,6 +17547,7 @@ class MainWindow(QMainWindow):
                     auto_organize_bios(dry_run=False)
                 except Exception:
                     pass
+                clear_bios_check_cache()
                 self.page_bios.refresh()
             summary.append(f"BIOS: {ok} 个")
 
@@ -17011,36 +17586,18 @@ class MainWindow(QMainWindow):
         if fail_list:
             logger.warning(f"拖拽导入插件失败: {fail_list}")
 
+    # ★ P1-11：拖拽导入走 QThread
     def _import_games_from_drop(self, paths: list):
+        if not paths:
+            return
         engines_json = load_engines_json()
-        new_games = []
-        skipped = 0
-        for src in paths:
-            platform = guess_platform_by_ext(src, engines_json)
-            if not platform:
-                skipped += 1
-                continue
-            try:
-                platform_dir = ROM_DIR / platform
-                platform_dir.mkdir(parents=True, exist_ok=True)
-                dst = platform_dir / src.name
-                if dst.exists():
-                    idx = 2
-                    while dst.exists():
-                        dst = platform_dir / f"{src.stem}_{idx}{src.suffix}"
-                        idx += 1
-                shutil.copy2(src, dst)
-                new_games.append(GameEntry(
-                    name=clean_game_name(dst),
-                    path=str(dst),
-                    platform=platform,
-                    size=dst.stat().st_size,
-                    added_at=time.strftime("%Y-%m-%d %H:%M:%S"),
-                ))
-            except Exception as e:
-                logger.exception(f"复制游戏失败: {src}")
-                skipped += 1
+        worker = _DropImportWorker(paths, engines_json)
+        worker.done.connect(self._on_drop_import_done)
+        worker.fail.connect(lambda e: self.status.showMessage(f"导入失败: {e}"))
+        worker.start()
+        self._drop_import_workers.append(worker)
 
+    def _on_drop_import_done(self, new_games, skipped):
         if new_games:
             existing = load_games()
             existing_paths = {g.path for g in existing}
@@ -17053,6 +17610,10 @@ class MainWindow(QMainWindow):
                 self, tr("msg_info"),
                 f"已导入 {len(new_games)} 个游戏"
                 + (f"\n跳过 {skipped} 个" if skipped else ""))
+        elif skipped:
+            QMessageBox.information(
+                self, tr("msg_info"),
+                f"没有识别出游戏，跳过 {skipped} 个")
 
     # ---------- 顶部工具栏 ----------
     def _build_topbar(self):
@@ -17081,19 +17642,37 @@ class MainWindow(QMainWindow):
         self.lbl_admin_top = QLabel()
         lay.addWidget(self.lbl_admin_top)
 
-        for key, handler in (
-            ("toolbar_import_engine", self._import_engine),
-            ("toolbar_download_engine", self._download_engine),
-            ("toolbar_import_game", self._import_game),
-            ("toolbar_patch_tool", self._open_patch_tool),
-            ("toolbar_scrape", self._scrape_all_covers),
-            ("toolbar_export", self._export_library),
-            ("toolbar_open_roms", lambda: os.startfile(str(ROM_DIR))),
-            ("toolbar_refresh", self._refresh_all),
-        ):
-            btn = QPushButton(tr(key))
-            btn.clicked.connect(handler)
-            lay.addWidget(btn)
+        btn_import_engine = QPushButton(tr("toolbar_import_engine"))
+        btn_import_engine.clicked.connect(self._import_engine)
+        lay.addWidget(btn_import_engine)
+
+        btn_download_engine = QPushButton(tr("toolbar_download_engine"))
+        btn_download_engine.clicked.connect(self._download_engine)
+        lay.addWidget(btn_download_engine)
+
+        btn_import_game = QPushButton(tr("toolbar_import_game"))
+        btn_import_game.clicked.connect(self._import_game)
+        lay.addWidget(btn_import_game)
+
+        btn_patch = QPushButton(tr("toolbar_patch_tool"))
+        btn_patch.clicked.connect(self._open_patch_tool)
+        lay.addWidget(btn_patch)
+
+        btn_scrape = QPushButton(tr("toolbar_scrape"))
+        btn_scrape.clicked.connect(self._scrape_all_covers)
+        lay.addWidget(btn_scrape)
+
+        btn_export = QPushButton(tr("toolbar_export"))
+        btn_export.clicked.connect(self._export_library)
+        lay.addWidget(btn_export)
+
+        btn_open_roms = QPushButton(tr("toolbar_open_roms"))
+        btn_open_roms.clicked.connect(lambda: os.startfile(str(ROM_DIR)))
+        lay.addWidget(btn_open_roms)
+
+        btn_refresh = QPushButton(tr("toolbar_refresh"))
+        btn_refresh.clicked.connect(self._refresh_all)
+        lay.addWidget(btn_refresh)
 
         return bar
 
@@ -17109,7 +17688,7 @@ class MainWindow(QMainWindow):
             p.drawText(pix.rect(), Qt.AlignCenter, "M")
             p.end()
             self._tray.setIcon(QIcon(pix))
-            self._tray.setToolTip(f"{APP_NAME} v{APP_VERSION} (Win7)")
+            self._tray.setToolTip(f"{APP_NAME} v{APP_VERSION}")
 
             menu = QMenu()
             a_show = menu.addAction(tr("tray_show"))
@@ -17137,6 +17716,7 @@ class MainWindow(QMainWindow):
             self._tray = None
 
     def _on_tray_activated(self, reason):
+        # PyQt5：QSystemTrayIcon.DoubleClick
         if reason == QSystemTrayIcon.DoubleClick:
             self._show_from_tray()
 
@@ -17171,31 +17751,39 @@ class MainWindow(QMainWindow):
                 pass
         event.accept()
 
+    # ---------- 插件 ----------
     def _load_plugins(self):
         self._unload_plugin_pages()
+
         if not SETTINGS.get("plugins_auto_load", True):
             return
+
         try:
             self._plugin_manager.load_all()
         except Exception as e:
             logger.exception(f"插件加载失败: {e}")
             return
+
         pages = self._plugin_manager.get_pages()
         if not pages:
             return
+
         insert_at = self.NAV_SETTINGS
         for i, (title, widget, icon) in enumerate(pages):
             try:
                 w = widget() if callable(widget) else widget
                 if not isinstance(w, QWidget):
+                    logger.warning(f"插件页面 {title} 不是 QWidget")
                     continue
                 label = f"{icon} {title}" if icon else title
                 item = QListWidgetItem(label)
                 self.nav.insertItem(insert_at + i, item)
                 self.stack.insertWidget(insert_at + i, w)
                 self._plugin_page_widgets.append((insert_at + i, w))
+                logger.info(f"插件页面已插入: {label} @ {insert_at + i}")
             except Exception as e:
                 logger.exception(f"插件页面 {title} 加载失败: {e}")
+
         self.NAV_SETTINGS = insert_at + len(self._plugin_page_widgets)
 
     def _unload_plugin_pages(self):
@@ -17206,12 +17794,15 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._plugin_page_widgets.clear()
+
         builtin_count = 9
         while self.nav.count() > builtin_count:
             item = self.nav.takeItem(self.nav.count() - 1)
             del item
+
         self.NAV_SETTINGS = 8
 
+    # ---------- 主题 ----------
     def _apply_theme(self):
         mode = SETTINGS.get("theme", "auto")
         if mode == "auto":
@@ -17247,9 +17838,6 @@ class MainWindow(QMainWindow):
     def _is_system_dark(self) -> bool:
         if sys.platform != "win32":
             return False
-        build = get_windows_build()
-        if 0 < build < 10240:
-            return False
         try:
             import winreg
             key = winreg.OpenKey(
@@ -17259,6 +17847,7 @@ class MainWindow(QMainWindow):
             winreg.CloseKey(key)
             return int(val) == 0
         except Exception:
+            # Win7 没有这个 key，直接返回 False
             return False
 
     def _on_theme_changed(self, mode: str, accent: str):
@@ -17275,6 +17864,7 @@ class MainWindow(QMainWindow):
             return
         cur = self._is_system_dark()
         if cur != self._current_theme_dark:
+            logger.info(f"系统主题变化: dark={cur}，重新应用")
             self._apply_theme()
 
     def _refresh_admin_label(self):
@@ -17369,6 +17959,7 @@ class MainWindow(QMainWindow):
 
     def _import_engine(self):
         dlg = ImportDialog("engine", self._engines_json, self)
+        # PyQt5：exec_()
         dlg.exec_()
         self.page_engines.refresh()
 
@@ -17594,12 +18185,15 @@ class MainWindow(QMainWindow):
 
     def _on_game_closed(self, game_path: str, _seconds_unused: int,
                         platform: str):
+        """★ P0-4：正常退出时才结算时长。"""
         try:
             games = load_games()
             now = time.time()
             secs = 0
+            game_ref = None
             for g in games:
                 if g.path == game_path:
+                    game_ref = g
                     if g.launch_start_ts and g.launch_start_ts > 0:
                         try:
                             secs = int(max(0, now - g.launch_start_ts))
@@ -17616,34 +18210,11 @@ class MainWindow(QMainWindow):
 
             try:
                 self._plugin_manager.emit("after_close",
-                                          game=game, seconds=secs)
+                                          game=game_ref, seconds=secs)
             except Exception:
                 pass
         except Exception as e:
             logger.exception(f"结算时长失败: {e}")
-
-    def _settle_stale_launches(self):
-        try:
-            games = load_games()
-            now = time.time()
-            changed = False
-            for g in games:
-                if g.launch_start_ts and g.launch_start_ts > 0:
-                    try:
-                        secs = int(max(0, now - g.launch_start_ts))
-                        if 0 < secs < 7 * 24 * 3600:
-                            g.play_seconds += secs
-                            record_playtime(g.platform, secs)
-                            logger.info(f"结算残留时长: {g.name} +{secs}s")
-                    except Exception as e:
-                        logger.exception(f"结算 {g.name} 时长失败: {e}")
-                    finally:
-                        g.launch_start_ts = 0.0
-                        changed = True
-            if changed:
-                save_games(games)
-        except Exception as e:
-            logger.exception(f"结算残留时长失败: {e}")
 
     def _open_game_folder(self, game):
         folder = str(Path(game.path).parent)
@@ -17695,7 +18266,7 @@ class MainWindow(QMainWindow):
         pcfg = engines_json.get(platform, {})
         cfg = pcfg.get("engines", {}).get(engine)
         if not cfg:
-            QMessageBox.warning(self, tr("msg_warning"), "找不到引擎配置")
+            QMessageBox.warning(self, tr("msg_warning"), tr("engine_not_found"))
             return
         cfg = dict(cfg)
         cfg["url"] = url
@@ -17764,7 +18335,7 @@ def _show_crash_dialog(tb_text: str, zip_path):
                 "ZIP (*.zip)")
             if dst:
                 try:
-                    shutil.copy2(zip_path, dst)
+                    shutil.copy2(str(zip_path), str(dst))
                 except Exception:
                     pass
         elif clicked == btn_open:
@@ -17830,18 +18401,13 @@ threading.excepthook = _threading_excepthook
 # 30. 入口
 # ============================================================
 def main():
+    # PyQt5 Win7：必须在 QApplication 之前设置高 DPI 关闭
     try:
-        ok, msg = check_win10_1809_minimum()
-        if not ok:
-            print(f"[启动] {msg}")
-            try:
-                app = QApplication(sys.argv)
-                QMessageBox.critical(None, "系统版本过低", msg)
-            except Exception:
-                pass
-            sys.exit(1)
-    except Exception as e:
-        logger.debug(f"Win7 检查失败: {e}")
+        from PyQt5.QtCore import Qt as _Qt
+        QApplication.setAttribute(_Qt.AA_EnableHighDpiScaling, False)
+        QApplication.setAttribute(_Qt.AA_UseHighDpiPixmaps, False)
+    except Exception:
+        pass
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -17861,6 +18427,14 @@ def main():
     win.show()
 
     try:
+        ok, msg = check_win10_1809_minimum()
+        if not ok:
+            QTimer.singleShot(500, lambda: QMessageBox.warning(
+                win, tr("win_version_too_old_title"), msg))
+    except Exception as e:
+        logger.debug(f"Win 版本检查失败: {e}")
+
+    try:
         win._plugin_manager.emit("app_start")
     except Exception:
         pass
@@ -17870,4 +18444,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# ===== 全部完成 mikan_emu v1.6.3 Win7 移植版 =====
