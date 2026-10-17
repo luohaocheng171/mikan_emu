@@ -1,668 +1,563 @@
-# MikanEmu v1.6.3 / v1.6.3-win7
+# MikanEmu v1.7.0 官方文档
+
+## 项目概述
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
 [![PySide6](https://img.shields.io/badge/Qt-PySide6%2FPyQt5-orange)](https://www.qt.io/qt-for-python)
 
-> 模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言 + 平台编辑器
-> + 性能监控 + 局域网聊天/文件/共享 + 局域网传输（内嵌 LocalSend Web）
-> + 封面刮削（Libretro / SteamGridDB）+ 性能档位 + 系统优先级
-> + 版本适配（version_overrides）+ 打开模拟器设置
-> + 引擎共享定义（_shared）+ BIOS 自动归类 + 统一代理 + 插件系统
-> + 日志环形缓冲 + 崩溃诊断包 + Windows 版本检测 + 硬件探测 + 资源策略
+MikanEmu 是一款集模拟器前端、配置管家、版本识别器与更新检查于一体的综合性工具。它不仅提供游戏库管理、引擎下载、局域网协作和插件扩展等核心功能，还针对不同操作系统进行了深度优化。
 
-**【法律】** 不提供 BIOS、不提供 ROM、不二次分发模拟器
+本项目提供两个独立版本，均已使用 PyInstaller 打包为独立可执行文件（exe）：
 
----
+1. **最新版 (PySide6)**: 基于 PySide6 (Qt6) 框架，要求 Python 3.11+，功能最全，支持最新特性。
+2. **Win7兼容版 (PyQt5)**: 基于 PyQt5 5.15.4 框架，要求 Python 3.8，专为 Windows 7 环境设计。
 
-## 版本说明
+## 版本对比
 
-本项目提供两个版本，功能基本一致，区别在于 GUI 框架和运行环境要求：
+| 对比项 | 最新版 (PySide6) | Win7兼容版 (PyQt5) |
+| :--- | :--- | :--- |
+| **GUI 框架** | PySide6 (Qt6) | PyQt5 5.15.4 |
+| **Python 版本** | 3.11+ | 3.8 |
+| **WebEngine 导入** | PySide6.QtWebEngineCore | PyQt5.QtWebEngineWidgets |
+| **Signal 语法** | Signal | pyqtSignal |
+| **依赖版本策略** | 不锁定 (使用最新版) | 全部锁定 (Win7可用版) |
+| **PyInstaller 版本** | 最新版 | 4.10 (5.x 不支持 Win7) |
+| **额外依赖** | 无 | pywin32==228 |
+| **DPI 缩放** | 自动 (Chromium flags 按需设置) | 强制关闭 (QT_AUTO_SCREEN_SCALE_FACTOR=0) |
+| **Chromium Flags** | _setup_webengine_flags() 根据 Win 版本动态设置 | _setup_qt_flags() 为空函数 |
+| **日志路径处理** | Path 对象 | str() 转换 |
+| **random 模块导入** | 模块内按需使用 | 顶部 import random as _random |
 
-| 对比项 | MikanEmu v1.6.3（最新版） | MikanEmu v1.6.3-win7（老版本） |
-|--------|---------------------------|--------------------------------|
-| GUI 框架 | PySide6（Qt6） | PyQt5 5.15.9（Qt 5.15 LTS） |
-| Python 要求 | 3.11+ | 3.8（最后支持 Win7 的官方 Python） |
-| 操作系统 | Windows 10 1809+ | Windows 7 SP1+（含 Win7/Win8/Win8.1/Win10/Win11） |
-| 平台数 | 45 个 | 45 个 |
-| 引擎数 | 78 个 | 78 个 |
-| 类数量 | 55 个 | 55 个 |
-| 顶层函数 | 137 个 | 140 个（多出 `_ensure_json_file`、`_ensure_all_json_files`、`get_windows_name` 三个 Win7 专用函数） |
-| 新增功能（v1.6.3） | 拖拽自动识别、多文件夹管理、全局背景自定义、老游戏资料站侧边栏、设置页项目地址入口 | 同最新版（v1.6.3 功能已同步） |
-| 依赖版本 | 使用最新版依赖 | pinned 版本（psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1、requests<2.32） |
-| Web 引擎 | PySide6-WebEngine（可选） | PyQtWebEngine==5.15.6（可选） |
-| 打包工具 | PyInstaller | PyInstaller 4.10 |
-| QtWebEngine 渲染 | 默认（硬件加速） | 强制软件渲染（Win7 兼容） |
-| 日志队列 | 启用 enqueue（子进程模式） | 禁用 enqueue（Win7 兼容） |
+## 核心功能特性
 
-> **推荐**：现代系统（Win10/Win11）请使用最新版（PySide6）；Windows 7 用户请使用 win7 移植版。
+MikanEmu v1.7.0 提供了极其丰富的功能矩阵，涵盖从基础模拟到高级系统管理的各个方面：
 
----
+- **综合管理**：模拟器前端 + 配置管家 + 版本识别器 + 更新检查 + 多语言支持 + 平台编辑器
+- **性能与网络**：性能监控 + 局域网聊天/文件/共享 + 内嵌 LocalSend Web 局域网传输
+- **资源管理**：封面刮削（支持 Libretro / SteamGridDB）+ BIOS 自动归类 + 多文件夹/工作区管理
+- **性能调优**：支持性能档位切换（省电/平衡/高性能/画质优先）+ 系统优先级调整
+- **高级配置**：版本适配 (version_overrides) + 打开模拟器设置 + 引擎共享定义 (_shared) + 统一代理
+- **扩展与诊断**：插件系统 + 日志环形缓冲 (deque maxlen=2000) + 崩溃诊断包生成
+- **系统兼容**：Windows 版本检测 + 硬件探测 + 资源策略 + 全局背景自定义
+- **交互体验**：老游戏资料站侧边栏 + 拖拽自动识别 + 补丁工具（支持 IPS/UPS 格式）
+- **统一接口**：MikanAPI 统一接口（包含 10 个子 API）+ Job 统一长任务句柄 + MirrorRouter 镜像自动选路
 
-## 功能特性
+## v1.7.0 关键修复与技术革新
 
-| 模块 | 功能说明 |
-|------|---------|
-| 游戏库管理 | 多文件夹/工作区扫描、自动识别平台、去重合并、批量导入/导出、游戏统计 |
-| 模拟器引擎管理 | 内置引擎（45 平台/78 引擎）、自动下载/安装/更新、多镜像源、版本识别与匹配 |
-| BIOS 管理 | BIOS 扫描/自动归类、BIOS 需求检测、BIOS 文件复制、bios_db.json 数据库 |
-| 存档管理 | 存档自动路径检测、存档备份/还原、存档路径自定义 |
-| 金手指管理 | 金手指代码管理、金手指路径配置 |
-| 封面刮削 | Libretro Thumbnails + SteamGridDB 兜底、本地缓存 |
-| 性能监控 | CPU/内存/GPU/网络实时监测、性能档位（省电/平衡/高性能/画质优先） |
-| 局域网功能 | 聊天（广播/私聊/表情面板）、文件传输、共享文件夹实时同步 |
-| Web 传输 | 内嵌 LocalSend Web 传输页（QtWebEngine）、降级为外部浏览器 |
-| 版本适配 | version_overrides 引擎版本差异适配、engines.json 深度合并 |
-| 插件系统 | 插件目录扫描、plugin.json 元数据、动态加载/卸载、插件存储隔离 |
-| 多语言支持 | 内置中/英文、自动检测系统语言、热切换、缺失翻译自动回退 |
-| 平台编辑器 | 手动添加/编辑平台、自定义 ROM 扩展名、引擎绑定 |
-| 配置包管理 | 导出/导入完整配置包（引擎+BIOS+设置+金手指+存档路径） |
-| ROM 补丁 | IPS/UPS 补丁应用 |
-| 系统托盘 | 最小化至托盘、托盘通知、托盘菜单快捷操作 |
-| UI 特性 | 暗黑赛博朋克风格、侧边栏导航、Tab 页签、资源导航页、鸣谢页 |
-| 更新检查 | 自动检查更新、更新日志、忽略版本 |
-| 启动优化 | 依赖自动安装、镜像源自动切换、启动器自检 |
-| 模拟器设置 | 直接打开模拟器原生设置界面 |
-| 引擎共享定义 | _shared 共享引擎定义（mednafen/mame/retroarch）跨平台复用 |
-| 系统优先级 | 启动时自动设置进程优先级和 IO 优先级 |
-| 拖拽自动识别 | 拖拽 .py 文件自动识别为插件、.bin/.rom 识别为 BIOS、ROM 后缀自动识别游戏 |
-| 多文件夹管理 | 工作区增删改 + 路径重定向，支持多游戏库并行管理 |
-| 全局背景自定义 | 设置页选择图片作为全局背景 |
-| 老游戏资料站 | QtWebEngine 内嵌老游戏资料站侧边栏 |
-| 项目地址入口 | 设置页底部新增项目地址入口（默认浏览器打开） |
+本次更新在底层架构和稳定性上进行了重大技术革新，修复了多个严重问题：
 
-### v1.6.3 新增功能（两个版本均包含）
+### P0 级修复（严重问题）
 
-| 功能 | 说明 |
-|------|------|
-| 拖拽自动识别 | 拖拽 .py 文件自动识别为插件、.bin/.rom 识别为 BIOS、ROM 后缀自动匹配游戏平台 |
-| 多文件夹管理 | 工作区增删改 + 路径重定向，支持多游戏库并行管理 |
-| 全局背景自定义 | 设置页选择图片作为全局背景，个性化界面 |
-| 老游戏资料站侧边栏 | QtWebEngine 内嵌老游戏资料站（nostalibrary），无需切换浏览器 |
-| 设置页项目地址入口 | 设置页底部新增 GitHub 项目地址入口，默认浏览器直接打开 |
+- **P0-1**: patch_ips 增加 EEOF 支持及越界扩容机制，彻底解决静默损坏 ROM 的问题。当 IPS 补丁的修改范围超出 ROM 文件大小时，不再静默丢弃多余数据，而是自动扩容 ROM 文件以容纳完整补丁。
+- **P0-2**: patch_ups 增加 varint 截断检测，防止产生半成品补丁文件。UPS 格式使用 varint 编码长度信息，旧版在遇到截断的 varint 时会继续处理导致产生损坏文件，新版在检测到截断时立即中止并报错。
+- **P0-3**: 将 os.chdir 替换为 Popen(cwd=...)，修复多线程环境下的竞态条件。旧版在子线程中调用 os.chdir 切换工作目录会影响其他并发线程的文件操作路径，导致文件读写错误和引擎启动失败。修复后通过 Popen 的 cwd 参数为每个子进程独立指定工作目录，彻底消除全局状态竞争。
+- **P0-4**: _settle_stale_launches 逻辑调整为只归零不结算，修复游戏运行时长统计失真问题。旧版在检测到停滞的启动进程时会将其运行时长累加到统计中，但这些进程实际上并未成功启动游戏，导致时长虚增。修复后仅将计时器归零而不进行结算。
 
-### Win7 移植版特有功能
+### P1 级修复（重要问题）
 
-| 功能 | 说明 |
-|------|------|
-| Win7 SP1 检测 | 启动时检查 Windows 7 SP1 最低要求，不满足则提示安装 |
-| QtWebEngine 软件渲染 | 强制禁用 GPU 加速，确保 Win7 下浏览器页面正常显示 |
-| 兼容依赖版本 | 锁定 psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1、requests<2.32 等依赖版本，确保 Win7 下可安装 |
-| PyInstaller 4.10 打包 | 使用旧版 PyInstaller 打包，兼容 Win7 运行时 |
-| 日志兼容模式 | 禁用 loguru enqueue（子进程队列），避免 Win7 下日志写入异常 |
+- **P1-5**: .cue 文件生成改用 .mikan_auto.cue 后缀，避免覆盖用户自定义文件。旧版在生成 CUE 文件时直接使用目标文件名，如果用户已有同名文件会被静默覆盖。新版使用 .mikan_auto.cue 后缀确保不会覆盖用户文件。
+- **P1-6**: HttpSession 增加读写锁及 hostname 匹配 bypass 机制，提升线程安全性。旧版 HTTP 会话对象在多线程并发访问时缺乏同步保护，可能导致请求头损坏或响应解析错误。修复后引入 threading.RLock 读写锁，并对同一 hostname 的请求进行串行化处理。
+- **P1-7**: detect_engine_version 正则优先匹配 version/v 前缀，并过滤日期格式。旧版版本检测正则表达式无法正确处理包含日期信息的版本号字符串（如 "2024.12.1-beta"），导致版本识别错误。修复后优先匹配 version/v 前缀后的数字序列，并过滤纯日期格式。
+- **P1-8**: check_bios_ready 增加 5 分钟缓存，减少重复扫描开销。旧版每次启动或切换平台时都会重新扫描 BIOS 目录检查文件完整性，在 BIOS 目录包含大量文件时导致启动缓慢。修复后缓存检查结果 5 分钟，期间直接返回缓存结果。
+- **P1-9**: _split_cmd 改用 shlex 模块，安全处理含空格路径的命令。旧版使用简单的 str.split() 分割命令字符串，无法正确处理带引号的路径（如 "C:\\Program Files\\game.exe"），导致含空格路径的命令执行失败。修复后使用 shlex.split() 进行符合 Shell 语法的分割。
+- **P1-10**: 所有硬编码中文字符串统一走 tr() 国际化流程。旧版部分界面文本直接硬编码中文字符串，未通过 tr() 函数包装，导致多语言切换时这些文本不会翻译。修复后所有硬编码中文均通过 tr() 包装，支持完整的多语言切换。
+- **P1-11**: 拖拽导入功能移至 QThread 异步处理，杜绝 UI 卡死。旧版拖拽文件导入时在主线程中执行文件扫描和类型识别，当拖入大量文件或大型 ROM 文件时 UI 完全卡死。修复后将所有耗时操作移至 QThread 后台线程执行，通过信号槽机制更新 UI。
+- **P1-13**: QWebEngineProfile 采用命名 profile，隔离多实例配置。旧版使用 QtWebEngine 默认 profile，当同时运行多个 MikanEmu 实例时配置会互相覆盖（如代理设置、缓存路径）。修复后为每个实例创建命名 profile（如 "mikan_emu_instance_X"），实现配置完全隔离。
+- **P1-14**: --no-sandbox 参数仅在 Windows 7 环境下开启，提升高版本系统安全性。旧版对所有 Windows 版本都启用 Chromium 的 --no-sandbox 启动参数，降低了非 Win7 系统的安全性。修复后通过读取 Windows 版本信息（CurrentBuild 注册表值），仅在 build number < 7601（即 Windows 7）时启用该参数。
 
----
+### P2 级优化与新增
 
-## 技术栈
+- **P2-16**: random 模块移至顶部导入。旧版 random 模块在模块内部某处导入，导致部分代码在模块加载阶段调用 random 函数时出现 NameError。修复后将 import random 移至文件顶部统一导入。
+- **P2-18**: 局域网口令哈希计算不再截断，修复认证碰撞隐患。旧版在计算局域网连接口令的哈希值时截断了部分字节，导致不同口令可能产生相同哈希（碰撞），存在安全风险。修复后使用完整的 SHA-256 哈希输出，不再截断。
+- **新增 - MikanAPI 统一接口（10个子API）**: 全新的统一 API 层，将 ROM 管理、引擎管理、配置管理、游戏库、存档管理、金手指、封面刮削、局域网、插件、系统等功能抽象为标准化接口，方便插件和外部工具调用。
+- **新增 - Job 统一长任务句柄**: 标准化的后台任务管理框架，支持进度回调、取消、超时和错误处理，统一接管所有耗时操作。
+- **新增 - MirrorRouter 镜像自动选路（可开关）**: 自动探测并选择最快的 PyPI/资源镜像服务器，支持手动配置和开关控制，主镜像失败时自动切换备用。
 
-| 技术 | 最新版说明 | Win7版说明 |
-|------|-----------|-----------|
-| Python | 3.11+ | 3.8（最后支持 Win7 的官方版本） |
-| PySide6 / PyQt5 | PySide6（Qt6，GPL v3 / Commercial） | PyQt5 5.15.9（Qt 5.15 LTS，GPL v3 / Commercial） |
-| PySide6-WebEngine / PyQtWebEngine | 内嵌 Chromium 浏览器（可选） | PyQtWebEngine==5.15.6（可选，~200MB） |
-| requests | HTTP 请求（下载/刮削/API） | <2.32（Win7 兼容） |
-| loguru | 日志记录 | <0.8（Win7 兼容） |
-| py7zr | 7z 压缩格式支持 | <0.21（Win7 兼容） |
-| rarfile | RAR 压缩格式支持 | <4.1（Win7 兼容） |
-| psutil | 系统监控（CPU/内存/进程/网络） | <5.9.6（Win7 兼容） |
-| packaging | 版本号解析与比较 | <24（Win7 兼容） |
-| certifi | SSL 证书包 | 同最新版 |
-| PySocks | SOCKS5 代理支持（可选） | 同最新版 |
-| urllib3 | HTTP 底层库 | 同最新版 |
-| ctypes | 系统 API 调用 | 同最新版 |
+## API 参考手册
 
----
+### 1. ROM 管理 API
 
-## 安装与运行
+用于管理游戏 ROM 文件的添加、移除、查询和元数据更新。
 
-### 方式一：已打包 exe（推荐）
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| add_rom | add_rom(path: Path, metadata: dict) -> RomInfo | 添加 ROM 文件到游戏库，自动识别平台类型并提取元数据 |
+| remove_rom | remove_rom(rom_id: str) -> bool | 从游戏库中移除指定 ROM 的记录（不删除文件） |
+| get_rom | get_rom(rom_id: str) -> Optional[RomInfo] | 获取单个 ROM 的完整信息，包括平台、引擎、封面路径等 |
+| list_roms | list_roms(platform: Optional[str] = None) -> List[RomInfo] | 列出游戏库中所有 ROM，支持按平台名称过滤 |
+| update_rom | update_rom(rom_id: str, metadata: dict) -> bool | 更新 ROM 的元数据（名称、封面、自定义标签等） |
 
-直接运行发布的 `.exe` 文件即可，无需安装 Python 环境。
+### 2. 引擎管理 API
 
-- **最新版 exe**：适用于 Windows 10 1809+ / 11
-- **Win7 版 exe**：适用于 Windows 7 SP1 / 8 / 8.1 / 10 / 11
+用于管理模拟器引擎的下载、安装、卸载和版本查询。
 
-### 方式二：源代码运行
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| get_engine | get_engine(engine_id: str) -> Optional[EngineInfo] | 获取指定引擎的详细信息（版本、URL、匹配规则等） |
+| list_engines | list_engines() -> List[EngineInfo] | 列出所有已配置引擎（含已安装和未安装状态） |
+| install_engine | install_engine(engine_id: str, progress_callback: Callable) -> bool | 从配置 URL 下载并安装引擎，支持进度回调 |
+| uninstall_engine | uninstall_engine(engine_id: str) -> bool | 卸载指定引擎并清理相关文件 |
 
-#### 最新版（PySide6）
+### 3. 配置管理 API
 
-1. 安装 Python 3.11+
-2. 安装依赖：
+用于读写应用配置项和文件夹路径。
 
-```bash
-pip install PySide6 requests loguru py7zr rarfile psutil packaging certifi
-# 可选：pip install PySide6-WebEngine  （内嵌浏览器）
-# 可选：pip install PySocks              （SOCKS5 代理）
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| get_setting | get_setting(key: str) -> Any | 获取指定配置项的值，不存在时返回 None |
+| set_setting | set_setting(key: str, value: Any) -> bool | 设置配置项值并自动保存到 settings.json |
+| get_folder | get_folder(folder_type: str) -> Path | 获取指定类型文件夹的当前路径（如 roms、bios、saves） |
+| set_folder | set_folder(folder_type: str, path: Path) -> bool | 设置指定类型文件夹路径并持久化 |
+
+### 4. 游戏库 API
+
+用于游戏库的整体管理操作（扫描、导出、导入）。
+
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| get_library | get_library() -> List[GameEntry] | 获取完整游戏库列表（含所有 ROM 元数据） |
+| scan_library | scan_library(paths: List[Path]) -> int | 扫描指定路径下的游戏文件，返回新增 ROM 数量 |
+| export_library | export_library(path: Path) -> bool | 将游戏库导出为 JSON 文件，支持备份和迁移 |
+| import_library | import_library(path: Path) -> int | 从 JSON 文件导入游戏库，返回导入的 ROM 数量 |
+
+### 5. 存档管理 API
+
+用于模拟器即时存档的保存、加载和管理。
+
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| save_state | save_state(rom_id: str, slot: int, data: bytes) -> bool | 保存即时存档数据到指定槽位 |
+| load_state | load_state(rom_id: str, slot: int) -> Optional[bytes] | 从指定槽位加载存档数据 |
+| list_saves | list_saves(rom_id: str) -> List[SaveInfo] | 列出指定 ROM 的所有存档槽位及元信息 |
+| delete_save | delete_save(rom_id: str, slot: int) -> bool | 删除指定槽位的存档文件 |
+
+### 6. 金手指 API
+
+用于管理 ROM 的金手指（作弊码）代码。
+
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| add_cheat | add_cheat(rom_id: str, code: str, name: str) -> bool | 为指定 ROM 添加金手指代码 |
+| remove_cheat | remove_cheat(rom_id: str, cheat_id: str) -> bool | 移除指定金手指 |
+| list_cheats | list_cheats(rom_id: str) -> List[CheatInfo] | 列出指定 ROM 的所有金手指代码 |
+| toggle_cheat | toggle_cheat(rom_id: str, cheat_id: str) -> bool | 切换金手指的启用/禁用状态 |
+
+### 7. 封面刮削 API
+
+用于从网络自动获取游戏封面图片。
+
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| scrape_cover | scrape_cover(rom_id: str) -> Optional[Path] | 从 Libretro/SteamGridDB 刮削封面并保存到本地 |
+| get_cover | get_cover(rom_id: str) -> Optional[Path] | 获取指定 ROM 的本地封面文件路径 |
+| clear_cover_cache | clear_cover_cache(rom_id: Optional[str] = None) -> int | 清除封面缓存，指定 rom_id 则只清该游戏，否则清空全部 |
+
+### 8. 局域网 API
+
+用于局域网聊天和文件传输。
+
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| lan_chat_send | lan_chat_send(peer_id: str, message: str) -> bool | 向指定局域网节点发送聊天消息 |
+| lan_chat_recv | lan_chat_recv() -> List[ChatMessage] | 获取未读的局域网聊天消息列表 |
+| lan_file_send | lan_file_send(peer_id: str, file_path: Path) -> bool | 向指定节点发送文件 |
+| lan_file_recv | lan_file_recv(file_id: str) -> Path | 接收并保存文件，返回本地存储路径 |
+
+### 9. 插件 API
+
+用于插件的生命周期管理和方法调用。
+
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| load_plugin | load_plugin(plugin_path: Path) -> PluginHandle | 从指定路径加载插件，执行 plugin.json 和 main.py |
+| unload_plugin | unload_plugin(plugin_id: str) -> bool | 卸载指定插件并清理资源 |
+| list_plugins | list_plugins() -> List[PluginInfo] | 列出所有已加载插件及其状态 |
+| call_plugin | call_plugin(plugin_id: str, method: str, **kwargs) -> Any | 动态调用插件注册的任意方法 |
+
+### 10. 系统 API
+
+用于获取系统信息和应用状态。
+
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| get_system_info | get_system_info() -> SystemInfo | 获取操作系统、CPU、GPU、内存等硬件信息 |
+| check_updates | check_updates() -> Optional[UpdateInfo] | 检查 GitHub 仓库是否有新版本可用 |
+| get_stats | get_stats() -> AppStats | 获取应用运行统计（启动次数、游戏时长、ROM 数量等） |
+| crash_report | crash_report(exception: Exception) -> Path | 生成崩溃诊断包（含堆栈追踪、系统信息、日志片段），返回文件路径 |
+
+## 核心组件说明
+
+### Job 统一长任务句柄
+
+Job 类用于统一管理耗时操作（如下载、扫描、刮削等后台任务），提供标准化的生命周期管理。
+
+| 方法 | 签名 | 描述 |
+| :--- | :--- | :--- |
+| __init__ | Job.__init__(name: str, priority: int = 0) | 创建任务句柄，可指定优先级（数字越大优先级越高） |
+| start | Job.start() | 启动任务执行（在后台线程中运行） |
+| cancel | Job.cancel() | 请求取消正在执行的任务 |
+| wait | Job.wait(timeout: Optional[float] = None) -> bool | 阻塞等待任务完成，可设置超时（秒），返回是否完成 |
+| on_progress | Job.on_progress(callback: Callable) | 注册进度更新回调函数 |
+| on_complete | Job.on_complete(callback: Callable) | 注册任务完成回调函数 |
+| on_error | Job.on_error(callback: Callable) | 注册错误处理回调函数 |
+
+**使用示例：**
+
+```python
+job = Job("scanning", priority=1)
+job.on_progress(lambda pct: print(f"进度: {pct}%"))
+job.on_complete(lambda: print("扫描完成"))
+job.on_error(lambda err: print(f"错误: {err}"))
+job.start()
+job.wait(timeout=30.0)
 ```
 
-3. 运行：
+### MirrorRouter 镜像自动选路
 
-```bash
-python mikan_emu_6.py
+MirrorRouter 自动选择延迟最低的 PyPI 或资源镜像服务器，提升下载速度和可靠性。
+
+**核心功能：**
+
+- **自动探测**：启动时自动对配置的镜像列表进行延迟探测，选择响应最快的镜像
+- **手动配置**：支持通过 config/mirrors.json 手动指定镜像优先级和备用地址
+- **开关控制**：可通过设置项随时开启或关闭自动选路功能
+- **Fallback 机制**：主镜像连接失败或超时后，自动无缝切换至下一个备用镜像
+- **持久化**：最优镜像选择结果会缓存，避免每次启动都重新探测
+
+### 补丁工具
+
+#### IPS 补丁
+
+- 支持标准 IPS (International Patching System) 格式
+- 支持 EEOF (End Of File) 扩展标记，允许补丁修改范围超出原始 ROM 文件大小
+- 自动扩容 ROM 文件以容纳超出边界的补丁数据
+- 修复前静默丢弃超出范围的补丁数据导致 ROM 损坏的问题
+
+#### UPS 补丁
+
+- 支持 UPS (Universal Patch System) 格式
+- 内置 varint 变长整数截断检测，遇到不完整的 varint 序列时立即中止
+- 提供完整的错误处理和操作回滚机制
+- 修复前产生半成品补丁文件导致 ROM 不可用的问题
+
+### 插件系统
+
+插件采用独立目录结构，支持热加载与隔离运行。
+
+**目录结构：**
+
+```
+plugins/
+  <plugin_name>/
+    plugin.json          # 插件描述文件（必填）
+    main.py              # 插件主代码入口（必填）
+    requirements.txt     # 插件额外依赖（可选）
+    assets/              # 插件资源文件（可选）
 ```
 
-#### Win7 移植版（PyQt5）
+**plugin.json 格式规范：**
 
-1. 安装 Python 3.8（注意：必须 3.8，3.9+ 不支持 Win7）
-2. 安装依赖：
-
-```bash
-pip install PyQt5==5.15.9 "requests<2.32" "loguru<0.8" "py7zr<0.21" "rarfile<4.1" "psutil<5.9.6" "packaging<24"
-# 可选：pip install PyQtWebEngine==5.15.6  （内嵌浏览器）
-# 可选：pip install PySocks                  （SOCKS5 代理）
+```json
+{
+  "name": "插件显示名称",
+  "version": "1.0.0",
+  "description": "插件功能描述",
+  "author": "作者名称",
+  "api_version": "1.0",
+  "entry": "main.py",
+  "dependencies": ["插件依赖ID列表"]
+}
 ```
 
-3. 运行：
+**编写插件步骤：**
 
-```bash
-python mikan_emu_pyqt5_2.py
-```
+1. 在 plugins/ 目录下创建插件文件夹（文件夹名作为插件 ID）
+2. 创建 plugin.json 描述文件，填写名称、版本、入口等元信息
+3. 创建 main.py 实现插件逻辑，可调用 PluginAPI 提供的各类接口
+4. 在应用设置的插件管理中启用该插件
 
-### PyInstaller 打包
+**PluginAPI 核心接口：**
 
-```bash
-# 最新版
-pyinstaller --name mikan_emu --onedir --add-data "config;config" --add-data "lang;lang" mikan_emu_6.py
+- 游戏库操作：add_rom, remove_rom, get_rom, list_roms
+- 引擎与平台：get_engine, list_engines, get_platforms
+- 路径与配置：get_config_dir, get_data_dir, get_setting, set_setting
+- 启动与系统/UI：launch_emulator, show_notification, log_message
+- 通知与日志：show_info, show_warning, show_error, debug_log
+- 网络与事件：http_get, http_post, register_event_handler
+- 插件私有存储：plugin_get, plugin_set, plugin_delete
 
-# Win7 版（使用 PyInstaller 4.10）
-pyinstaller==4.10 --name mikan_emu --onedir --add-data "config;config" --add-data "lang;lang" mikan_emu_pyqt5_2.py
-```
+## 历史问题修复详解
 
----
+以下详细说明了 v1.7.0 版本修复的 12 个历史问题，包括问题原因、影响范围和具体修复方案。
+
+### 问题 1: os.chdir 竞态条件
+
+- **原因**：旧代码在多线程环境中调用 os.chdir() 切换全局工作目录。Python 的 os.chdir() 修改的是进程级别的全局状态，当多个线程同时调用时，一个线程切换目录后另一个线程的文件操作会指向错误的目录。
+- **影响**：文件读写错误、引擎启动时找不到 ROM/BIOS 文件、引擎启动失败。
+- **修复方案**：移除所有 os.chdir() 调用，改为使用 subprocess.Popen 的 cwd 参数为每个子进程独立指定工作目录。这样每个子进程有独立的工作目录，互不影响。
+
+### 问题 2: 时长结算失真
+
+- **原因**：_settle_stale_launches 函数在检测到停滞的模拟器进程时，会将该进程从启动到终止的时间间隔全部累加到游戏运行时长统计中。但有些进程实际上并未成功启动游戏（如配置错误导致启动失败），这些时间不应计入。
+- **影响**：游戏运行时长统计不准确，用户看到的游玩时间比实际长。
+- **修复方案**：修改结算逻辑为"只归零不结算"——检测到停滞进程时仅将计时器归零，不进行时长累加。只有明确标记为"游戏已开始运行"的进程才会计入时长。
+
+### 问题 3: .cue 文件覆盖
+
+- **原因**：旧版在处理某些光盘镜像格式时，需要生成配套的 .cue 轨道索引文件。生成时直接使用目标文件名（如 "game.cue"），如果用户目录下已有同名文件会被静默覆盖。
+- **影响**：用户自定义的 .cue 文件内容丢失。
+- **修复方案**：所有自动生成的 .cue 文件使用 .mikan_auto.cue 后缀（如 "game.mikan_auto.cue"），与用户文件完全隔离，永不覆盖用户文件。
+
+### 问题 4: HttpSession 线程安全
+
+- **原因**：旧版 HTTP 请求使用共享的 HttpSession 对象，多个线程同时发起请求时，请求头、Cookie、连接状态等共享数据可能发生竞态条件。
+- **影响**：网络请求失败、响应数据损坏、Cookie 丢失导致认证失败。
+- **修复方案**：为 HttpSession 添加 threading.RLock 读写锁，所有读写操作先获取读锁/写锁。同时对同一 hostname 的请求进行串行化处理（通过 hostname 匹配 bypass 优化并发性能），避免同一服务器的请求互相干扰。
+
+### 问题 5: 引擎版本检测误判
+
+- **原因**：detect_engine_version 函数使用的正则表达式过于简单，无法正确处理包含日期信息或其他非标准字符的版本号字符串。例如 "v2024.12.1-beta" 可能被错误解析。
+- **影响**：引擎版本识别错误，导致版本比较逻辑判断失误，可能下载错误版本或误报更新可用。
+- **修复方案**：重写版本检测正则表达式，优先匹配 "version/" 或 "v" 前缀后的数字序列（如 "v1.2.3"），过滤掉纯日期格式（如 "2024.12.01"），并增加版本号规范化逻辑。
+
+### 问题 6: BIOS 检查性能
+
+- **原因**：每次启动应用或切换到不同平台页面时，check_bios_ready 函数都会重新扫描整个 BIOS 目录，检查每个文件的存在性和完整性。当 BIOS 目录包含大量文件时，扫描操作耗时显著。
+- **影响**：应用启动缓慢，切换平台时界面卡顿。
+- **修复方案**：引入 5 分钟时间窗口的结果缓存。首次扫描后缓存结果，5 分钟内直接返回缓存数据。缓存失效条件：目录文件列表变更（通过 inode/mtime 检测）或超过 5 分钟。
+
+### 问题 7: 命令分割不安全
+
+- **原因**：旧版 _split_cmd 函数使用简单的 str.split() 按空格分割命令行参数。这种方式无法处理带引号的路径（如 "C:\\Program Files\\Emulator\\emu.exe"），会导致路径被错误分割成多个参数。
+- **影响**：安装路径或 ROM 路径包含空格时，模拟器命令无法正确执行，导致启动失败。
+- **修复方案**：替换为 Python 标准库 shlex.split() 函数，该函数遵循 Shell 命令行解析规则，正确处理单引号、双引号转义和空格路径。
+
+### 问题 8: 硬编码中文国际化
+
+- **原因**：旧版代码中部分界面文本（如按钮标签、提示信息、对话框文字）直接硬编码为中文字符串，未通过 tr() 国际化函数包装。
+- **影响**：当用户切换语言包时，这些硬编码中文不会翻译成目标语言，导致界面出现中英文混排的不一致现象。
+- **修复方案**：全局搜索所有硬编码中文字符串，逐一替换为 tr("中文文本") 调用。同时确保 QCoreApplication 的翻译系统在启动时正确加载语言文件。
+
+### 问题 9: UI 阻塞
+
+- **原因**：旧版拖拽文件导入功能在主线程（GUI 线程）中执行文件类型识别、文件大小检查、ROM 元数据解析等耗时操作。
+- **影响**：拖入大量文件或大型 ROM 文件（如几百 MB 的 ISO）时，整个 UI 界面卡死无响应，用户体验极差。
+- **修复方案**：将所有拖拽导入的耗时操作移至 QThread 后台线程执行。主线程仅负责接收拖拽事件并启动后台线程，后台线程通过 Qt 信号槽机制将进度和结果回调到主线程更新 UI。
+
+### 问题 10: QtWebEngineProfile 冲突
+
+- **原因**：旧版 QtWebEngine 使用默认的全局 profile 存储浏览器数据（缓存、Cookie、配置等）。当同时运行多个 MikanEmu 实例时，所有实例共享同一个 profile，导致配置互相覆盖。
+- **影响**：多开时代理设置、Cookie、缓存等配置混乱，可能出现登录状态丢失、代理不生效等问题。
+- **修复方案**：为每个 MikanEmu 实例创建独立的命名 QWebEngineProfile（如 "mikan_emu_profile_1"、"mikan_emu_profile_2"），通过实例 ID 区分，实现完全的配置隔离。
+
+### 问题 11: --no-sandbox 过度启用
+
+- **原因**：旧版为所有 Windows 版本统一设置 Chromium 启动参数 --no-sandbox，目的是解决 Win7 上 QtWebEngine 的沙箱兼容性问题。
+- **影响**：在 Windows 10/11 等现代系统上，禁用沙箱会降低浏览器的安全隔离级别，增加潜在的安全风险。
+- **修复方案**：通过读取 Windows 注册表 HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\CurrentBuild 获取系统内部版本号，仅在 build number < 7601（Windows 7 的 build号）时启用 --no-sandbox 参数，现代系统保持默认沙箱开启。
+
+### 问题 12: 局域网口令截断
+
+- **原因**：旧版在计算局域网连接口令的哈希值时，为了节省带宽对 SHA-256 输出进行了截断（只取前 16 字节）。虽然 16 字节的哈希空间仍然很大，但截断操作本身引入了不必要的攻击面。
+- **影响**：理论上存在哈希碰撞风险，极端情况下可能导致不同口令被识别为相同身份。
+- **修复方案**：移除哈希截断逻辑，使用完整的 SHA-256 输出（32 字节），彻底消除碰撞可能性。同时优化网络传输协议，采用二进制格式而非文本格式传输哈希值，减少带宽占用。
 
 ## 项目结构
 
 ```
-mikan_emu/                    # 程序根目录（data 目录）
-├── config/                   # 配置文件
-│   ├── folders.json          # 游戏文件夹配置
-│   ├── settings.json         # 程序设置
-│   ├── lang.json             # 语言文件
-│   ├── lang/                 # 多语言文件目录
+mikan_emu/
+├── config/                   # 配置文件目录
+│   ├── folders.json          # 文件夹路径配置
+│   ├── settings.json         # 应用设置
+│   ├── lang.json             # 多语言配置
 │   ├── save_paths.json       # 存档路径
-│   ├── mirrors.json          # 镜像源
-│   ├── cheat_paths.json      # 金手指路径
-│   ├── stats.json            # 游戏统计
-│   ├── update_ignore.json    # 忽略更新版本
-│   ├── resources.json        # 资源导航
+│   ├── mirrors.json          # 镜像服务器配置
+│   ├── cheat_paths.json      # 金手指文件路径
+│   ├── stats.json            # 运行统计数据
+│   ├── update_ignore.json    # 更新忽略列表
+│   ├── resources.json        # 资源配置
 │   ├── bios_db.json          # BIOS 数据库
-│   ├── plugins_enabled.json  # 插件启用状态
-│   └── plugin_storage/       # 插件独立存储
-├── engines/                  # 模拟器引擎
-│   ├── engines.json          # 引擎定义（含 _shared 共享定义）
-│   ├── installed.json        # 已安装引擎记录
-│   └── downloaded/           # 下载临时目录
-├── bios/                     # BIOS 文件
-├── roms/                     # 游戏 ROM
-│   └── roms.json             # ROM 索引
-├── saves/                    # 游戏存档
-├── saves_backup/             # 存档备份
-├── covers/                   # 游戏封面
-├── cheats/                   # 金手指文件
-├── backups/                  # 配置备份
-├── logs/                     # 日志文件
-├── temp/                     # 临时文件
-├── exports/                  # 导出文件
-├── lan/                      # 局域网
-│   ├── history/              # 聊天记录
-│   ├── received/             # 接收文件
+│   └── plugins_enabled.json  # 插件启用状态
+├── engines/                  # 引擎定义目录
+│   ├── engines.json          # 引擎配置（含下载URL、匹配规则等）
+│   └── downloaded/           # 已下载引擎文件
+├── bios/                     # BIOS 文件目录
+├── roms/                     # ROM 游戏文件目录
+│   └── roms.json             # ROM 元数据索引
+├── saves/                    # 存档文件目录
+├── saves_backup/             # 存档备份目录
+├── covers/                   # 游戏封面图片目录
+├── cheats/                   # 金手指代码目录
+├── backups/                  # 备份文件目录
+├── logs/                     # 日志文件目录
+├── temp/                     # 临时文件目录
+├── exports/                  # 导出文件目录
+├── lan/                      # 局域网相关目录
+│   ├── history/              # 聊天历史记录
+│   ├── received/             # 接收到的文件
 │   ├── shared/               # 共享文件夹
-│   ├── shared_download/      # 共享下载
-│   └── identity.json         # 局域网身份
-├── webengine/                # QtWebEngine 缓存
-├── scrape_cache/             # 刮削缓存
-├── plugins/                  # 插件目录（每个插件为子文件夹）
-│   └── <plugin_id>/          # 插件目录
-│       ├── plugin.json       # 插件元数据
-│       └── main.py           # 插件入口
-├── plugin_storage/           # 插件共享存储
-├── backgrounds/              # 全局背景图片
+│   └── shared_download/      # 共享下载目录
+├── webengine/                # QtWebEngine 浏览器缓存
+├── scrape_cache/             # 封面刮削缓存
+├── plugins/                  # 插件目录
+├── plugin_storage/           # 插件私有存储
 ├── crash_reports/            # 崩溃诊断报告
-└── random_launch/            # 示例插件（随机启动）
-    ├── plugin.json
-    └── main.py
+└── backgrounds/              # 全局背景图片
 ```
 
----
+## 技术栈与依赖
 
-## 支持的平台与引擎
+### 最新版依赖（PySide6）
 
-### 全部版本：45 个平台 / 78 个引擎
+| 依赖包 | 版本要求 | 用途 |
+| :--- | :--- | :--- |
+| PySide6 | 最新版 | Qt6 GUI 框架 |
+| PySide6-WebEngine | 可选 | 内嵌浏览器（局域网传输/资料站） |
+| requests | 最新版 | HTTP 客户端 |
+| loguru | 最新版 | 日志记录 |
+| py7zr | 最新版 | 7z 格式解压 |
+| rarfile | 最新版 | RAR 格式解压 |
+| certifi | 最新版 | CA 证书包 |
+| psutil | 可选 | 系统资源监控 |
+| packaging | 最新版 | 版本号解析与比较 |
+| PySocks | 可选 | SOCKS5 代理支持 |
 
-| 平台 | 引擎 | 来源 |
-|------|------|------|
-| SFC / 超级任天堂 | snes9x, bsnes | direct |
-| PS1 / PlayStation | duckstation, epsxe, xebra | direct / manual |
-| SS / 世嘉土星 | mednafen(shared), ssf, ymir, brimir, yaba_sanshiro_2 | direct / manual / libretro |
-| DC / Dreamcast | flycast, redream, deecy | direct / manual |
-| VMU / 记忆卡 | dreampotato | direct |
-| GBA | mgba, vba-m | direct |
-| PS2 / PlayStation 2 | pcsx2 | direct |
-| FC / NES | fceux, mesence, nestopia, nintendulator | direct / manual |
-| N64 | mupen64plus, gopher64, ares, simple64, rmg, neon64, project64, cen64 | direct / manual |
-| NDS | desmume, melonds, noods | direct |
-| 3DS | azahar, zakuro | direct |
-| MD / Genesis | blastem, kega-fusion | direct |
-| Master System / Game Gear | emulicious | direct |
-| GB / GBC | sameboy, bgb, gambatte | direct |
-| PSP | ppsspp | direct |
-| Switch | ryujinx, yuzu | direct |
-| PCE / TurboGrafx | mednafen(shared), geargrafx | direct |
-| Neo Geo | mame(shared) | direct |
-| Arcade | mame(shared) | direct |
-| Sharp X68000 | px68k | direct |
-| NEC PC-98 | np2kai | direct |
-| FM Towns | tsugaru | direct |
-| PC-FX | pcfxemu | direct |
-| MSX | openmsx, bluemsx | direct |
-| 86Box / PC 模拟 | 86box | direct |
-| PCem / PC 模拟 | pcem | direct |
-| DOS | dosbox-x | direct |
-| PS4 / PlayStation 4 | shadps4 | direct |
-| PS5 / PlayStation 5 | kytyps5 | direct |
-| 初代 Xbox | xemu | direct |
-| Xbox 360 | xenia_canary, xenia_edge | direct |
-| 万能 / 前端 | retroarch(shared) | direct |
-| Wii / GameCube | dolphin | direct |
-| Wii U | cemu | direct |
-| PS3 / PlayStation 3 | rpcs3 | direct |
-| PS Vita | vita3k | direct |
-| Amstrad CPC | amspirit, caprice32, cpc_syntax_error | direct |
-| Commodore 64 | vice | direct |
-| Atari ST | hatari | direct |
-| Atari 2600 | stella | direct |
-| ZX Spectrum | zesarux, 1984 | direct |
-| ColecoVision | gearcoleco | direct |
-| Intellivision | jzintv | direct |
-| BBC Micro | b2 | direct |
-| 未知渠道 | google_drive_unknown | direct |
-| _shared 共享 | mednafen, mame, retroarch | direct |
+### Win7 兼容版依赖（PyQt5，全部锁定版本）
 
-> 引擎来源说明：direct = 直接下载链接；manual = 需手动下载；libretro = Libretro 核心
+| 依赖包 | 锁定版本 | 用途 |
+| :--- | :--- | :--- |
+| PyQt5 | ==5.15.4 | Qt5 GUI 框架（Win7 最后支持的版本） |
+| PyQtWebEngine | ==5.15.4（可选） | 内嵌浏览器 |
+| requests | ==2.25.1 | HTTP 客户端 |
+| loguru | ==0.5.3 | 日志记录 |
+| py7zr | ==0.16.1 | 7z 格式解压 |
+| rarfile | ==4.0 | RAR 格式解压 |
+| certifi | ==2020.12.5 | CA 证书包 |
+| psutil | ==5.8.0 | 系统资源监控 |
+| packaging | ==20.9 | 版本号解析与比较 |
+| PySocks | ==1.7.1 | SOCKS5 代理支持 |
+| pywin32 | ==228 | Windows API 绑定（PyInstaller 需要） |
 
----
+## 打包与运行说明
 
-## 模块说明
+### 方式一：已打包 exe（推荐）
 
-### 核心类（55 个）
+两个版本均已使用 PyInstaller 打包为独立 exe 可执行文件，下载后直接运行即可，无需安装 Python 环境。
 
-两个版本类定义完全一致：
+**注意事项：**
+- 首次运行可能触发 Windows SmartScreen 警告，点击"更多信息"→"仍要运行"即可
+- 如被杀毒软件拦截，请将程序目录加入白名单
+- 程序运行后会在同级目录生成 mikan_emu/ 文件夹存放配置和数据
 
-| 类名 | 功能 |
-|------|------|
-| EmulatorConfig | 模拟器配置数据类 |
-| GameEntry | 游戏条目数据类 |
-| PatchError | 补丁异常类 |
-| HttpSession | HTTP 会话管理（连接池/代理/超时） |
-| EngineImportWorker | 引擎导入工作线程 |
-| GameImportWorker | 游戏导入工作线程 |
-| DownloadWorker | 文件下载工作线程 |
-| MirrorTestWorker | 镜像源测速工作线程 |
-| UpdateCheckWorker | 更新检查工作线程 |
-| LaunchError | 启动异常类 |
-| BiosFile | BIOS 文件数据类 |
-| ProcessMonitorWorker | 进程监控工作线程 |
-| PerfMonitorWindow | 性能监控窗口 |
-| LanIdentity | 局域网身份标识 |
-| LanPeer | 局域网对等节点 |
-| LanDiscoveryWorker | 局域网发现工作线程 |
-| LanChatServer | 局域网聊天服务器 |
-| LanChatClient | 局域网聊天客户端 |
-| GameTableModel | 游戏表模型 |
-| GameFilterProxy | 游戏过滤代理模型 |
-| EngineTableModel | 引擎表模型 |
-| BiosTableModel | BIOS 表模型 |
-| LibretroScraperWorker | Libretro 封面刮削工作线程 |
-| SteamGridDBScraperWorker | SteamGridDB 封面刮削工作线程 |
-| LaunchConfigDialog | 启动配置对话框 |
-| BiosSelectDialog | BIOS 选择对话框 |
-| ControlsDialog | 键位设置对话框 |
-| CreditsDialog | 鸣谢对话框 |
-| LogViewerDialog | 日志查看器（环形缓冲） |
-| ManualEngineDialog | 手动引擎安装对话框 |
-| ExportDialog | 导出对话框 |
-| PlatformConfirmDialog | 平台确认对话框 |
-| DupResolveDialog | 重复文件解决对话框 |
-| PatchToolDialog | ROM 补丁工具对话框 |
-| ConfigPackDialog | 配置包对话框 |
-| CoverScrapeDialog | 封面刮削对话框 |
-| LibraryPage | 游戏库页面 |
-| GameConfigCenterDialog | 游戏配置中心对话框 |
-| EnginePage | 引擎管理页面 |
-| BiosPage | BIOS 管理页面 |
-| ChartWidget | 性能图表控件 |
-| StatsPage | 统计页面 |
-| ResourcesPage | 资源导航页面 |
-| RetroDocsPage | 老游戏资料站页面（v1.6.3 新增） |
-| EmojiPanel | 表情面板 |
-| LanPage | 局域网页面（聊天+文件+共享） |
-| WebTransferPage | Web 传输页面（LocalSend Web） |
-| SettingsPage | 设置页面 |
-| ImportDialog | 导入对话框 |
-| DownloadDialog | 下载对话框 |
-| BatchUpdateDialog | 批量更新对话框 |
-| MainPage | 主页面（Tab 导航） |
-| PluginAPI | 插件 API（提供给插件的接口） |
-| PluginManager | 插件管理器（扫描/加载/卸载） |
-| MainWindow | 主窗口 |
+### 方式二：源代码运行
 
-### 核心函数
+**最新版（PySide6）：**
 
-涵盖依赖自检、多语言翻译、配置读写、引擎管理、游戏导入、存档管理、BIOS 管理、游戏启动、局域网通信、封面刮削、配置包导出导入、插件加载、版本检测等全部功能。
+```bash
+# 安装依赖
+pip install PySide6 requests loguru py7zr rarfile certifi psutil packaging PySocks
 
-- **最新版**：137 个顶层函数
-- **Win7 版**：140 个顶层函数（多出 `_ensure_json_file`、`_ensure_all_json_files`、`get_windows_name` 三个 Win7 兼容函数）
+# 可选：安装 WebEngine
+pip install PySide6-WebEngine
 
----
-
-## 插件系统
-
-> 示例插件 `random_launch`（随机启动）展示了完整的插件编写格式与 API 用法。
-
-### 插件目录结构
-
-插件放在 `data/mikan_emu/plugins/<id>/` 目录下，每个插件包含：
-
-```
-plugins/
-└── my_plugin/
-    ├── plugin.json       # 插件元数据（id/name/version/description/entry/api_version）
-    └── main.py           # 插件入口文件（必须包含 register(api) 函数）
+# 运行
+python mikan_emu_7.py
 ```
 
-#### plugin.json 格式
+**Win7兼容版（PyQt5）：**
 
-```json
-{
-    "id": "my_plugin",
-    "name": "我的插件",
-    "version": "1.0.0",
-    "description": "插件描述",
-    "entry": "main.py",
-    "api_version": "1.0"
-}
+```bash
+# 安装依赖（Python 3.8 环境）
+python -m pip install PyQt5==5.15.4 PyQtWebEngine==5.15.4 requests==2.25.1 loguru==0.5.3 py7zr==0.16.1 rarfile==4.0 certifi==2020.12.5 psutil==5.8.0 packaging==20.9 PySocks==1.7.1 pywin32==228
+
+# 运行
+python mikan_emu_pyqt5_3.py
 ```
 
-### PluginAPI 接口参考
+### PyInstaller 打包命令
 
-插件通过 `register(api)` 函数入口接收 PluginAPI 实例，可调用以下方法：
+**最新版打包：**
 
-#### 游戏库操作
-
-| 方法 | 说明 |
-|------|------|
-| api.get_games() | 获取游戏库列表，返回 GameEntry 对象列表 |
-| api.get_game(path) | 根据文件路径获取单个游戏对象 |
-| api.update_game(path, **fields) | 更新游戏字段（如自定义平台名等） |
-| api.set_cover(game_path, image) | 为游戏设置封面图片 |
-
-#### 引擎与平台
-
-| 方法 | 说明 |
-|------|------|
-| api.get_engines() | 获取已安装引擎列表 |
-| api.get_platforms() | 获取平台/引擎定义 |
-
-#### 路径与配置
-
-| 方法 | 说明 |
-|------|------|
-| api.get_paths() | 获取关键目录路径字典（data/roms/bios/saves/logs/plugins 等） |
-| api.get_settings() | 获取当前程序设置字典 |
-| api.set_setting(key, value) | 设置程序配置项 |
-
-#### 启动与系统
-
-| 方法 | 说明 |
-|------|------|
-| api.launch_game(game) | 启动指定游戏 |
-| api.open_url(url) | 在默认浏览器中打开网页 |
-| api.open_folder(path) | 打开系统文件夹 |
-
-#### UI 扩展
-
-| 方法 | 说明 |
-|------|------|
-| api.add_page(title, widget, icon) | 在侧边栏添加新页面（title 为标签名，widget 为 QWidget 实例，icon 为 emoji 图标） |
-| api.add_menu_action(menu_name, label, callback) | 在指定菜单下添加动作 |
-| api.add_tray_action(label, callback) | 在系统托盘菜单中添加动作 |
-| api.show_dialog(widget) | 以对话框形式显示 Widget |
-
-#### 通知与日志
-
-| 方法 | 说明 |
-|------|------|
-| api.notify(title, message) | 发送系统托盘通知（4秒自动消失） |
-| api.log(msg, level) | 写入日志（level 可选 INFO/WARNING/ERROR/DEBUG） |
-
-#### 网络与事件
-
-| 方法 | 说明 |
-|------|------|
-| api.http() | 获取共享 HTTP 会话实例（支持代理/超时配置） |
-| api.on(event, callback) | 注册事件监听器 |
-| api.emit(event, **kwargs) | 触发事件（插件内部或跨插件通信） |
-
-#### 插件私有存储
-
-| 方法 | 说明 |
-|------|------|
-| api.storage_get(key, default) | 读取插件私有存储（JSON 文件） |
-| api.storage_set(key, value) | 写入插件私有存储 |
-
-### 编写自己的插件 - 步骤
-
-#### 步骤 1：创建插件目录
-
-在 MikanEmu 的 `data/mikan_emu/plugins/` 目录下创建新文件夹，文件夹名称即为插件 ID：
-
-```
-plugins/
-└── my_custom_plugin/
+```bash
+pyinstaller --noconfirm --clean --windowed --name mikan_emu mikan_emu_7.py
 ```
 
-#### 步骤 2：创建 plugin.json
+**Win7兼容版打包：**
 
-```json
-{
-    "id": "my_custom_plugin",
-    "name": "我的自定义插件",
-    "version": "1.0.0",
-    "description": "插件功能描述",
-    "entry": "main.py",
-    "api_version": "1.0"
-}
+```bash
+# 必须先安装指定版本的 PyInstaller
+pip install "pyinstaller==4.10"
+pyinstaller --noconfirm --clean --windowed --name mikan_emu mikan_emu_pyqt5_3.py
 ```
 
-#### 步骤 3：创建 main.py
+### 杀毒软件误报说明
 
-插件入口文件必须包含一个 `register(api)` 函数，程序加载插件时会调用该函数并传入 PluginAPI 实例。
+由于 PyInstaller 打包机制会将 Python 解释器和依赖库打包进单个 exe 文件，部分杀毒软件（尤其是 Windows Defender）可能将其误报为威胁。这是 PyInstaller 打包工具的已知行为，并非代码存在问题。
 
-```python
-# -*- coding: utf-8 -*-
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
-# 或 Win7版：from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel
-
-class MyPage(QWidget):
-    def __init__(self, api):
-        super().__init__()
-        self._api = api
-        v = QVBoxLayout(self)
-        title = QLabel("我的插件页面")
-        v.addWidget(title)
-
-    def some_action(self):
-        games = self._api.get_games()
-        self._api.notify("提示", f"游戏库共有 {len(games)} 个游戏")
-
-def register(api):
-    api.add_page("我的插件", lambda: MyPage(api), icon="tool")
-    api.log("我的插件已加载")
-```
-
-#### 步骤 4：重启程序
-
-在 MikanEmu 设置页面点击「重启程序」，插件将被自动扫描并加载。
-
-### 示例插件：随机启动
-
-本项目附带一个示例插件 `random_launch`（随机启动），实现了一个简单的"随机启动"功能：点击按钮从游戏库中随机选取一个游戏并直接启动。
-
-该插件演示了以下插件开发要点：
-
-- 插件目录结构与 plugin.json 元数据
-- register(api) 入口函数的编写规范
-- 使用 PluginAPI 操作游戏库（读取/启动）
-- 创建自定义 QWidget 页面并注册到侧边栏
-- 使用通知系统和日志系统
-- 插件私有存储的使用
-
-#### RandomPage 类
-
-继承 QWidget，实现插件的 UI 页面：
-
-```python
-class RandomPage(QWidget):
-    def __init__(self, api):
-        super().__init__()
-        self._api = api          # 保存 API 引用
-        self._current = None     # 当前选中的游戏
-        self._build_ui()         # 构建界面
-
-    def _build_ui(self):
-        # 使用 QVBoxLayout 布局
-        # 创建 QLabel/QPushButton/QListWidget 等控件
-        # 绑定信号槽
-
-    def _roll(self):
-        # 核心逻辑：获取游戏列表 -> 随机选择 -> 显示 -> 启动
-
-    def _relaunch(self):
-        # 重新启动上次抽到的游戏
-```
-
-#### register 函数
-
-插件加载入口，程序启动时调用一次：
-
-```python
-def register(api):
-    # 插件入口。程序加载时调用一次。
-    api.add_page("随机启动", lambda: RandomPage(api), icon="random")
-    api.log("随机启动插件已加载")
-```
-
-### 插件运行与测试
-
-#### 方式一：通过 MikanEmu 加载
-
-1. 将插件文件夹放入 `data/mikan_emu/plugins/` 目录
-2. 启动 MikanEmu
-3. 在侧边栏找到插件页面
-
-#### 方式二：独立运行（已打包 exe）
-
-示例插件已打包为独立 exe，可直接运行体验随机启动功能（需依赖 MikanEmu 主程序的 data 目录）。
-
-### 插件注意事项
-
-1. **插件隔离**：每个插件拥有独立的 plugin_storage 目录，插件间数据不共享
-2. **API 版本**：插件的 api_version 必须与主程序兼容，否则插件将被跳过
-3. **异常处理**：插件内的异常不会导致主程序崩溃，但会在日志中记录
-4. **UI 线程**：所有 UI 操作必须在主线程执行，耗时操作应使用 QThread
-5. **资源清理**：插件不需要手动卸载，重启程序时会重新扫描加载
-6. **图标**：add_page 的 icon 参数支持 emoji 字符，如 random/tool/chart 等
-
----
+**处理建议：**
+1. 将程序安装目录添加到杀毒软件的排除/白名单中
+2. 在 Windows Defender 中：设置 → 病毒和威胁防护 → 管理设置 → 排除项 → 添加目录
+3. 如需验证代码安全性，可从 GitHub 下载源码自行编译
 
 ## 注意事项
 
-### 通用注意事项
-
-1. **管理员权限**：部分功能（如进程优先级设置）可能需要管理员权限，可右键选择"以管理员身份运行"
-2. **杀毒软件**：打包后的 exe 可能被杀毒软件误报，请将程序目录加入杀毒软件白名单
-3. **依赖安装**：首次运行会自动检测并安装缺失依赖，需保持网络连接
-4. **QtWebEngine**：内嵌浏览器功能需要安装 WebEngine 包（PySide6-WebEngine / PyQtWebEngine），未安装时局域网传输页将降级为外部浏览器打开
-5. **psutil**：性能监控功能需要 psutil，未安装时性能监控模块不可用
-6. **BIOS/ROM 法律**：本项目不提供任何 BIOS/ROM 文件，请自行准备合法获取的文件
-7. **MEDNAFEN 多实例**：程序已设置 MEDNAFEN_ALLOWMULTI=1 以支持多实例运行
-8. **局域网协议**：局域网功能使用自定义协议，不同版本间可能不互通，建议统一版本
-9. **PyInstaller 打包**：打包时需注意 --add-data 参数包含 config/lang 等静态资源目录
-
-### 最新版注意事项
-
-- 需要 Windows 10 1809 或更高版本
-- 需要 Python 3.11+ 运行源代码
-- 依赖包使用最新版，可能存在与旧系统不兼容的情况
-
-### Win7 移植版注意事项
-
-- **最低系统要求**：Windows 7 SP1（构建号 7601），不支持 RTM 版本
-- **Python 版本**：必须使用 Python 3.8，3.9+ 不支持 Win7
-- **依赖版本锁定**：psutil<5.9.6、packaging<24、loguru<0.8、py7zr<0.21、rarfile<4.1、requests<2.32 以确保 Win7 兼容性
-- **QtWebEngine 软件渲染**：强制禁用 GPU 加速以确保 Win7 下正常显示，性能可能低于现代系统
-- **PyInstaller 4.10**：打包时使用旧版 PyInstaller 以确保 Win7 兼容性
-- **PyQtWebEngine**：需手动安装 `pip install PyQtWebEngine==5.15.6`（约 200MB）
-
----
+1. **版权合规**：本项目不提供 BIOS、不提供 ROM、不二次分发模拟器软件。用户需自行准备合法的 BIOS 文件和游戏 ROM。
+2. **协议不兼容**：v1.7.0 局域网协议与旧版（v1.0.x 及之前）不互通，不同版本的 MikanEmu 无法进行局域网聊天和文件传输。
+3. **可选依赖降级**：未安装 QtWebEngine 时，局域网传输和老游戏资料站功能降级为打开系统默认浏览器；未安装 psutil 时性能监控功能不可用。
+4. **MEDNAFEN 多实例**：已设置环境变量 MEDNAFEN_ALLOWMULTI=1，允许同时运行多个 MEDNAFEN 模拟器实例。
+5. **系统要求**：Windows 7 用户请务必使用 PyQt5 版本（mikan_emu_pyqt5_3.py），PySide6 版本需要 Windows 10 版本 1809 或更高版本。
+6. **安全白名单**：已打包的 exe 文件可能被杀毒软件误报，建议运行前将程序目录加入白名单。
+7. **引擎下载**：部分引擎需要手动下载（url_type 为 "manual"），请在设置中查看具体说明。
+8. **Linux/macOS**：本项目主要针对 Windows 平台开发，Linux/macOS 支持有限，部分功能（如硬件检测）可能不可用。
 
 ## 开发指南
 
-### 代码风格
+### 添加新平台/引擎
 
-- 统一 UTF-8 编码，文件头部声明 `# -*- coding: utf-8 -*-`
-- 使用 loguru 进行日志记录，避免 print
-- 异步操作使用 QThread + Signal/Slot 机制
-- 配置文件使用 JSON 格式，提供默认值兜底
+1. 在源码顶部的 DEFAULT_ENGINES_JSON_STR 常量中添加新的平台配置 JSON 块
+2. 配置 match 规则（exe 文件名、文件夹名、关键词）用于自动检测已安装的引擎
+3. 配置 launch_template 启动模板（{exe} 和 {rom} 占位符）
+4. 可选配置 perf_profiles（性能档位参数）和 version_overrides（版本兼容适配）
+5. 设置 url_type 为 "direct"（直链下载）、"github_release"（GitHub Release 自动查找）或 "manual"（需手动下载）
 
-### 添加新平台支持
+### 扩展局域网模块
 
-1. 在 `DEFAULT_ENGINES_JSON_STR` 的 JSON 中添加新平台对象
-2. 定义 platform_name、rom_extensions 和 engines 字段
-3. 每个引擎需定义 version/url/url_type/match/launch_template 等字段
+1. 实现 LanChatServer（服务器端）和 LanDiscoveryWorker（发现_worker）相关接口
+2. 遵循 mikan_lan 协议格式（magic 标识 + 消息类型 + 序列化数据）
+3. 注意线程安全和口令哈希完整性，避免使用截断哈希
 
-### 添加新引擎支持
+### 编写插件
 
-1. 在对应平台的 engines 对象下添加新引擎定义
-2. 或使用 _shared 共享定义（适用于跨平台复用如 mednafen/mame/retroarch）
-3. url_type 支持：direct（直链）、github_release（GitHub Release）、libretro（Libretro 核心）、manual（手动下载）
+1. 参考本文档"插件系统"章节了解目录结构和 plugin.json 格式
+2. 遵循 PluginAPI 接口规范调用主程序功能
+3. 注意插件隔离：每个插件运行在独立命名空间中，避免全局变量污染
+4. 注意异常处理：插件中的未捕获异常不应导致主程序崩溃
 
-### 添加新语言支持
+### 从 PyQt5 移植到 PySide6
 
-1. 在 config/lang/ 目录下创建新的语言 JSON 文件（如 ja.json）
-2. 复制 lang.json 的键结构并翻译值
-3. 程序启动时自动检测系统语言并加载
+如需将 PyQt5 版本移植到 PySide6 框架，需要注意以下变更：
 
-### 开发插件
-
-1. 在 plugins/ 目录下创建插件文件夹
-2. 创建 plugin.json 元数据文件
-3. 创建 main.py 入口文件，实现 register(api) 函数
-4. 参考内置示例插件 random_launch 了解 API 用法
-5. 重启程序后插件自动扫描加载
-
-### 移植到新框架（PySide6 <-> PyQt5）
-
-两个版本的代码结构完全一致，主要差异在于：
-
-1. **导入替换**：`PySide6` <-> `PyQt5`，`Qt.Signal` <-> `Qt.pyqtSignal`
-2. **WebEngine 配置**：PySide6 使用 `QWebEngineProfile(name, parent)` 设置缓存目录；PyQt5 使用 `QWebEngineProfile.defaultProfile()`
-3. **版本检测**：最新版使用 `packaging` 比较版本；Win7 版锁定旧版 packaging
-4. **打包工具**：最新版可用最新版 PyInstaller；Win7 版需使用 PyInstaller 4.10
-5. **日志队列**：最新版启用 loguru enqueue（子进程模式）；Win7 版禁用 enqueue 以确保兼容
-
----
+1. **import 路径变更**：PyQt5 → PySide6（如 from PyQt5.QtCore → from PySide6.QtCore）
+2. **Signal 语法变更**：pyqtSignal → Signal（属性名和用法一致，但导入路径不同）
+3. **QWebEngine 导入路径变更**：PyQt5.QtWebEngineWidgets → PySide6.QtWebEngineCore（Settings 和 Profile）
+4. **移除 Win7 特殊处理**：_setup_qt_flags() 空函数、QT_AUTO_SCREEN_SCALE_FACTOR 强制关闭等代码可移除
+5. **依赖版本**：移除所有 == 版本锁定，允许使用最新版依赖
 
 ## 许可证
 
-GNU General Public License v3.0
+本项目采用 **GNU General Public License v3.0 (GPL-3.0)** 许可证。
 
-本程序是自由软件：你可以自由修改和重新分发它。
-不提供任何担保，甚至不包括适销性或特定用途适用性的隐含担保。
+这意味着：
+- 您可以自由地使用、修改和分发本软件
+- 修改后的代码也必须以 GPL-3.0 开源
+- 不提供任何担保
 
-详见 [LICENSE](LICENSE) 文件。
+详见项目根目录的 LICENSE 文件或访问 https://www.gnu.org/licenses/gpl-3.0.html
 
----
+## 项目地址
+
+https://github.com/luohaocheng171/mikan_emu
 
 ## 致谢
 
